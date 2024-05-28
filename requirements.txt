@@ -1,0 +1,5 @@
+jax==0.4.28
+jaxlib==0.4.28
+flax
+orbax==0.1.9
+chex==0.1.86
