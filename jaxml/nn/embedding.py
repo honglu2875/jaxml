@@ -1,12 +1,10 @@
-import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from ..types import Array, DType, Shape
+from ..types import Array, DType
 from .module import Module
 from dataclasses import field
-from typing import Callable, Optional, Tuple
+from typing import Tuple
 from jax import lax
-from flax.linen.partitioning import param_with_axes, with_sharding_constraint
 
 
 class Embed(Module):

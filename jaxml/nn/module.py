@@ -1,7 +1,6 @@
-from ..types import PRNGKey, Array, DType, Shape
-from dataclasses import field
+from ..types import PRNGKey, DType, Shape
 import flax.linen as nn
-from typing import Callable, Optional, Tuple
+from typing import Callable, Tuple
 
 
 class Module(nn.Module):

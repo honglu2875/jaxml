@@ -14,9 +14,8 @@
 # limitations under the License.
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
-from flax.linen.partitioning import param_with_axes, with_sharding_constraint
+from flax.linen.partitioning import param_with_axes
 
 
 class RMSNorm(nn.Module):

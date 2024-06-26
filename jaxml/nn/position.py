@@ -12,31 +12,10 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
-import jax
 import jax.numpy as jnp
-import numpy as np
 from flax import linen as nn
 
 from ..types import DType
-
-
-def rotate_half(x):
-    """Rotates half the hidden dims of the input."""
-    x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
-    return jnp.concatenate((-x2, x1), axis=-1)
-
-
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
-    # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
-    cos = jnp.expand_dims(jnp.take(cos, position_ids, axis=0), axis=2)
-    sin = jnp.expand_dims(jnp.take(sin, position_ids, axis=0), axis=2)
-    # q_len, k_len = q.shape[1], k.shape[1]
-    # q_embed = (q * cos[:, -q_len:]) + (rotate_half(q) * sin[:, -q_len:])
-    # k_embed = (k * cos[:, -k_len:]) + (rotate_half(k) * sin[:, -k_len:])
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-    return q_embed, k_embed
 
 
 class RotaryEmbedding(nn.Module):
@@ -46,6 +25,22 @@ class RotaryEmbedding(nn.Module):
     base: int = 10000
     dtype: DType = jnp.float32
     disable_cache: bool = False
+
+    @staticmethod
+    def rotate_half(x):
+        """Rotates half the hidden dims of the input."""
+        x1 = x[..., : x.shape[-1] // 2]
+        x2 = x[..., x.shape[-1] // 2 :]
+        return jnp.concatenate((-x2, x1), axis=-1)
+
+    @staticmethod
+    def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+        # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
+        cos = jnp.expand_dims(jnp.take(cos, position_ids, axis=0), axis=2)
+        sin = jnp.expand_dims(jnp.take(sin, position_ids, axis=0), axis=2)
+        q_embed = (q * cos) + (RotaryEmbedding.rotate_half(q) * sin)
+        k_embed = (k * cos) + (RotaryEmbedding.rotate_half(k) * sin)
+        return q_embed, k_embed
 
     def setup(self):
         self.inv_freq = self.variable(
