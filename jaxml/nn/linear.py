@@ -19,8 +19,9 @@
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/linears.py
 #
 
-from typing import Callable, Iterable, Tuple, Union
 from dataclasses import field
+from typing import Callable, Iterable, Tuple, Union
+
 import flax.linen as nn
 import jax.numpy as jnp
 import numpy as np
@@ -55,6 +56,7 @@ class DenseGeneral(Module):
     use_bias: whether to add bias in linear transformation
     bias_init: if use_bias==True, apply the bias_init function to initialize bias
     """
+
     # Required:
     features: Union[Iterable[int], int] = field(kw_only=True)
 
@@ -81,9 +83,7 @@ class DenseGeneral(Module):
         def compute_dot_general(inputs, kernel, axis, contract_ind):
             """Computes a dot_general operation."""
             dot_general = lax.dot_general
-            return dot_general(
-                inputs, kernel, ((axis, contract_ind), ((), ())), precision=None
-            )
+            return dot_general(inputs, kernel, ((axis, contract_ind), ((), ())), precision=None)
 
         features = _canonicalize_tuple(self.features)
         axis = _canonicalize_tuple(self.axis)
@@ -106,7 +106,6 @@ class DenseGeneral(Module):
 
         contract_ind = tuple(range(0, len(axis)))
         output = compute_dot_general(inputs, kernel, axis, contract_ind)
-
         if self.use_bias:
             bias_axes, bias_shape = (
                 self.kernel_axes[-len(features) :],

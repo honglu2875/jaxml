@@ -18,31 +18,26 @@
 # This file has been modified from its original version
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/attentions.py
 
-import functools
 from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
-from jax.experimental.pallas.ops.tpu.splash_attention import (
-    splash_attention_kernel, splash_attention_mask)
-from jax.experimental.shard_map import shard_map
-from jax.sharding import Mesh
 
-from .linear import DenseGeneral
-from ..types import Array
-from ..config import ModelConfig
 from ..cache import KVCache
+from ..outputs import AttentionOutput
+from ..types import Array
 from ..utils import get_default_pos_ids
+from .linear import DenseGeneral
+from .module import Block
 from .position import RotaryEmbedding
 
 
-class Attention(nn.Module):
+class Attention(Block):
     """
     Flax base model of attention.
     """
-    config: ModelConfig
-    dtype: Any = jnp.float32
+
     kernel_init: Any = nn.initializers.xavier_uniform
     kernel_init_args: tuple = ()
     with_logical_partitioning: bool = True
@@ -51,10 +46,8 @@ class Attention(nn.Module):
     use_alibi: bool = False
 
     def setup(self):
-        self.num_heads = self.config.num_heads
-        self.head_dim = self.config.head_dim
         self.num_key_value_heads = self.config.num_key_value_heads
-        
+
         if self.fused_qkv:
             assert self.num_heads == self.num_key_value_heads
             self.qkv_proj = DenseGeneral(
@@ -113,11 +106,11 @@ class Attention(nn.Module):
     def apply_kv_cache(self, key_states: Array, value_states: Array, kv_cache: Optional[KVCache]):
         if kv_cache is None:
             return key_states, value_states, None
-        
+
         kv_cache = kv_cache.update(key_states, value_states)
         key_states, value_states = kv_cache.get_kv()
         return key_states, value_states, kv_cache
-        
+
     def repeat_kv(self, key_states: Array, value_states: Array):
         batch, seq_len, num_key_value_heads, head_dim = key_states.shape
         n_rep = self.config.num_heads // self.config.num_key_value_heads
@@ -136,40 +129,61 @@ class Attention(nn.Module):
             return hidden_states.reshape(batch, seq_len, num_key_value_heads * n_rep, head_dim)
 
         return tuple(map(_repeat, (key_states, value_states)))
-    
+
     @property
     def qk_scale(self):
-        """ The scale applied after qk in MHA. Feel free to override in cases such as muP. """
+        """The scale applied after qk in MHA. Feel free to override in cases such as muP."""
         return jnp.sqrt(self.head_dim)
 
-    def mha(self, query_states: Array, key_states: Array, value_states: Array, attention_mask: Optional[Array] = None, causal: bool = True, alibi_slope=None, softmax_fp32: bool = True):
-        attn_weights = jnp.einsum(
-            "bshn,bthn->bhst", query_states, key_states
-        ) / self.qk_scale
-        
-        _, _, q_len, k_len = attn_weights.shape
+    def mha(
+        self,
+        query_states: Array,
+        key_states: Array,
+        value_states: Array,
+        attention_mask: Optional[Array] = None,
+        causal: bool = True,
+        alibi_slope=None,
+        softmax_fp32: bool = True,
+        output_attentions: bool = False,
+    ):
+        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states) / self.qk_scale
+
+        _, _, q_len, k_len = x.shape
         dtype = query_states.dtype
-        
+
         if alibi_slope is not None:
             # bias: (head_dim, 1, k_len)
-            bias = - (jnp.arange(k_len, dtype=dtype)[None, None] * alibi_slope[:, None, None])
-            attn_weights += bias
-            
-        if causal:
-            attn_weights += jnp.triu(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=1)
-            
-        if attention_mask is not None:
-            attn_weights += jnp.where(attention_mask[:, None, None, :], 0, float("-inf"))
+            bias = -(jnp.arange(k_len, dtype=dtype)[None, None] * alibi_slope[:, None, None])
+            x += bias
 
-        if softmax_fp32:    
-            attn_weights = jax.nn.softmax(attn_weights.astype(jnp.float32), axis=-1).astype(dtype)
+        if causal:
+            x += jnp.triu(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=1)
+
+        if attention_mask is not None:
+            x += jnp.where(attention_mask[:, None, None, :], 0, float("-inf"))
+
+        if softmax_fp32:
+            attn_weight = jax.nn.softmax(x.astype(jnp.float32), axis=-1).astype(dtype)
         else:
-            attn_weights = jax.nn.softmax(attn_weights, axis=-1)
-            
-        attn_output = jnp.einsum("bhst,bthn->bshn", attn_weights, value_states)
-            
+            attn_weight = jax.nn.softmax(x, axis=-1)
+
+        if output_attentions:
+            out_weight = attn_weight
+        else:
+            out_weight = None
+
+        attn_output = jnp.einsum("bhst,bthn->bshn", attn_weight, value_states)
+
+        return attn_output, out_weight
+
+    def post_mha(
+        self,
+        attn_output: jnp.ndarray,
+    ) -> jnp.ndarray:
+        attn_output = attn_output.reshape(attn_output.shape[:2] + (-1,))
+        attn_output = self.o_proj(attn_output)
         return attn_output
-        
+
     def __call__(
         self,
         hidden_states: Array,
@@ -177,9 +191,10 @@ class Attention(nn.Module):
         position_ids: Optional[Array] = None,
         kv_cache: Optional[KVCache] = None,
         use_alibi: bool = False,
+        output_attentions: bool = False,
         *kwargs,
-    ):
-        """ The base class implements basic MHA **without** positional encoding such as RoPE. """
+    ) -> AttentionOutput:
+        """The base class implements basic MHA **without** positional encoding such as RoPE."""
         if position_ids is not None:
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
@@ -188,18 +203,29 @@ class Attention(nn.Module):
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
         if use_alibi:
-            alibi_slope =  2 ** (jnp.arange(1, self.num_heads + 1, dtype=dtype) * (-8  / self.num_heads))
+            dtype = jnp.float32 if self.config.upcast_alibi else self.dtype
+            alibi_slope = 2 ** (jnp.arange(1, self.num_heads + 1, dtype=dtype) * (-8 / self.num_heads))
         else:
             alibi_slope = None
 
-        attn_output = self.mha(query_states, key_states, value_states, attention_mask=attention_mask, causal=True, alibi_slope=alibi_slope, softmax_fp32=True)
-        attn_output = attn_output.reshape(attn_output.shape[:2] + (-1,))
-        attn_output = self.o_proj(attn_output)
-        
-        return attn_output
+        attn_output, attn_weight = self.mha(
+            query_states,
+            key_states,
+            value_states,
+            attention_mask=attention_mask,
+            causal=True,
+            alibi_slope=alibi_slope,
+            softmax_fp32=True,
+            output_attentions=output_attentions,
+        )
 
-        
-        
+        return AttentionOutput(
+            attention_output=self.post_mha(attn_output),
+            attention_weight=attn_weight,
+            kv_cache=kv_cache,
+        )
+
+
 class AttentionWithRoPE(Attention):
 
     max_position_embeddings: int = 2048
@@ -208,9 +234,7 @@ class AttentionWithRoPE(Attention):
 
     def setup(self):
         if self.use_alibi:
-            raise NotImplementedError(
-                "Having ALiBi and RoPE together is not intended (though the math works)."
-            ) 
+            raise NotImplementedError("Having ALiBi and RoPE together is not intended (though the math works).")
         super().setup()
         self.rotary_emb = RotaryEmbedding(
             dim=self.head_dim,
@@ -224,8 +248,9 @@ class AttentionWithRoPE(Attention):
         attention_mask: Optional[Array] = None,
         position_ids: Optional[Array] = None,
         kv_cache: Optional[KVCache] = None,
-        *kwargs,
-    ):
+        output_attentions: bool = False,
+        **kwargs,
+    ) -> AttentionOutput:
         query_states, key_states, value_states = self.qkv_proj(hidden_states)
         key_states, value_states, kv_cache = self.apply_kv_cache(key_states, value_states, kv_cache)
 
@@ -238,109 +263,23 @@ class AttentionWithRoPE(Attention):
         # Could save some FLOP at inference if moving it before kv cache (key_len=1 back then)
         # but dynamically reading the kv_cache length might let JAX complain about abstract shapes
         # especially when inside a scan loop.
-        query_states, key_states = self.rotary_emb.apply_rotary_pos_emb(
-            query_states, key_states, cos, sin, position_ids
-        )
+        query_states, key_states = self.rotary_emb.apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
 
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
-        attn_output = self.mha(query_states, key_states, value_states, attention_mask=attention_mask, causal=True, alibi_slope=None, softmax_fp32=True)
-        attn_output = attn_output.reshape(attn_output.shape[:2] + (-1,))
-        attn_output = self.o_proj(attn_output)
-        
-        return attn_output
-
-
-
-        
-
-
-class FlashAttentionOp(nn.Module):
-    mesh: Mesh
-    num_query_heads: int
-    num_kv_heads: int
-    head_dim: int
-    float32_qk_product: bool = False
-    max_prefill_predict_length: int = -1
-    float32_logits: bool = False
-    dropout_rate: float = 0.0
-
-    def tpu_flash_attention(self, query: Array, key: Array, value: Array) -> Array:
-        """TPU Flash Attention."""
-        # Transpose to ('batch', 'heads', 'length', 'kv')
-        query = jnp.transpose(query, axes=(0, 2, 1, 3))
-        key = jnp.transpose(key, axes=(0, 2, 1, 3))
-        value = jnp.transpose(value, axes=(0, 2, 1, 3))
-
-        axis_names = nn.logical_to_mesh_axes(self.axis_names)
-        segment_axis_names = nn.logical_to_mesh_axes(
-            (BATCH, "activation_length_no_heads")
+        attn_output, attn_weight = self.mha(
+            query_states,
+            key_states,
+            value_states,
+            attention_mask=attention_mask,
+            causal=True,
+            alibi_slope=None,
+            softmax_fp32=True,
+            output_attentions=output_attentions,
         )
 
-        @functools.partial(
-            shard_map,
-            mesh=self.mesh,
-            in_specs=(
-                # axis_names,
-                # axis_names,
-                # axis_names,
-                # segment_axis_names,
-                "batch",
-                "heads",
-                "length",
-                "joined_kv",
-            ),
-            # out_specs=axis_names,
-            out_specs=("batch", "heads", "length", "joined_kv"),
-            check_rep=False,
+        return AttentionOutput(
+            attention_output=self.post_mha(attn_output),
+            attention_weight=attn_weight,
+            kv_cache=kv_cache,
         )
-        def wrap_flash_attention(query, key, value):
-            """
-            if decoder_segment_ids is not None:
-                assert (
-                    query.shape[2] == decoder_segment_ids.q.shape[1]
-                ), "Sharding along sequence dimension not allowed in tpu kernel attention"
-            """
-            block_sizes = splash_attention_kernel.BlockSizes(
-                block_q=min(512, query.shape[2]),
-                block_kv_compute=min(512, key.shape[2]),
-                block_kv=min(512, key.shape[2]),
-                block_q_dkv=min(512, query.shape[2]),
-                block_kv_dkv=min(512, key.shape[2]),
-                block_kv_dkv_compute=min(512, query.shape[2]),
-                block_q_dq=min(512, query.shape[2]),
-                block_kv_dq=min(512, query.shape[2]),
-            )
-
-            masks = [
-                splash_attention_mask.CausalMask(shape=(query.shape[2], query.shape[2]))
-                for i in range(query.shape[1])
-            ]
-            multi_head_mask = splash_attention_mask.MultiHeadMask(masks=masks)
-            splash_kernel = splash_attention_kernel.make_splash_mha(
-                mask=multi_head_mask,
-                head_shards=1,
-                q_seq_shards=1,
-                block_sizes=block_sizes,
-            )
-
-            return jax.vmap(splash_kernel)(
-                query, key, value, segment_ids=decoder_segment_ids
-            )
-
-        x = wrap_flash_attention(query, key, value, decoder_segment_ids)
-        x = jnp.transpose(x, axes=(0, 2, 1, 3))
-        return x
-
-    def __call__(
-        self,
-        query: Array,
-        key: Array,
-        value: Array,
-        decoder_segment_ids: Array | None = None,
-    ) -> Array:
-        self.check_attention_inputs(query, key, value)
-        output = self.tpu_flash_attention(
-            query, key, value, decoder_segment_ids=decoder_segment_ids
-        )
-        return output

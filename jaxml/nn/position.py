@@ -46,18 +46,13 @@ class RotaryEmbedding(nn.Module):
         self.inv_freq = self.variable(
             "cache",
             "inv_freq",
-            lambda: 1.0
-            / (self.base ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim)),
+            lambda: 1.0 / (self.base ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim)),
         )
 
         if not self.disable_cache:
             emb = self.get_emb(self.max_length)
-            self.cos_cached = self.variable(
-                "cache", "cos_cached", lambda: jnp.cos(emb).astype(self.dtype)
-            )
-            self.sin_cached = self.variable(
-                "cache", "sin_cached", lambda: jnp.sin(emb).astype(self.dtype)
-            )
+            self.cos_cached = self.variable("cache", "cos_cached", lambda: jnp.cos(emb).astype(self.dtype))
+            self.sin_cached = self.variable("cache", "sin_cached", lambda: jnp.sin(emb).astype(self.dtype))
 
     def get_emb(self, seq_len: int):
         t = jnp.arange(seq_len, dtype=jnp.float32)

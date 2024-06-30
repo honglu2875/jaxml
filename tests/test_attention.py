@@ -14,16 +14,17 @@
 
 import jax
 import jax.numpy as jnp
-from jaxml.utils import torch_to_jax_states
-from jaxml.test_utils.torch_utils import DummyPosEmb
-import torch
 import numpy as np
 import pytest
+import torch
+
+from jaxml.test_utils.torch_utils import DummyPosEmb
+from jaxml.utils import torch_to_jax_states
 
 
 @pytest.mark.parametrize("with_rope", [False, True])
 def test_attention_with_rope(attention_with_rope_small, attention_small, hf_attention_with_rope, with_rope):
-    with jax.default_device(jax.devices('cpu')[0]):
+    with jax.default_device(jax.devices("cpu")[0]):
         bs, seq_len = 4, 10
         if with_rope:
             attn, init_param = attention_with_rope_small
@@ -31,32 +32,29 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
             attn, init_param = attention_small
             hf_attention_with_rope.rotary_emb = DummyPosEmb()
 
-        params = torch_to_jax_states(hf_attention_with_rope, head_dim=attn.config.head_dim, dtype=torch.float32)
-        
+        params = torch_to_jax_states(hf_attention_with_rope, head_dim=attn.head_dim, dtype=torch.float32)
+
         key = jax.random.PRNGKey(0)
-        
+
         hidden_size = attn.config.hidden_size
         hidden = jax.random.uniform(key, (bs, seq_len, hidden_size), dtype=jnp.float32)
 
         # When RoPE is available, a "cache" field would exist in init_param which is needed for fwd pass
         out = attn.apply({**init_param, "params": params["params"]}, hidden)
+        out = out.attention_output
         with torch.no_grad():
             out2, _, _ = hf_attention_with_rope(
-                torch.tensor(np.array(hidden)), 
+                torch.tensor(np.array(hidden)),
                 position_ids=torch.arange(seq_len)[None],
                 attention_mask=torch.triu(
                     torch.full(
-                        (seq_len, seq_len), 
-                        fill_value=float('-inf'), 
-                        dtype=torch.float32, 
-                    ), 
+                        (seq_len, seq_len),
+                        fill_value=float("-inf"),
+                        dtype=torch.float32,
+                    ),
                     diagonal=1,
                 )[None, None].repeat(bs, 1, 1, 1),
             )
-        import thing
-        if not with_rope:
-            thing.catch(out, name="out")
-            thing.catch(out2, name="out2")
 
-        assert out.shape == out2.shape 
+        assert out.shape == out2.shape
         assert np.allclose(out, out2.numpy(), atol=1e-5)

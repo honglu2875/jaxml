@@ -14,15 +14,18 @@
 # limitations under the License.
 
 from typing import Optional
+
 import jax
 import jax.numpy as jnp
 from flax import struct
+
 from .types import Array, DType
 from .utils import get_default_pos_ids
 
 
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
+
     k: Array = struct.field(pytree_node=True)
     v: Array = struct.field(pytree_node=True)
     mask: Array = struct.field(pytree_node=True)
@@ -35,15 +38,21 @@ class KVCache(struct.PyTreeNode):
     def _get_array(self, *args, full_len: Optional[int] = None, advance_right: int = 0):
         full_len = full_len or self.offset
         start_idx = self.end_pos + self.offset - full_len + advance_right
-        return tuple(map(
-            #lambda x: x[:, self.end_pos + start_idx : start_idx + full_len + advance_right], 
-            lambda x: jax.lax.dynamic_slice(x, (0, start_idx) + (0,) * (len(x.shape) - 2), (x.shape[0], full_len) + x.shape[2:]),
-            args, 
-        ))
+        return tuple(
+            map(
+                # lambda x: x[:, self.end_pos + start_idx : start_idx + full_len + advance_right],
+                lambda x: jax.lax.dynamic_slice(
+                    x,
+                    (0, start_idx) + (0,) * (len(x.shape) - 2),
+                    (x.shape[0], full_len) + x.shape[2:],
+                ),
+                args,
+            )
+        )
 
     def get_kv(self, full_len: Optional[int] = None):
         return self._get_array(self.k, self.v, full_len=full_len)
-        
+
     def get_kv_mask(self, full_len: Optional[int] = None, advance_right: int = 0):
         return self._get_array(self.mask, full_len=full_len, advance_right=advance_right)[0]
 
@@ -51,15 +60,31 @@ class KVCache(struct.PyTreeNode):
         return self._get_array(self.pos_ids, full_len=full_len, advance_right=advance_right)[0]
 
     @classmethod
-    def init(cls, shape: tuple, k: Optional[Array] = None, v: Optional[Array] = None, left_buffer: Optional[int] = None, mask: Optional[Array] = None, pos_ids: Optional[Array] = None, dtype: DType = jnp.float32):
+    def init(
+        cls,
+        shape: tuple,
+        k: Optional[Array] = None,
+        v: Optional[Array] = None,
+        left_buffer: Optional[int] = None,
+        mask: Optional[Array] = None,
+        pos_ids: Optional[Array] = None,
+        dtype: DType = jnp.float32,
+    ):
         extra_len = left_buffer if left_buffer is not None else shape[1]
         full_shape = (shape[0], extra_len + shape[1]) + shape[2:]
         if k is None and v is None:
             k, v = jnp.zeros(full_shape, dtype=dtype), jnp.zeros(full_shape, dtype=dtype)
             end_pos = 0
         else:
-            k, v = jnp.pad(k, ((0, 0), (extra_len, shape[1] - k.shape[1])) + ((0, 0)) * (len(shape) - 2), constant_values=0), \
-                   jnp.pad(k, ((0, 0), (extra_len, shape[1] - k.shape[1])) + ((0, 0)) * (len(shape) - 2), constant_values=0)
+            k, v = jnp.pad(
+                k,
+                ((0, 0), (extra_len, shape[1] - k.shape[1])) + ((0, 0)) * (len(shape) - 2),
+                constant_values=0,
+            ), jnp.pad(
+                k,
+                ((0, 0), (extra_len, shape[1] - k.shape[1])) + ((0, 0)) * (len(shape) - 2),
+                constant_values=0,
+            )
             end_pos = k.shape[1]
 
         if mask is not None:
@@ -72,7 +97,15 @@ class KVCache(struct.PyTreeNode):
         if pos_ids is None:
             pos_ids = get_default_pos_ids(mask.shape, mask=mask)
 
-        return cls(k=k, v=v, dtype=dtype, end_pos=end_pos, mask=mask, pos_ids=pos_ids, offset=extra_len)
+        return cls(
+            k=k,
+            v=v,
+            dtype=dtype,
+            end_pos=end_pos,
+            mask=mask,
+            pos_ids=pos_ids,
+            offset=extra_len,
+        )
 
     def update(self, k: Array, v: Array):
         """Inplace update of k, v cache (at the mercy of JIT compiler).

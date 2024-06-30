@@ -1,10 +1,12 @@
-import jax.numpy as jnp
-import flax.linen as nn
-from ..types import Array, DType
-from .module import Module
 from dataclasses import field
 from typing import Tuple
+
+import flax.linen as nn
+import jax.numpy as jnp
 from jax import lax
+
+from ..types import Array, DType
+from .module import Module
 
 
 class Embed(Module):
@@ -18,6 +20,7 @@ class Embed(Module):
     one_hot: performs the gather with a one-hot contraction rather than a true
       gather. This is currently needed for SPMD partitioning.
     """
+
     # Required:
     num_embeddings: int = field(kw_only=True)
     features: int = field(kw_only=True)
@@ -25,7 +28,7 @@ class Embed(Module):
     dtype: DType = jnp.float32
 
     # Embed: Space(vocab) -> Space(embed)
-    kernel_axes: Tuple[str, ...] = ('vocab', 'embed')
+    kernel_axes: Tuple[str, ...] = ("vocab", "embed")
     one_hot: bool = False
 
     @nn.compact
@@ -40,7 +43,7 @@ class Embed(Module):
           with an additional `features` dimension appended.
         """
         embedding = self.param(
-            'embedding',
+            "embedding",
             self.wrapped_kernel_init,
             (self.num_embeddings, self.features),
             self.dtype,
@@ -49,7 +52,7 @@ class Embed(Module):
         )
 
         if not jnp.issubdtype(inputs.dtype, jnp.integer):
-            raise ValueError('Input type must be an integer or unsigned integer.')
+            raise ValueError("Input type must be an integer or unsigned integer.")
         if self.one_hot:
             iota = lax.iota(jnp.int32, self.num_embeddings)
             one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
@@ -57,4 +60,3 @@ class Embed(Module):
         else:
             output = jnp.asarray(embedding, self.dtype)[inputs]
         return output
-

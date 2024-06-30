@@ -14,13 +14,14 @@
 
 import jax
 import jax.numpy as jnp
-from jaxml.utils import torch_to_jax_states
-import torch
 import numpy as np
+import torch
+
+from jaxml.utils import torch_to_jax_states
 
 
 def test_dense(jax_dense, torch_dense):
-    with jax.default_device(jax.devices('cpu')[0]):
+    with jax.default_device(jax.devices("cpu")[0]):
         key = jax.random.PRNGKey(0)
         x = jax.random.uniform(key, (4, 10, 48), dtype=jnp.float32)
         params = torch_to_jax_states(torch_dense, dtype=torch.float32)
@@ -28,4 +29,4 @@ def test_dense(jax_dense, torch_dense):
         with torch.no_grad():
             y2 = torch_dense(torch.tensor(np.array(x))).numpy()
 
-        assert np.all_close(y, y2, atol=1e-5)
+        assert np.allclose(y, y2, atol=1e-5)

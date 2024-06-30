@@ -18,6 +18,9 @@ version = "0.0.0"
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "black",
+    "isort",
+    "flake8",
     "torch",
     "transformers",
 ]

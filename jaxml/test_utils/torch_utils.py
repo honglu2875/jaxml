@@ -25,14 +25,15 @@ class Identity(torch.nn.Module):
 
 class DummyPosEmb(torch.nn.Module):
     """Dummy positional embedding module to replace RotaryEmbedding."""
+
     def __init__(self):
         super(DummyPosEmb, self).__init__()
 
     def forward(self, x, *args, **kwargs):
         return (
             torch.ones(
-                (1, x.shape[3]), 
-                dtype=x.dtype, 
+                (1, x.shape[3]),
+                dtype=x.dtype,
                 device=x.device,
             ),
             torch.zeros(

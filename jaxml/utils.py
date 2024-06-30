@@ -13,27 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+from typing import Any
+
+import chex
 import jax
 import jax.numpy as jnp
-import torch
 import numpy as np
-from typing import Any
+import torch
+
+
+def check_shape(tensor, *shape):
+    chex.assert_shape(tensor, shape)
 
 
 def get_default_pos_ids(shape, mask=None):
     """Given an attention mask, we infer the default position id.
     Assume the sequence axis is 1."""
     bs, seq_len = shape[:2]
-    
+
     if mask is not None:
         check_shape(mask, bs, seq_len)
     else:
         return jnp.broadcast_to(jnp.arange(seq_len), shape[:2])
 
-    pos_ids = (
-        jnp.arange(seq_len, dtype=jnp.int32)[None]
-        - (1 - mask).sum(1, keepdims=True)
-    )
+    pos_ids = jnp.arange(seq_len, dtype=jnp.int32)[None] - (1 - mask).sum(1, keepdims=True)
     pos_ids = jnp.where(pos_ids >= 0, pos_ids, 0)
     return pos_ids
 
@@ -48,7 +52,7 @@ def torch_to_jax_states(
     Args:
         input: a torch state dict
         dtype: the dtype
-        head_dim: if not None, it will try to reshape the last axis of q, k, v 
+        head_dim: if not None, it will try to reshape the last axis of q, k, v
             weights further into (..., head_dim, num_head).
     """
     _to_np_dtype = {
@@ -63,9 +67,7 @@ def torch_to_jax_states(
     elif isinstance(input, dict):
         states = input
     else:
-        raise TypeError(
-            f"Expected input to be either a PyTorch module or a dict, got {type(input)}."
-        )
+        raise TypeError(f"Expected input to be either a PyTorch module or a dict, got {type(input)}.")
 
     jax_states = {"params": {}}
 
@@ -73,9 +75,7 @@ def torch_to_jax_states(
     if head_dim is None:
         _qkv_separate_map = _dense_key_map
     else:
-        _qkv_separate_map = {
-            "weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, head_dim))
-        }
+        _qkv_separate_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, head_dim))}
     _emb_key_map = {"weight": ("embedding", lambda x: x)}
     _exclude_keys = {"post_attention_layernorm", "input_layernorm", "norm"}
 
@@ -112,10 +112,10 @@ def torch_to_jax_states(
 
 def pprint_pytree(obj: Any):
     """Pretty print JAX pytree by collapsing tensors into only shape information."""
+
     def custom_format(leaf):
         if isinstance(leaf, jnp.ndarray):
             return f"<Array shape={leaf.shape} dtype={leaf.dtype}>"
-        if isinstance()
         else:
             return leaf.__repr__()
 

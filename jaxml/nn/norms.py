@@ -22,6 +22,7 @@ class RMSNorm(nn.Module):
     hidden_size: int
     eps: float = 1e-6
     axis_name: str = "embed"
+    upcast: bool = True
 
     def setup(self):
         """
@@ -29,9 +30,7 @@ class RMSNorm(nn.Module):
         """
         self.weight = param_with_axes(
             "weight",
-            nn.with_logical_partitioning(
-                lambda _, shape, dtype: jnp.ones(shape, dtype=dtype), (self.axis_name,)
-            ),
+            nn.with_logical_partitioning(lambda _, shape, dtype: jnp.ones(shape, dtype=dtype), (self.axis_name,)),
             (self.hidden_size,),
             jnp.float32,
             axes=(self.axis_name,),
@@ -40,7 +39,8 @@ class RMSNorm(nn.Module):
 
     def __call__(self, hidden_states):
         input_dtype = hidden_states.dtype
-        hidden_states = hidden_states.astype(jnp.float32)
+        if self.upcast:
+            hidden_states = hidden_states.astype(jnp.float32)
         square_mean = jnp.square(hidden_states).mean(-1, keepdims=True)
         hidden_states = hidden_states / jnp.sqrt(square_mean + self.variance_epsilon)
         return self.weight * hidden_states.astype(input_dtype)
