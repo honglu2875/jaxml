@@ -17,8 +17,7 @@ import jax.numpy as jnp
 import pytest
 
 from jaxml.config import ModelConfig
-from jaxml.models.llama import LlamaDecoder
-from jaxml.models.llama import LlamaMLP as LlamaMLPJAX
+from jaxml.models.llama import LlamaMLP as LlamaMLPJAX, LlamaDecoder, LlamaModel
 from jaxml.nn.attention import Attention, AttentionWithRoPE
 
 
@@ -50,6 +49,7 @@ def hf_llama_config():
         num_key_value_heads=3,
         hidden_act="silu",
         rms_norm_eps=1e-6,
+        attn_implementation="eager",
     )
 
 
@@ -70,9 +70,12 @@ def hf_mistral_config():
     )
 
 
-def get_layer_and_param(cls, config):
-    layer = cls(config=config)
-    x = jnp.zeros((2, 10, config.num_heads * config.head_dim), dtype=jnp.float32)
+def get_layer_and_param(cls, config, discrete=False):
+    layer = cls(config=config, dtype=jnp.float32)
+    if discrete:
+        x = jnp.zeros((2, 10), dtype=jnp.int32)
+    else:
+        x = jnp.zeros((2, 10, config.num_heads * config.head_dim), dtype=jnp.float32)
     key = jax.random.PRNGKey(0)
     params = layer.init(key, x)
     return layer, params
@@ -97,6 +100,10 @@ def llama_mlp_cls():
 def llama_decoder_cls():
     return LlamaDecoder
 
+@pytest.fixture
+def llama_model_cls():
+    return LlamaModel
+
 
 @pytest.fixture
 def attention_small(attn_cls, config_small):
@@ -116,6 +123,10 @@ def llama_mlp(llama_mlp_cls, config_small):
 @pytest.fixture
 def llama_decoder(llama_decoder_cls, config_small):
     return get_layer_and_param(llama_decoder_cls, config_small)
+
+@pytest.fixture
+def llama_model(llama_model_cls, config_small):
+    return get_layer_and_param(llama_model_cls, config_small, discrete=True)
 
 
 @pytest.fixture
@@ -137,6 +148,13 @@ def hf_llama_decoder(hf_llama_config):
     from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
     return LlamaDecoderLayer(hf_llama_config, layer_idx=0)
+
+
+@pytest.fixture
+def hf_llama_model(hf_llama_config):
+    from transformers.models.llama.modeling_llama import LlamaModel
+
+    return LlamaModel(hf_llama_config)
 
 
 @pytest.fixture

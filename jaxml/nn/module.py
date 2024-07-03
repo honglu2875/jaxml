@@ -33,11 +33,15 @@ class Block(nn.Module):
     """A template of building blocks for model implementations."""
 
     config: ModelConfig
-    dtype: Any = jnp.float32
+    dtype: Any = jnp.bfloat16
 
     @property
     def num_heads(self):
         return self.config.num_heads
+
+    @property
+    def num_layers(self):
+        return self.config.num_layers
 
     @property
     def head_dim(self):

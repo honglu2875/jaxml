@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from ..cache import KVCache
-from ..outputs import AttentionOutput
+from ..outputs import AttentionOutput, BaseModelOutputWithCache, CausalLMOutputWithCache
 from ..types import Array
 from ..utils import get_default_pos_ids
 from .linear import DenseGeneral

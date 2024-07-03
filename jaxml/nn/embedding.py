@@ -1,11 +1,10 @@
 from dataclasses import field
-from typing import Tuple
+from typing import Any, Tuple
 
 import flax.linen as nn
 import jax.numpy as jnp
 from jax import lax
 
-from ..types import Array, DType
 from .module import Module
 
 
@@ -25,14 +24,14 @@ class Embed(Module):
     num_embeddings: int = field(kw_only=True)
     features: int = field(kw_only=True)
 
-    dtype: DType = jnp.float32
+    dtype: Any = jnp.float32
 
     # Embed: Space(vocab) -> Space(embed)
     kernel_axes: Tuple[str, ...] = ("vocab", "embed")
     one_hot: bool = False
 
     @nn.compact
-    def __call__(self, inputs: Array) -> Array:
+    def __call__(self, inputs: jnp.ndarray) -> jnp.ndarray:
         """Embeds the inputs along the last dimension.
 
         Args:

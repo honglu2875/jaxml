@@ -13,24 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
 from flax import struct
 
-from .types import Array, DType
 from .utils import get_default_pos_ids
 
 
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
 
-    k: Array = struct.field(pytree_node=True)
-    v: Array = struct.field(pytree_node=True)
-    mask: Array = struct.field(pytree_node=True)
-    pos_ids: Array = struct.field(pytree_node=True)
-    dtype: DType = struct.field(pytree_node=False, default=jnp.float32)
+    k: jnp.ndarray = struct.field(pytree_node=True)
+    v: jnp.ndarray = struct.field(pytree_node=True)
+    mask: jnp.ndarray = struct.field(pytree_node=True)
+    pos_ids: jnp.ndarray = struct.field(pytree_node=True)
+    dtype: Any = struct.field(pytree_node=False, default=jnp.float32)
     # kv cache is sometimes padded. end_pos indicate its ending position.
     end_pos: int = struct.field(pytree_node=True, default=-1)
     offset: int = struct.field(pytree_node=False, default=0)
@@ -63,12 +62,12 @@ class KVCache(struct.PyTreeNode):
     def init(
         cls,
         shape: tuple,
-        k: Optional[Array] = None,
-        v: Optional[Array] = None,
+        k: Optional[jnp.ndarray] = None,
+        v: Optional[jnp.ndarray] = None,
         left_buffer: Optional[int] = None,
-        mask: Optional[Array] = None,
-        pos_ids: Optional[Array] = None,
-        dtype: DType = jnp.float32,
+        mask: Optional[jnp.ndarray] = None,
+        pos_ids: Optional[jnp.ndarray] = None,
+        dtype: Any = jnp.float32,
     ):
         extra_len = left_buffer if left_buffer is not None else shape[1]
         full_shape = (shape[0], extra_len + shape[1]) + shape[2:]
@@ -107,7 +106,7 @@ class KVCache(struct.PyTreeNode):
             offset=extra_len,
         )
 
-    def update(self, k: Array, v: Array):
+    def update(self, k: jnp.ndarray, v: jnp.ndarray):
         """Inplace update of k, v cache (at the mercy of JIT compiler).
         (Note: please jit-compile in order to have a chance of performing inplace update.)
         Arguments:
