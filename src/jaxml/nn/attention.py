@@ -181,6 +181,11 @@ class Attention(Block):
         attn_output = attn_output.reshape(attn_output.shape[:2] + (-1,))
         attn_output = self.o_proj(attn_output)
         return attn_output
+    
+    def _get_default_mask(self, hidden_states, kv_cache):
+        if kv_cache is not None and kv_cache.mask is not None:
+            return kv_cache.next_mask
+        return jnp.ones(hidden_states.shape[:2], dtype=bool)
 
     def __call__(
         self,
@@ -197,7 +202,7 @@ class Attention(Block):
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
         query_states, key_states, value_states = self.qkv_proj(hidden_states)
-        key_states, value_states, kv_cache = self.apply_kv_cache(key_states, value_states, kv_cache)
+        key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(key_states, value_states, attention_mask, kv_cache)
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
         if use_alibi:
@@ -250,6 +255,9 @@ class AttentionWithRoPE(Attention):
         **kwargs,
     ) -> AttentionOutput:
         query_states, key_states, value_states = self.qkv_proj(hidden_states)
+
+        if attention_mask is None:
+            attention_mask = self._get_default_mask(hidden_states, kv_cache)
 
         if position_ids is None:
             if kv_cache is not None and kv_cache.pos_id is not None:

@@ -15,7 +15,7 @@
 import jax.numpy as jnp
 from flax import linen as nn
 
-from ..types import DType
+from typing import Any
 
 
 class RotaryEmbedding(nn.Module):
@@ -23,7 +23,7 @@ class RotaryEmbedding(nn.Module):
     # max_trained_length is the initial context window, and we may extend it at inference time.
     max_length: int = 2048
     base: int = 10000
-    dtype: DType = jnp.float32
+    dtype: Any = jnp.float32
     disable_cache: bool = False
 
     @staticmethod

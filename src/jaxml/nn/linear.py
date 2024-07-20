@@ -20,14 +20,13 @@
 #
 
 from dataclasses import field
-from typing import Callable, Iterable, Tuple, Union
+from typing import Any, Callable, Iterable, Tuple, Union
 
 import flax.linen as nn
 import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from ..types import Array, DType
 from .module import Module
 
 
@@ -61,8 +60,8 @@ class DenseGeneral(Module):
     features: Union[Iterable[int], int] = field(kw_only=True)
 
     axis: Union[Iterable[int], int] = -1
-    weight_dtype: DType = jnp.float32
-    dtype: DType = jnp.float32
+    weight_dtype: Any = jnp.float32
+    dtype: Any = jnp.float32
 
     # DenseGeneral: Product of Spaces over kernel_axes -> Space(features)
     kernel_axes: Tuple[str, ...] = ()
@@ -70,7 +69,7 @@ class DenseGeneral(Module):
     bias_init: Callable = nn.initializers.zeros
 
     @nn.compact
-    def __call__(self, inputs: Array) -> Array:
+    def __call__(self, inputs: jnp.ndarray) -> jnp.ndarray:
         """Applies a linear transformation to the inputs along multiple dimensions.
 
         Args:

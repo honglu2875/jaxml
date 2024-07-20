@@ -4,7 +4,6 @@ import flax.linen as nn
 import jax.numpy as jnp
 
 from ..config import ModelConfig
-from ..types import DType, PRNGKey, Shape
 
 
 class Module(nn.Module):
@@ -18,7 +17,7 @@ class Module(nn.Module):
 
     def setup(self):
         # wrap over init function in order to receive in_axis and out_axis
-        def init_fn(key: PRNGKey, shape: Shape, dtype: DType, in_axis: int, out_axis: int):
+        def init_fn(key: jnp.ndarray, shape: tuple, dtype: Any, in_axis: int, out_axis: int):
             fn = self.kernel_init(*self.kernel_init_args, in_axis=in_axis, out_axis=out_axis)
             if self.with_logical_partitioning:
                 if not self.kernel_axes:

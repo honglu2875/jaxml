@@ -54,23 +54,28 @@ class KVCache(struct.PyTreeNode):
         #return jnp.concatenate([self.pos_id, self.pos_id[:, -1:] + 1], axis=1)
         return self.pos_id + 1
 
+    @property
+    def next_mask(self):
+        return jnp.concatenate(
+            [
+                self.mask, 
+                jnp.ones(
+                    (self.mask.shape[0], 1), 
+                    dtype=bool,
+                ),
+            ],
+                axis=1,
+        )
+
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
         if self.k is None:
             assert self.v is None
             assert self.mask is None
             pos_id = get_default_pos_ids(mask)[:, -1:]
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
+        assert k.shape[1] == v.shape[1] == 1
         new_k = jnp.concatenate([self.k, k], axis=1)
         new_v = jnp.concatenate([self.v, v], axis=1)
-        new_mask = jnp.concatenate(
-            [
-                self.mask, 
-                jnp.ones(
-                    (self.mask.shape[0], k.shape[1]), 
-                    dtype=bool,
-                ),
-            ],
-                axis=1,
-        )
+        new_mask = self.next_mask
 
         return self.replace(k=new_k, v=new_v, mask=new_mask, pos_id=self.next_pos_id)
