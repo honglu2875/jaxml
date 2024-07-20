@@ -26,7 +26,6 @@ from flax import linen as nn
 
 from ..cache import KVCache
 from ..outputs import AttentionOutput
-from ..types import Array
 from ..utils import get_default_pos_ids
 from .linear import DenseGeneral
 from .module import Block
@@ -90,7 +89,7 @@ class Attention(Block):
             name="o_proj",
         )
 
-    def qkv_proj(self, hidden: Array):
+    def qkv_proj(self, hidden: jnp.ndarray):
         if self.fused_qkv:
             out = self.qkv_proj(hidden)
             query, key, value = out[:, :, 0], out[:, :, 1], out[:, :, 2]
@@ -110,11 +109,11 @@ class Attention(Block):
         kv_cache = kv_cache.update(key_states, value_states, attention_mask)
         return kv_cache.k, kv_cache.v, kv_cache.mask, kv_cache
 
-    def repeat_kv(self, key_states: Array, value_states: Array):
+    def repeat_kv(self, key_states: jnp.ndarray, value_states: jnp.ndarray):
         batch, seq_len, num_key_value_heads, head_dim = key_states.shape
         n_rep = self.config.num_heads // self.config.num_key_value_heads
 
-        def _repeat(hidden_states: Array):
+        def _repeat(hidden_states: jnp.ndarray):
             """
             This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
             seq_len, num_key_value_heads, head_dim) to (batch, seq_len, num_attention_heads, head_dim)
@@ -136,10 +135,10 @@ class Attention(Block):
 
     def mha(
         self,
-        query_states: Array,
-        key_states: Array,
-        value_states: Array,
-        attention_mask: Optional[Array] = None,
+        query_states: jnp.ndarray,
+        key_states: jnp.ndarray,
+        value_states: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
         causal: bool = True,
         alibi_slope=None,
         softmax_fp32: bool = True,
@@ -185,9 +184,9 @@ class Attention(Block):
 
     def __call__(
         self,
-        hidden_states: Array,
-        attention_mask: Optional[Array] = None,
-        position_ids: Optional[Array] = None,
+        hidden_states: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
         use_alibi: bool = False,
         output_attentions: bool = False,
@@ -243,9 +242,9 @@ class AttentionWithRoPE(Attention):
 
     def __call__(
         self,
-        hidden_states: Array,
-        attention_mask: Optional[Array] = None,
-        position_ids: Optional[Array] = None,
+        hidden_states: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
         **kwargs,
