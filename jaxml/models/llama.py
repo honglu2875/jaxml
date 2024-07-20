@@ -18,6 +18,8 @@ from typing import Any, Optional
 import flax
 import jax
 import jax.numpy as jnp
+from jax.experimental import mesh_utils
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
 
@@ -150,18 +152,11 @@ class LlamaModel(Block):
         batch_size, seq_length = input_ids.shape
 
         if attention_mask is None:
-            if kv_caches is not None:
-                attention_mask = kv_caches[0].get_kv_mask(advance_right=input_ids.shape[1])
-            else:
-                attention_mask = jnp.ones(
-                    (batch_size, seq_length), dtype=bool
-                )
+            # need to apply a default value if kv_cache is either unused or empty
+            if kv_caches is None or kv_caches[0].mask is None:
+                # our convention is that negative ids (such as -100) is masked by default.
+                attention_mask = input_ids >= 0
 
-        if position_ids is None:
-            if kv_caches is not None:
-                position_ids = kv_caches[0].get_pos_ids(advance_right=input_ids.shape[1])
-            else:
-                position_ids = get_default_pos_ids((batch_size, seq_length), mask=attention_mask)
 
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
         hidden_states = with_sharding_constraint(
@@ -190,6 +185,7 @@ class LlamaModel(Block):
                 output.attention_weight
             )
 
+
             all_self_attns.append(attn_weight)
             next_kv_caches.append(kv_cache)
 
@@ -205,45 +201,22 @@ class LlamaModel(Block):
         )        
         
         
+class LlamaForCausalLM(Block):
+    
+    lm_head_init: Any = nn.initializers.xavier_uniform
+    lm_head_init_args: tuple = ()
 
-
-# TODO: fix below
-'''
-class LlamaForCausalLM(nn.Module):
-    config: Any = None
-    dtype: Any = jnp.float32
-    kernel_init: Any = nn.initializers.xavier_uniform
-    sharded: Optional[bool] = len(jax.devices()) > 1 and len(jax.devices()) % 2 == 0
+    def init_cache(self, max_seq_len) -> list[KVCache]:
+        num_layers = self.config.num_layers
+        return [KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers)]
 
     @staticmethod
-    def mesh_sharding(pspec: PartitionSpec | None, mesh: Mesh | None) -> NamedSharding:
+    def mesh_sharding(pspec: Optional[PartitionSpec], mesh: Optional[Mesh]) -> NamedSharding:
         if mesh is None:
             mesh = Mesh(jax.devices(), (None,))
         return NamedSharding(mesh, pspec)
 
-    @staticmethod
-    def _parse_mesh_layout(device_mesh_layout):
-        assert isinstance(device_mesh_layout, (list, tuple)), (
-            f"device_mesh_layout must be a list or tuple. "
-            f"Got {type(device_mesh_layout)}"
-        )
-        assert len(device_mesh_layout) == 2, (
-            f"The length of device_mesh_layout must be 2. "
-            f"Got {len(device_mesh_layout)}"
-        )
-        mesh_layout = []
-        for i in range(2):
-            if device_mesh_layout[i] is None:
-                assert (
-                    device_mesh_layout[1 - i] is not None
-                ), f"Invalid device_mesh_layout. Got {device_mesh_layout}."
-                mesh_layout.append(len(jax.devices()) // device_mesh_layout[1 - i])
-            else:
-                mesh_layout.append(device_mesh_layout[i])
-
-        return tuple(mesh_layout)
-
-    def _shard_params(self, x, y):
+    def _shard_params(self, x, y: PartitionSpec):
         if x.ndim != len(y.spec):
             assert (
                 x.ndim == 2 and len(y.spec) == 3
@@ -257,60 +230,58 @@ class LlamaForCausalLM(nn.Module):
                     (
                         x.shape[0],
                         -1,
-                        self.config.hidden_size // self.config.num_attention_heads,
+                        self.head_dim,
                     )
                 ),
                 y,
             )
         return (jax.device_put(x, y),)
 
-    def init_cache(self, batch_size: int, max_len: int, mask: Optional[Array] = None) -> list[KVCache]:
-        num_head = self.config.num_key_value_heads
-        head_dim = self.config.hidden_size // self.config.num_attention_heads
-        num_layers = self.config.num_hidden_layers
-        return [KVCache.init((batch_size, max_len, num_head, head_dim), mask=mask, left_buffer=max_len) for _ in range(num_layers)]
 
-    def get_params(self, device_mesh_layout=(1, None), weights=None):
+    def get_params(self, tp_size: int = 4, weights: Any = None, sharded: bool = True):
         """
         Get the properly sharded parameters.
         Args:
-            device_mesh_layout: the device mesh layout. For example:
-                (1, None) means data=1, model=len(jax.devices())
-                (2, None) means data=2, model=len(jax.devices()) // 2
-                (None, 2) means data=len(jax.devices()) // 2, model=2
-            weights: whether a tree of weights are already given (but may not be sharded)
+            tp_size: the tensor-parallel size.
+            weights: whether a tree of weights are already given (but may not be sharded).
         Returns:
             a tree of properly sharded parameters
         """
+        if sharded and not (len(jax.devices()) > 1 and len(jax.devices()) % tp_size == 0):
+            sharded = False
+            warning.warn(f"Cannot shard across devices: {jax.devices()}.")
+
         key = jax.random.PRNGKey(0)
 
-        mesh_layout = self._parse_mesh_layout(device_mesh_layout)
+        # (dp, tp)
+        mesh_layout = (len(jax.devices()) // tp_size, tp_size)
 
         dummy_input = jnp.array(
             [[1 for _ in range(mesh_layout[1])] for _ in range(mesh_layout[0])]
         )
-
         abstract_variables = jax.eval_shape(self.init, key, dummy_input)
-        if self.sharded:
+        rules = (
+            ("batch", "data"),
+            ("head", "model"),
+            ("kv_length", None),
+            ("length", None),
+            ("intermediate", "model"),
+            ("heads_merged", "model"),
+            ("head_states", None),
+        )
+
+        if sharded:
             mesh = Mesh(
                 devices=mesh_utils.create_device_mesh(mesh_layout),
                 axis_names=("data", "model"),
             )
 
-            rules = t5x_partitioning.standard_logical_axis_rules(
-                activation_partitioning_dims=1,
-                parameter_partitioning_dims=1,
-                additional_rules=(
-                    ("kv_length", None),
-                    ("intermediate", "model"),
-                ),
-            )
             logical_state_spec = nn.get_partition_spec(abstract_variables)
             logical_state_sharding = nn.logical_to_mesh_sharding(
                 logical_state_spec, mesh, rules
             )
 
-            x_sharding = self.mesh_sharding(
+            input_sharding = self.mesh_sharding(
                 PartitionSpec("data", None), mesh
             )  # dimensions: (batch, length)
 
@@ -322,7 +293,7 @@ class LlamaForCausalLM(nn.Module):
                     "params" in weights
                 ), f"The key params not found in 'weights'. Got {weights.keys()}"
 
-                if self.sharded:
+                if sharded:
                     params = {
                         "params": jax.tree_util.tree_map(
                             self._shard_params,
@@ -337,7 +308,7 @@ class LlamaForCausalLM(nn.Module):
                     self.init,
                     in_shardings=(
                         self.mesh_sharding(None, mesh),
-                        x_sharding,
+                        input_sharding,
                     ),  # PRNG key and x
                     out_shardings=logical_state_sharding,
                 )(key, dummy_input)
@@ -346,30 +317,29 @@ class LlamaForCausalLM(nn.Module):
 
         return params
 
-    def prepare_input(self, inputs, device_mesh_layout=(1, None), dtype=None):
-        if self.sharded:
-            mesh = Mesh(
-                devices=mesh_utils.create_device_mesh(
-                    self._parse_mesh_layout(device_mesh_layout)
-                ),
-                axis_names=("data", "model"),
-            )
-            inputs = jax.device_put(
-                inputs, self.mesh_sharding(PartitionSpec("data", None), mesh)
-            )
+    def prepare_input(self, inputs, dp_size: int = 1, dtype: Any = None):
+        mesh = Mesh(
+            devices=mesh_utils.create_device_mesh(
+                (dp_size, jax.device_count() // dp_size)
+            ),
+            axis_names=("data", "model"),
+        )
+        inputs = jax.device_put(
+            inputs, self.mesh_sharding(PartitionSpec("data", None), mesh)
+        )
         if dtype is not None:
             inputs = jax.tree_util.tree_map(lambda x: x.astype(dtype), inputs)
         return inputs
 
     def setup(self):
-        self.model = MistralModel(
-            self.config, dtype=self.dtype, kernel_init=self.kernel_init
+        self.model = LlamaModel(
+            self.config, dtype=self.dtype
         )
         self.lm_head = DenseGeneral(
             features=self.config.vocab_size,
             dtype=self.dtype,
-            kernel_init=self.kernel_init,
-            kernel_init_args=(),
+            kernel_init=self.lm_head_init,
+            kernel_init_args=self.lm_head_init_args,
             with_logical_partitioning=True,
             kernel_axes=("embed", "vocab"),
             name="lm_head",
@@ -380,7 +350,7 @@ class LlamaForCausalLM(nn.Module):
         input_ids,
         attention_mask: Optional[jnp.ndarray] = None,
         position_ids: Optional[jnp.ndarray] = None,
-        kv_caches: Optional[List[KVCache]] = None,
+        kv_caches: Optional[list[KVCache]] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -399,23 +369,22 @@ class LlamaForCausalLM(nn.Module):
             logits=logits,
             kv_caches=outputs.kv_caches,
             hidden_states=outputs.hidden_states,
-            attention_weights=outputs.attentions,
+            attention_weights=outputs.attention_weights,
         )
 
     def wrapped_apply_fn(
         self,
         params,
-        tok,
+        input_token,
+        attention_mask=None,
         kv_caches=None,
         use_cache=True,
-    ) -> tuple[CausalLMOutputWithCache, dict]:
-        tok = jnp.array(tok)
-        position_ids, attention_mask = None, None
+    ) -> tuple[jnp.ndarray, list[KVCache]]:
 
         out, _ = self.apply(
             params,
-            tok,
-            position_ids=position_ids,
+            input_token,
+            position_ids=None,
             attention_mask=attention_mask,
             mutable=("cache",),
             #output_hidden_states=False, # maybe allow for toggling of hidden states in the future
@@ -429,14 +398,14 @@ class LlamaForCausalLM(nn.Module):
     def generate(
         self,
         params,
-        prompt_tokens: Array,
-        attention_mask: Optional[Array] = None,
+        prompt_tokens: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
         do_sample: bool = True,
         seed: int = 0,
-        max_tokens: int = 10,
+        max_new_tokens: int = 10,
         top_k: int = 0,
         top_p: float = 0.0,
-        temp: float = 1.0,
+        temperature: float = 1.0,
         no_jit: bool = False,
     ):
         if no_jit:
@@ -444,22 +413,21 @@ class LlamaForCausalLM(nn.Module):
         else:
             apply = jax.jit(self.wrapped_apply_fn, static_argnames=("use_cache",))
 
-        kv_caches = self.init_cache(
-                batch_size=prompt_tokens.shape[0], 
-                max_len=prompt_tokens.shape[1] + max_tokens,
-                mask=attention_mask,
-        )
+        kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + max_new_tokens)
+        
+        from .._generate import generate
 
         return generate(
             params,
             apply,
             prompt_tokens,
+            attention_mask,
             kv_caches,
             do_sample=do_sample,
             seed=seed,
-            max_tokens=max_tokens,
+            max_new_tokens=max_new_tokens,
             top_k=top_k,
             top_p=top_p,
-            temp=temp,
+            temperature=temperature,
         )
-'''
+

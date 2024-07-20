@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 
 from ..cache import KVCache
-from ..outputs import AttentionOutput, BaseModelOutputWithCache, CausalLMOutputWithCache
+from ..outputs import AttentionOutput
 from ..types import Array
 from ..utils import get_default_pos_ids
 from .linear import DenseGeneral
@@ -56,7 +56,7 @@ class Attention(Block):
                 kernel_init=self.kernel_init,
                 kernel_init_args=self.kernel_init_args,
                 with_logical_partitioning=self.with_logical_partitioning,
-                kernel_axes=("embed", "qkv", "heads", "joined_kv"),
+                kernel_axes=("embed", "qkv", "heads", "head_states"),
                 dtype=self.dtype,
                 weight_dtype=self.weight_dtype,
                 name="qkv_proj",
@@ -69,7 +69,7 @@ class Attention(Block):
                     kernel_init=self.kernel_init,
                     kernel_init_args=self.kernel_init_args,
                     with_logical_partitioning=self.with_logical_partitioning,
-                    kernel_axes=("embed", "heads", "joined_kv"),
+                    kernel_axes=("embed", "heads", "head_states"),
                     dtype=self.dtype,
                     weight_dtype=self.weight_dtype,
                     name=x[1],
@@ -86,7 +86,7 @@ class Attention(Block):
             kernel_init=self.kernel_init,
             kernel_init_args=(),
             with_logical_partitioning=True,
-            kernel_axes=("joined_kv", "embed"),
+            kernel_axes=("heads_merged", "embed"),
             name="o_proj",
         )
 
@@ -103,13 +103,12 @@ class Attention(Block):
 
         return query, key, value
 
-    def apply_kv_cache(self, key_states: Array, value_states: Array, kv_cache: Optional[KVCache]):
+    def apply_kv_cache(self, key_states: jnp.ndarray, value_states: jnp.ndarray, attention_mask: Optional[jnp.ndarray], kv_cache: Optional[KVCache]):
         if kv_cache is None:
-            return key_states, value_states, None
+            return key_states, value_states, attention_mask, None
 
-        kv_cache = kv_cache.update(key_states, value_states)
-        key_states, value_states = kv_cache.get_kv()
-        return key_states, value_states, kv_cache
+        kv_cache = kv_cache.update(key_states, value_states, attention_mask)
+        return kv_cache.k, kv_cache.v, kv_cache.mask, kv_cache
 
     def repeat_kv(self, key_states: Array, value_states: Array):
         batch, seq_len, num_key_value_heads, head_dim = key_states.shape
@@ -156,7 +155,7 @@ class Attention(Block):
             bias = -(jnp.arange(k_len, dtype=dtype)[None, None] * alibi_slope[:, None, None])
             x += bias
 
-        if causal:
+        if causal and q_len != 1: 
             x += jnp.triu(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=1)
 
         if attention_mask is not None:
@@ -252,19 +251,20 @@ class AttentionWithRoPE(Attention):
         **kwargs,
     ) -> AttentionOutput:
         query_states, key_states, value_states = self.qkv_proj(hidden_states)
-        key_states, value_states, kv_cache = self.apply_kv_cache(key_states, value_states, kv_cache)
 
-        key_len = key_states.shape[1]
-        bs = hidden_states.shape[0]
         if position_ids is None:
-            # infer the position ids according to mask (ignore padding)
-            position_ids = get_default_pos_ids((bs, key_len), mask=attention_mask)
-        cos, sin = self.rotary_emb(key_states, seq_len=key_len)
-        # Could save some FLOP at inference if moving it before kv cache (key_len=1 back then)
-        # but dynamically reading the kv_cache length might let JAX complain about abstract shapes
-        # especially when inside a scan loop.
-        query_states, key_states = self.rotary_emb.apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+            if kv_cache is not None and kv_cache.pos_id is not None:
+                position_ids = kv_cache.next_pos_id
+            else:
+                # infer the position ids according to mask (ignore padding)
+                position_ids = get_default_pos_ids(mask=attention_mask)
 
+        k_len = None if kv_cache is None or kv_cache.k is None else kv_cache.k.shape[1] + 1
+        cos, sin = self.rotary_emb(key_states, seq_len=k_len)
+
+        query_states, key_states = self.rotary_emb.apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(key_states, value_states, attention_mask, kv_cache)
+        # GHA
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
         attn_output, attn_weight = self.mha(

@@ -38,6 +38,7 @@ class RotaryEmbedding(nn.Module):
         # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
         cos = jnp.expand_dims(jnp.take(cos, position_ids, axis=0), axis=2)
         sin = jnp.expand_dims(jnp.take(sin, position_ids, axis=0), axis=2)
+        # q, k might be shorter and need to take the right-most elements
         q_embed = (q * cos) + (RotaryEmbedding.rotate_half(q) * sin)
         k_embed = (k * cos) + (RotaryEmbedding.rotate_half(k) * sin)
         return q_embed, k_embed
@@ -72,6 +73,6 @@ class RotaryEmbedding(nn.Module):
             return jnp.cos(emb).astype(x.dtype), jnp.sin(emb).astype(x.dtype)
 
         return (
-            self.cos_cached.value[:seq_len].astype(x.dtype),
-            self.sin_cached.value[:seq_len].astype(x.dtype),
+            self.cos_cached.value.astype(x.dtype),
+            self.sin_cached.value.astype(x.dtype),
         )

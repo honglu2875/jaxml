@@ -27,16 +27,10 @@ def check_shape(tensor, *shape):
     chex.assert_shape(tensor, shape)
 
 
-def get_default_pos_ids(shape, mask=None):
+def get_default_pos_ids(mask):
     """Given an attention mask, we infer the default position id.
     Assume the sequence axis is 1."""
-    bs, seq_len = shape[:2]
-
-    if mask is not None:
-        check_shape(mask, bs, seq_len)
-    else:
-        return jnp.broadcast_to(jnp.arange(seq_len), shape[:2])
-
+    seq_len = mask.shape[1]
     pos_ids = jnp.arange(seq_len, dtype=jnp.int32)[None] - (1 - mask).sum(1, keepdims=True)
     pos_ids = jnp.where(pos_ids >= 0, pos_ids, 0)
     return pos_ids

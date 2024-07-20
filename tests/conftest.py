@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import pytest
 
 from jaxml.config import ModelConfig
-from jaxml.models.llama import LlamaMLP as LlamaMLPJAX, LlamaDecoder, LlamaModel
+from jaxml.models.llama import LlamaMLP as LlamaMLPJAX, LlamaDecoder, LlamaModel, LlamaForCausalLM as LlamaForCausalLMJAX
 from jaxml.nn.attention import Attention, AttentionWithRoPE
 
 
@@ -104,6 +104,10 @@ def llama_decoder_cls():
 def llama_model_cls():
     return LlamaModel
 
+@pytest.fixture
+def llama_causal_model_cls():
+    return LlamaForCausalLMJAX
+
 
 @pytest.fixture
 def attention_small(attn_cls, config_small):
@@ -128,6 +132,9 @@ def llama_decoder(llama_decoder_cls, config_small):
 def llama_model(llama_model_cls, config_small):
     return get_layer_and_param(llama_model_cls, config_small, discrete=True)
 
+@pytest.fixture
+def llama_causal_model(llama_causal_model_cls, config_small):
+    return get_layer_and_param(llama_causal_model_cls, config_small, discrete=True)
 
 @pytest.fixture
 def hf_attention_with_rope(hf_llama_config):
@@ -155,6 +162,13 @@ def hf_llama_model(hf_llama_config):
     from transformers.models.llama.modeling_llama import LlamaModel
 
     return LlamaModel(hf_llama_config)
+
+
+@pytest.fixture
+def hf_llama_causal_model(hf_llama_config):
+    from transformers.models.llama.modeling_llama import LlamaForCausalLM
+
+    return LlamaForCausalLM(hf_llama_config)
 
 
 @pytest.fixture

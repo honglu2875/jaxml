@@ -27,93 +27,50 @@ class KVCache(struct.PyTreeNode):
 
     k: jnp.ndarray = struct.field(pytree_node=True)
     v: jnp.ndarray = struct.field(pytree_node=True)
+    max_seq_len: int = struct.field(pytree_node=True)
     mask: jnp.ndarray = struct.field(pytree_node=True)
-    pos_ids: jnp.ndarray = struct.field(pytree_node=True)
     dtype: Any = struct.field(pytree_node=False, default=jnp.float32)
-    # kv cache is sometimes padded. end_pos indicate its ending position.
-    end_pos: int = struct.field(pytree_node=True, default=-1)
-    offset: int = struct.field(pytree_node=False, default=0)
-
-    def _get_array(self, *args, full_len: Optional[int] = None, advance_right: int = 0):
-        full_len = full_len or self.offset
-        start_idx = self.end_pos + self.offset - full_len + advance_right
-        return tuple(
-            map(
-                # lambda x: x[:, self.end_pos + start_idx : start_idx + full_len + advance_right],
-                lambda x: jax.lax.dynamic_slice(
-                    x,
-                    (0, start_idx) + (0,) * (len(x.shape) - 2),
-                    (x.shape[0], full_len) + x.shape[2:],
-                ),
-                args,
-            )
-        )
-
-    def get_kv(self, full_len: Optional[int] = None):
-        return self._get_array(self.k, self.v, full_len=full_len)
-
-    def get_kv_mask(self, full_len: Optional[int] = None, advance_right: int = 0):
-        return self._get_array(self.mask, full_len=full_len, advance_right=advance_right)[0]
-
-    def get_pos_ids(self, full_len: Optional[int] = None, advance_right: int = 0):
-        return self._get_array(self.pos_ids, full_len=full_len, advance_right=advance_right)[0]
+    pos_id: Optional[jnp.ndarray] = struct.field(default=None, pytree_node=True)
 
     @classmethod
     def init(
         cls,
-        shape: tuple,
+        max_seq_len: int,
         k: Optional[jnp.ndarray] = None,
         v: Optional[jnp.ndarray] = None,
-        left_buffer: Optional[int] = None,
         mask: Optional[jnp.ndarray] = None,
-        pos_ids: Optional[jnp.ndarray] = None,
         dtype: Any = jnp.float32,
     ):
-        extra_len = left_buffer if left_buffer is not None else shape[1]
-        full_shape = (shape[0], extra_len + shape[1]) + shape[2:]
-        if k is None and v is None:
-            k, v = jnp.zeros(full_shape, dtype=dtype), jnp.zeros(full_shape, dtype=dtype)
-            end_pos = 0
-        else:
-            k, v = jnp.pad(
-                k,
-                ((0, 0), (extra_len, shape[1] - k.shape[1])) + ((0, 0)) * (len(shape) - 2),
-                constant_values=0,
-            ), jnp.pad(
-                k,
-                ((0, 0), (extra_len, shape[1] - k.shape[1])) + ((0, 0)) * (len(shape) - 2),
-                constant_values=0,
-            )
-            end_pos = k.shape[1]
-
-        if mask is not None:
-            head = jnp.zeros((shape[0], extra_len), dtype=jnp.bool)
-            tail = jnp.ones((shape[0], shape[1] - mask.shape[1]), dtype=jnp.bool)
-            mask = jnp.concatenate((head, mask, tail), axis=1)
-        else:
-            mask = jnp.ones(full_shape[:2], dtype=jnp.bool)
-
-        if pos_ids is None:
-            pos_ids = get_default_pos_ids(mask.shape, mask=mask)
-
         return cls(
             k=k,
             v=v,
-            dtype=dtype,
-            end_pos=end_pos,
+            max_seq_len=max_seq_len,
             mask=mask,
-            pos_ids=pos_ids,
-            offset=extra_len,
+            dtype=dtype,
         )
 
-    def update(self, k: jnp.ndarray, v: jnp.ndarray):
-        """Inplace update of k, v cache (at the mercy of JIT compiler).
-        (Note: please jit-compile in order to have a chance of performing inplace update.)
-        Arguments:
-            k: the current k vectors (shape 1 at the sequence axis)
-            v: the current v vectors (shape 1 at the sequence axis)
-        """
-        next_pos = self.end_pos + k.shape[1]
-        index = (slice(None), jnp.arange(k.shape[1]) + self.end_pos + self.offset)
+    @property
+    def next_pos_id(self):
+        #return jnp.concatenate([self.pos_id, self.pos_id[:, -1:] + 1], axis=1)
+        return self.pos_id + 1
 
-        return self.replace(k=self.k.at[index].set(k), v=self.v.at[index].set(v), end_pos=next_pos)
+    def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
+        if self.k is None:
+            assert self.v is None
+            assert self.mask is None
+            pos_id = get_default_pos_ids(mask)[:, -1:]
+            return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
+        new_k = jnp.concatenate([self.k, k], axis=1)
+        new_v = jnp.concatenate([self.v, v], axis=1)
+        new_mask = jnp.concatenate(
+            [
+                self.mask, 
+                jnp.ones(
+                    (self.mask.shape[0], k.shape[1]), 
+                    dtype=bool,
+                ),
+            ],
+                axis=1,
+        )
+
+        return self.replace(k=new_k, v=new_v, mask=new_mask, pos_id=self.next_pos_id)
