@@ -1,5 +1,5 @@
 from typing import Optional
-
+import math
 from flax import struct
 
 
@@ -21,6 +21,16 @@ class ModelConfig:
     use_bias: bool = struct.field(default=False, pytree_node=False)
     # Only effective when using ALiBi
     upcast_alibi: bool = struct.field(default=True, pytree_node=False)
+    
+    use_alibi: bool = struct.field(default=False, pytree_node=False)
+    use_rope: bool = struct.field(default=True, pytree_node=False)
+    # Only effective when using RoPE
+    rope_theta: int = struct.field(default=10_000, pytree_node=False)
+
+
+    def __post_init__(self):
+        if self.use_alibi and self.use_rope:
+            raise ValueError("AliBi and RoPE cannot both be used.")
 
     @property
     def num_key_value_heads(self):
@@ -35,3 +45,20 @@ class ModelConfig:
     @property
     def intermediate_size(self):
         return self.hidden_size * self.intermediate_ratio[0] // self.intermediate_ratio[1]
+
+    @classmethod
+    def from_hf(cls, config):
+        """Construct a ModelConfig from LlamaConfig."""
+        factor = math.gcd(config.intermediate_size, config.hidden_size)
+        return cls(
+            head_dim=config.hidden_size // config.num_attention_heads,
+            num_heads=config.num_attention_heads,
+            num_layers=config.num_hidden_layers,
+            max_position_embeddings=config.max_position_embeddings,
+            vocab_size=config.vocab_size,
+            intermediate_ratio=(config.intermediate_size // factor, config.hidden_size // factor),
+            norm_eps=config.rms_norm_eps,
+            num_kv_heads=config.num_key_value_heads,
+            use_bias=config.mlp_bias,
+            rope_theta=config.rope_theta,
+        )

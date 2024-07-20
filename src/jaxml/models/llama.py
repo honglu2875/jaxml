@@ -24,7 +24,7 @@ from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
 
 from ..cache import KVCache
-from ..nn.attention import AttentionWithRoPE
+from ..nn.attention import Attention, AttentionWithRoPE
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
@@ -86,7 +86,10 @@ class LlamaMLP(Block):
 
 class LlamaDecoder(Block):
     def setup(self):
-        self.self_attn = AttentionWithRoPE(self.config, dtype=self.dtype)
+        if not self.config.use_rope:
+            self.self_attn = Attention(self.config, dtype=self.dtype)
+        else:
+            self.self_attn = AttentionWithRoPE(self.config, dtype=self.dtype)
         self.mlp = LlamaMLP(self.config, dtype=self.dtype)
         self.input_layernorm = RMSNorm(
             hidden_size=self.hidden_size,

@@ -47,6 +47,12 @@ class Attention(Block):
     def setup(self):
         self.num_key_value_heads = self.config.num_key_value_heads
 
+        if self.config.use_alibi:
+            dtype = jnp.float32 if self.config.upcast_alibi else self.dtype
+            self.alibi_slope = 2 ** (jnp.arange(1, self.num_heads + 1, dtype=dtype) * (-8 / self.num_heads))
+        else:
+            self.alibi_slope = None
+
         if self.fused_qkv:
             assert self.num_heads == self.num_key_value_heads
             self.qkv_proj = DenseGeneral(
@@ -193,7 +199,6 @@ class Attention(Block):
         attention_mask: Optional[jnp.ndarray] = None,
         position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
-        use_alibi: bool = False,
         output_attentions: bool = False,
         *kwargs,
     ) -> AttentionOutput:
@@ -205,19 +210,13 @@ class Attention(Block):
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(key_states, value_states, attention_mask, kv_cache)
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
-        if use_alibi:
-            dtype = jnp.float32 if self.config.upcast_alibi else self.dtype
-            alibi_slope = 2 ** (jnp.arange(1, self.num_heads + 1, dtype=dtype) * (-8 / self.num_heads))
-        else:
-            alibi_slope = None
-
         attn_output, attn_weight = self.mha(
             query_states,
             key_states,
             value_states,
             attention_mask=attention_mask,
             causal=True,
-            alibi_slope=alibi_slope,
+            alibi_slope=self.alibi_slope,
             softmax_fp32=True,
             output_attentions=output_attentions,
         )
@@ -231,18 +230,14 @@ class Attention(Block):
 
 class AttentionWithRoPE(Attention):
 
-    max_position_embeddings: int = 2048
-    rope_theta: int = 10_000
-    use_alibi: bool = False
-
     def setup(self):
-        if self.use_alibi:
-            raise NotImplementedError("Having ALiBi and RoPE together is not intended (though the math works).")
         super().setup()
+        if self.config.use_alibi:
+            raise NotImplementedError("Having ALiBi and RoPE together is not intended (though the math works).")
         self.rotary_emb = RotaryEmbedding(
             dim=self.head_dim,
-            max_length=self.max_position_embeddings,
-            base=self.rope_theta,
+            max_length=self.config.max_position_embeddings,
+            base=self.config.rope_theta,
         )
 
     def __call__(

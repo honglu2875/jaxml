@@ -22,6 +22,9 @@ import jax.numpy as jnp
 import numpy as np
 import torch
 
+from jaxml.config import ModelConfig
+from jaxml.model import LlamaForCausalLM
+from jaxml.utils import torch_to_jax_states
 
 def check_shape(tensor, *shape):
     chex.assert_shape(tensor, shape)
@@ -119,3 +122,21 @@ def pprint_pytree(obj: Any):
     # Serialize as JSON for pretty printing
     pretty_json = json.dumps(formatted_tree, indent=2)
     print(pretty_json)
+
+
+def load_llama_from_hf(name: str) -> tuple[LlamaForCausalLM, dict]:
+    """Load Huggingface llama compatible models directly from either local path
+    or the hf-hub identifier."""
+    try:
+        from tranformers import AutoModelForCausalLM
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+    
+
+    _model = AutoModelForCausalLM.from_pretrained(name)
+    _state_dict = model.state_dict()
+    params = torch_to_jax_states(_state_dict)
+    config = ModelConfig.from_hf(_model.config)
+    model = LlamaForCausalLM(config)
+    return model, params
+
