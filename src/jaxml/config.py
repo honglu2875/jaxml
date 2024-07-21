@@ -59,6 +59,5 @@ class ModelConfig:
             intermediate_ratio=(config.intermediate_size // factor, config.hidden_size // factor),
             norm_eps=config.rms_norm_eps,
             num_kv_heads=config.num_key_value_heads,
-            use_bias=config.mlp_bias,
             rope_theta=config.rope_theta,
         )

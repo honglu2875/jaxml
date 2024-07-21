@@ -22,6 +22,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
+import warnings
 
 from ..cache import KVCache
 from ..nn.attention import Attention, AttentionWithRoPE
@@ -238,7 +239,7 @@ class LlamaForCausalLM(Block):
                 ),
                 y,
             )
-        return (jax.device_put(x, y),)
+        return jax.device_put(x, y)
 
 
     def get_params(self, tp_size: int = 4, weights: Any = None, sharded: bool = True):
@@ -410,6 +411,7 @@ class LlamaForCausalLM(Block):
         top_p: float = 0.0,
         temperature: float = 1.0,
         no_jit: bool = False,
+        show_progress: bool = False,
     ):
         if no_jit:
             apply = self.wrapped_apply_fn
@@ -432,5 +434,6 @@ class LlamaForCausalLM(Block):
             top_k=top_k,
             top_p=top_p,
             temperature=temperature,
+            show_progress=show_progress,
         )
 
