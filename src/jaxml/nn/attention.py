@@ -258,15 +258,12 @@ class AttentionWithRoPE(Attention):
             if kv_cache is not None and kv_cache.pos_id is not None:
                 position_ids = kv_cache.next_pos_id
             else:
-                # infer the position ids according to mask (ignore padding)
-                position_ids = get_default_pos_ids(mask=attention_mask)
+                position_ids = jnp.repeat(jnp.arange(key_states.shape[1])[None], key_states.shape[0], axis=0)
 
-        k_len = None if kv_cache is None or kv_cache.k is None else kv_cache.k.shape[1] + 1
+        k_len = None if kv_cache is None or kv_cache.k is None else kv_cache.k.shape[1]
         cos, sin = self.rotary_emb(key_states, seq_len=k_len)
-
         query_states, key_states = self.rotary_emb.apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(key_states, value_states, attention_mask, kv_cache)
-        # GHA
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
         attn_output, attn_weight = self.mha(

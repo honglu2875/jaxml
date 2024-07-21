@@ -29,11 +29,16 @@ def check_shape(tensor, *shape):
 
 def get_default_pos_ids(mask):
     """Given an attention mask, we infer the default position id.
-    Assume the sequence axis is 1."""
-    seq_len = mask.shape[1]
-    pos_ids = jnp.arange(seq_len, dtype=jnp.int32)[None] - (1 - mask).sum(1, keepdims=True)
-    pos_ids = jnp.where(pos_ids >= 0, pos_ids, 0)
-    return pos_ids
+
+    We implement right padding:
+    Say an attention mask is the following:
+        True True  True  False False
+        True False False False False
+    Then the first sequence is of length 3 and the second is of length 1.
+    And by decoding further, we are supposed to fill in the "False" slots.
+    """
+    pos_ids = (mask * jnp.arange(mask.shape[1])[None]).argmax(1)  # Last position of True at each row
+    return pos_ids[:, None]
 
 
 def torch_to_jax_states(

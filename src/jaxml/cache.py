@@ -27,7 +27,7 @@ class KVCache(struct.PyTreeNode):
 
     k: jnp.ndarray = struct.field(pytree_node=True)
     v: jnp.ndarray = struct.field(pytree_node=True)
-    max_seq_len: int = struct.field(pytree_node=True)
+    max_seq_len: int = struct.field(pytree_node=False)
     mask: jnp.ndarray = struct.field(pytree_node=True)
     dtype: Any = struct.field(pytree_node=False, default=jnp.float32)
     pos_id: Optional[jnp.ndarray] = struct.field(default=None, pytree_node=True)
@@ -51,31 +51,47 @@ class KVCache(struct.PyTreeNode):
 
     @property
     def next_pos_id(self):
-        #return jnp.concatenate([self.pos_id, self.pos_id[:, -1:] + 1], axis=1)
         return self.pos_id + 1
 
     @property
     def next_mask(self):
-        return jnp.concatenate(
-            [
-                self.mask, 
-                jnp.ones(
-                    (self.mask.shape[0], 1), 
-                    dtype=bool,
-                ),
-            ],
-                axis=1,
-        )
+        return self.mask
+
+    def _pad(self, x):
+        x, value = x
+        shape = (x.shape[0], self.max_seq_len - x.shape[1]) + x.shape[2:]
+        return jnp.concatenate([x, jnp.full(shape, value, dtype=x.dtype)], axis=1)
 
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
         if self.k is None:
             assert self.v is None
             assert self.mask is None
-            pos_id = get_default_pos_ids(mask)[:, -1:]
+            pos_id = get_default_pos_ids(mask)
+            k, v, mask = map(
+                self._pad,
+                ((k, 0), (v, 0), (mask, False))
+            )
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
+
         assert k.shape[1] == v.shape[1] == 1
-        new_k = jnp.concatenate([self.k, k], axis=1)
-        new_v = jnp.concatenate([self.v, v], axis=1)
-        new_mask = self.next_mask
+        batch_idx = jnp.arange(k.shape[0])[:, None]
+        full_idx = jnp.concatenate([batch_idx, self.next_pos_id], axis=1)
+        new_k = self.k.at[tuple(full_idx.T)].set(k.squeeze(1))
+        new_v = self.v.at[tuple(full_idx.T)].set(v.squeeze(1))
+        new_mask = self.mask.at[tuple(full_idx.T)].set(1)
 
         return self.replace(k=new_k, v=new_v, mask=new_mask, pos_id=self.next_pos_id)
+    
+    def rollback(self, n: int):
+        if n <= 0:
+            raise ValueError("n must be greater than 0.")
+        if self.k is None or self.v is None:
+            return self
+        prev_pos = self.pos_id - n
+        filter_mask = jnp.arange(self.k.shape[1]) <= prev_pos
+        new_k = jnp.where(filter_mask[..., None, None], self.k, 0)
+        new_v = jnp.where(filter_mask[..., None, None], self.v, 0)
+        
+        return self.replace(k=new_k, v=new_v, mask=filter_mask, pos_id=prev_pos)
+
+
