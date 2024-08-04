@@ -136,12 +136,12 @@ def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:
     
 
     from jaxml.config import ModelConfig
-    from jaxml.models.llama import LlamaForCausalLM
+    from jaxml.models.llama import LlamaModelWithHead
 
     _model = AutoModelForCausalLM.from_pretrained(name)
     _state_dict = _model.state_dict()
     params = torch_to_jax_states(_state_dict, head_dim=_model.config.hidden_size // _model.config.num_attention_heads)
     config = ModelConfig.from_hf(_model.config)
-    model = LlamaForCausalLM(config)
+    model = LlamaModelWithHead(config)
     return model, params
 
