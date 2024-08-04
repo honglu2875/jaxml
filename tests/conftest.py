@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import pytest
 
 from jaxml.config import ModelConfig
-from jaxml.models.llama import LlamaMLP as LlamaMLPJAX, LlamaDecoder, LlamaModel, LlamaForCausalLM as LlamaForCausalLMJAX
+from jaxml.models.llama import LlamaMLP as LlamaMLPJAX, LlamaDecoder, LlamaModel, LlamaModelWithHead
 from jaxml.nn.attention import Attention, AttentionWithRoPE
 
 
@@ -82,59 +82,31 @@ def get_layer_and_param(cls, config, discrete=False):
 
 
 @pytest.fixture
-def attn_cls():
-    return Attention
+def attention_small(config_small):
+    return get_layer_and_param(Attention, config_small)
 
 
 @pytest.fixture
-def attn_with_rope_cls():
-    return AttentionWithRoPE
+def attention_with_rope_small(config_small):
+    return get_layer_and_param(AttentionWithRoPE, config_small)
 
 
 @pytest.fixture
-def llama_mlp_cls():
-    return LlamaMLPJAX
+def llama_mlp(config_small):
+    return get_layer_and_param(LlamaMLPJAX, config_small)
 
 
 @pytest.fixture
-def llama_decoder_cls():
-    return LlamaDecoder
+def llama_decoder(config_small):
+    return get_layer_and_param(LlamaDecoder, config_small)
 
 @pytest.fixture
-def llama_model_cls():
-    return LlamaModel
+def llama_model(config_small):
+    return get_layer_and_param(LlamaModel, config_small, discrete=True)
 
 @pytest.fixture
-def llama_causal_model_cls():
-    return LlamaForCausalLMJAX
-
-
-@pytest.fixture
-def attention_small(attn_cls, config_small):
-    return get_layer_and_param(attn_cls, config_small)
-
-
-@pytest.fixture
-def attention_with_rope_small(attn_with_rope_cls, config_small):
-    return get_layer_and_param(attn_with_rope_cls, config_small)
-
-
-@pytest.fixture
-def llama_mlp(llama_mlp_cls, config_small):
-    return get_layer_and_param(llama_mlp_cls, config_small)
-
-
-@pytest.fixture
-def llama_decoder(llama_decoder_cls, config_small):
-    return get_layer_and_param(llama_decoder_cls, config_small)
-
-@pytest.fixture
-def llama_model(llama_model_cls, config_small):
-    return get_layer_and_param(llama_model_cls, config_small, discrete=True)
-
-@pytest.fixture
-def llama_causal_model(llama_causal_model_cls, config_small):
-    return get_layer_and_param(llama_causal_model_cls, config_small, discrete=True)
+def llama_model_with_head(config_small):
+    return get_layer_and_param(LlamaModelWithHead, config_small, discrete=True)
 
 @pytest.fixture
 def hf_attention_with_rope(hf_llama_config):
