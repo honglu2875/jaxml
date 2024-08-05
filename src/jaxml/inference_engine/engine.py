@@ -7,10 +7,15 @@ import flax.linen as nn
 from flax import struct
 from flax.core import FrozenDict
 from jaxml.cache import KVCache
+from jaxml.utils import timeit
 from typing import Any, Optional
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from jax.experimental import mesh_utils
+import logging
+import time
 
+
+logger = logging.getLogger(__name__)
 
 @struct.dataclass
 class InferenceConfig:
@@ -67,6 +72,7 @@ class Engine:
             )
         return jax.device_put(x, y)
     
+    @timeit(logger)
     def init_params(self, weights: Optional = None, use_tpu: bool = False, reinit_weight: bool = False):
         """
         Re-initialize the properly sharded parameters.
@@ -98,7 +104,7 @@ class Engine:
         # Changing sharding configuration requires changing this tuple.
         rules = (
             ("batch", "data"),
-            ("head", "model"),
+            ("heads", "model"),
             ("kv_length", None),
             ("length", None),
             ("intermediate", "model"),
@@ -154,7 +160,11 @@ class Engine:
                     self._shard_params,
                     weights["params"],
                     logical_state_sharding["params"],
-                )
+                ),
+                **{
+                    k: jax.tree.map(_single_device_fn, v)
+                    for k, v in weights.items() if k != "params"
+                }
             }
         else:
             params = jax.tree.map(_single_device_fn, weights)
