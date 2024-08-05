@@ -169,22 +169,23 @@ def generate(
         top_p=top_p,
         temp=temperature,
     )
-
     # Scan suffers from shape mismatch.
     # Potentially there are ways to still mitigate that (build separate kernels and pad the context window)
     # But I wonder how much gain there still is. Leave it as future todo.
 
+    """
     if show_progress:
-        def wrap_with_tqdm(fn, pbar):
+        def wrap_with_tqdm(fn):
             pbar = tqdm.pbar(range(max_new_tokens - 1))
             def _wrapped(carry, x):
                 debug.callback(lambda args, transform: pbar.update(1))
                 return fn(carry, x)
             return _wrapped
-        loop_fn = wrap_with_tqdm(loop_fn, pbar)
-
+        loop_fn = wrap_with_tqdm(loop_fn)
     """
+
     loop_fn = jax.jit(loop_fn, static_argnames=("sample_fn", "eval_fn", "top_k", "top_p", "temp"))
+    """
     generated_toks = jax.lax.scan(
         loop_fn,
         (kv_caches, rng, first_generated_tok),

@@ -21,6 +21,15 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
+import functools
+import time
+import logging
+from typing import Optional
+from pathlib import Path
+import pickle
+
+
+logger = logging.getLogger(__name__)
 
 
 def check_shape(tensor, *shape):
@@ -145,3 +154,52 @@ def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:
     model = LlamaModelWithHead(config)
     return model, params
 
+
+def timeit(logger):
+    def _factory(fn):
+        name = fn.__name__
+        @functools.wraps(fn)
+        def _wrapped(*args, **kwargs):
+            start_time = time.perf_counter()
+            ret = fn(*args, **kwargs)
+            logger.info(f"Execution time for {name}: {time.perf_counter() - start_time}")
+            return ret
+
+        return _wrapped
+    return _factory
+
+
+@timeit(logger)
+def save_compiled_fn(fn, hash=0):
+    from jax.experimental.serialize_executable import serialize
+    path = Path(".jaxml") / f"{fn.__name__}_{hash}"
+    path.mkdir(parents=True, exist_ok=True)
+    fn_path = path / "aot"
+    spec_path = path / "in_out_spec"
+    aot_fn, in_tree, out_tree = serialize(fn)
+    with fn_path.open("wb") as f:
+        f.write(aot_fn)
+    with spec_path.open("wb") as f:
+        pickle.dump((in_tree, out_tree), buffer)
+
+
+@timeit(logger)
+def load_compiled_fn(fn, hash=0):
+    from jax.experimental.serialize_executable import deserialize_and_load
+    path = Path(".jaxml") / f"{fn.__name__}_{hash}"
+    fn_path = path / "aot"
+    spec_path = path / "in_out_spec"
+    if not fn_path.exists() or not spec_path.exists():
+        raise ValueError(f"Cannot find read from the folder {path}")
+
+    with fn_path.open("rb") as f:
+        aot_fn = f.read()
+    with spec_path.open("rb") as f:
+        in_tree, out_tree = pickle.load(f)
+    compiled_fn = deserialize_and_load(
+        aot_function,
+        in_tree,
+        out_tree,
+    )
+    return compiled_fn
+         
