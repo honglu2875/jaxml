@@ -266,7 +266,7 @@ class LlamaForCausalLM(Block):
         abstract_variables = jax.eval_shape(self.init, key, dummy_input)
         rules = (
             ("batch", "data"),
-            ("head", "model"),
+            ("heads", "model"),
             ("kv_length", None),
             ("length", None),
             ("intermediate", "model"),
