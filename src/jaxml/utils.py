@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 import json
+import logging
+import pickle
+import time
+from pathlib import Path
 from typing import Any
 
 import chex
@@ -21,13 +26,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
-import functools
-import time
-import logging
-from typing import Optional
-from pathlib import Path
-import pickle
-
 
 logger = logging.getLogger(__name__)
 
@@ -135,14 +133,13 @@ def pprint_pytree(obj: Any):
     print(pretty_json)
 
 
-def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:
+def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
     try:
         from transformers import AutoModelForCausalLM
     except ImportError as e:
         raise ImportError("Please install transformers library.") from e
-    
 
     from jaxml.config import ModelConfig
     from jaxml.models.llama import LlamaModelWithHead
@@ -158,6 +155,7 @@ def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:
 def timeit(logger):
     def _factory(fn):
         name = fn.__name__
+
         @functools.wraps(fn)
         def _wrapped(*args, **kwargs):
             start_time = time.perf_counter()
@@ -166,12 +164,14 @@ def timeit(logger):
             return ret
 
         return _wrapped
+
     return _factory
 
 
 @timeit(logger)
 def save_compiled_fn(fn, hash=0):
     from jax.experimental.serialize_executable import serialize
+
     path = Path(".jaxml") / f"{fn.__name__}_{hash}"
     path.mkdir(parents=True, exist_ok=True)
     fn_path = path / "aot"
@@ -180,12 +180,13 @@ def save_compiled_fn(fn, hash=0):
     with fn_path.open("wb") as f:
         f.write(aot_fn)
     with spec_path.open("wb") as f:
-        pickle.dump((in_tree, out_tree), buffer)
+        pickle.dump((in_tree, out_tree), f)
 
 
 @timeit(logger)
 def load_compiled_fn(fn, hash=0):
     from jax.experimental.serialize_executable import deserialize_and_load
+
     path = Path(".jaxml") / f"{fn.__name__}_{hash}"
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
@@ -197,9 +198,8 @@ def load_compiled_fn(fn, hash=0):
     with spec_path.open("rb") as f:
         in_tree, out_tree = pickle.load(f)
     compiled_fn = deserialize_and_load(
-        aot_function,
+        aot_fn,
         in_tree,
         out_tree,
     )
     return compiled_fn
-         

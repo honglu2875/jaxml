@@ -1,5 +1,6 @@
-from typing import Optional
 import math
+from typing import Optional
+
 from flax import struct
 
 
@@ -21,12 +22,11 @@ class ModelConfig:
     use_bias: bool = struct.field(default=False, pytree_node=False)
     # Only effective when using ALiBi
     upcast_alibi: bool = struct.field(default=True, pytree_node=False)
-    
+
     use_alibi: bool = struct.field(default=False, pytree_node=False)
     use_rope: bool = struct.field(default=True, pytree_node=False)
     # Only effective when using RoPE
     rope_theta: int = struct.field(default=10_000, pytree_node=False)
-
 
     def __post_init__(self):
         if self.use_alibi and self.use_rope:

@@ -1,21 +1,21 @@
+import logging
+import warnings
+from typing import Any, Optional
+
+import flax.linen as nn
 import jax
-from jax import debug
 import jax.numpy as jnp
 import numpy as np
-import flax
-import flax.linen as nn
 from flax import struct
 from flax.core import FrozenDict
+from jax.experimental import mesh_utils
+from jax.sharding import Mesh, NamedSharding, PartitionSpec
+
 from jaxml.cache import KVCache
 from jaxml.utils import timeit
-from typing import Any, Optional
-from jax.sharding import Mesh, NamedSharding, PartitionSpec
-from jax.experimental import mesh_utils
-import logging
-import time
-
 
 logger = logging.getLogger(__name__)
+
 
 @struct.dataclass
 class InferenceConfig:
@@ -28,7 +28,8 @@ class InferenceConfig:
 
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
-    model: nn.Module 
+
+    model: nn.Module
     config: InferenceConfig
     params: FrozenDict
     kv_cache: Optional[list[KVCache]]
@@ -44,13 +45,13 @@ class Engine:
         max_seq_len = max_seq_len or self.config.max_sequence_length
         num_layers = self.model.config.num_layers
         return [KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers)]
-    
+
     @staticmethod
     def mesh_sharding(pspec: Optional[PartitionSpec], mesh: Optional[Mesh]) -> NamedSharding:
         if mesh is None:
             mesh = Mesh(jax.devices(), (None,))
         return NamedSharding(mesh, pspec)
-    
+
     def _shard_params(self, x: Any, y: PartitionSpec):
         if x.ndim != len(y.spec):
             assert (
@@ -71,7 +72,7 @@ class Engine:
                 y,
             )
         return jax.device_put(x, y)
-    
+
     @timeit(logger)
     def init_params(self, weights: Optional = None, use_tpu: bool = False, reinit_weight: bool = False):
         """
@@ -95,9 +96,7 @@ class Engine:
         # (dp, tp)
         mesh_layout = (dp_size, tp_size)
 
-        dummy_input = jnp.array(
-            [[1 for _ in range(mesh_layout[1])] for _ in range(mesh_layout[0])]
-        )
+        dummy_input = jnp.array([[1 for _ in range(mesh_layout[1])] for _ in range(mesh_layout[0])])
         abstract_variables = jax.eval_shape(self.model.init, key, dummy_input)
 
         # The sharding rules mapping named logical axis to named axis
@@ -119,13 +118,9 @@ class Engine:
             )
 
             logical_state_spec = nn.get_partition_spec(abstract_variables)
-            logical_state_sharding = nn.logical_to_mesh_sharding(
-                logical_state_spec, mesh, rules
-            )
+            logical_state_sharding = nn.logical_to_mesh_sharding(logical_state_spec, mesh, rules)
 
-            input_sharding = self.mesh_sharding(
-                PartitionSpec("data", None), mesh
-            )
+            input_sharding = self.mesh_sharding(PartitionSpec("data", None), mesh)
 
         # In case sharded==False, use _single_device_fn to move devices accordingly
         _single_device_fn = jnp.array if use_tpu else np.array
@@ -148,12 +143,8 @@ class Engine:
                 weights = self.model.init(key, dummy_input)
 
         # Can assume weight is not None from now, and the goal is only to shard it
-        assert isinstance(
-            weights, dict
-        ), f"weights must be a dict, got {type(weights)}"
-        assert (
-            "params" in weights
-        ), f"The key params not found in 'weights'. Got {weights.keys()}"
+        assert isinstance(weights, dict), f"weights must be a dict, got {type(weights)}"
+        assert "params" in weights, f"The key params not found in 'weights'. Got {weights.keys()}"
         if not is_single_device:
             params = {
                 "params": jax.tree.map(
@@ -161,10 +152,7 @@ class Engine:
                     weights["params"],
                     logical_state_sharding["params"],
                 ),
-                **{
-                    k: jax.tree.map(_single_device_fn, v)
-                    for k, v in weights.items() if k != "params"
-                }
+                **{k: jax.tree.map(_single_device_fn, v) for k, v in weights.items() if k != "params"},
             }
         else:
             params = jax.tree.map(_single_device_fn, weights)
@@ -176,14 +164,10 @@ class Engine:
         dp_size = self.config.dp_size
 
         mesh = Mesh(
-            devices=mesh_utils.create_device_mesh(
-                (dp_size, tp_size)
-            ),
+            devices=mesh_utils.create_device_mesh((dp_size, tp_size)),
             axis_names=("data", "model"),
         )
-        inputs = jax.device_put(
-            inputs, self.mesh_sharding(PartitionSpec("data", None), mesh)
-        )
+        inputs = jax.device_put(inputs, self.mesh_sharding(PartitionSpec("data", None), mesh))
         if dtype is not None:
             inputs = jax.tree.map(lambda x: x.astype(dtype), inputs)
         return inputs
@@ -203,8 +187,8 @@ class Engine:
             position_ids=None,
             attention_mask=attention_mask,
             mutable=("cache",),
-            #output_hidden_states=False, # maybe allow for toggling of hidden states in the future
-            #output_attentions=False, # maybe allow for toggling of attn wts in the future
+            # output_hidden_states=False, # maybe allow for toggling of hidden states in the future
+            # output_attentions=False, # maybe allow for toggling of attn wts in the future
             kv_caches=kv_caches,
             use_cache=use_cache,
         )  # return a tuple (CausalLMOutputWithCache, dict) where dict is the mutable cache
@@ -230,7 +214,7 @@ class Engine:
             apply = jax.jit(self.wrapped_apply_fn, static_argnames=("use_cache",))
 
         kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + max_new_tokens)
-        
+
         from .._generate import generate
 
         return generate(
@@ -247,7 +231,3 @@ class Engine:
             temperature=temperature,
             show_progress=show_progress,
         )
-
-
-
-

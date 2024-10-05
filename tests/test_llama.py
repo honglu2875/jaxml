@@ -17,9 +17,9 @@ import jax.numpy as jnp
 import numpy as np
 import torch
 
-from jaxml.utils import torch_to_jax_states
 from jaxml.cache import KVCache
 from jaxml.inference_engine.engine import Engine, InferenceConfig
+from jaxml.utils import torch_to_jax_states
 
 
 def test_llama_mlp(llama_mlp, hf_llama_mlp):
@@ -58,9 +58,10 @@ def test_llama_decoder(llama_decoder, hf_llama_decoder):
                 )[None, None].repeat(bs, 1, 1, 1),
                 output_attentions=True,
             )
-        
+
         assert np.allclose(y.hidden_states, y2[0].numpy(), atol=1e-5)
         assert np.allclose(y.attention_weight, y2[1].numpy(), atol=1e-5)
+
 
 def test_llama_model(llama_model, hf_llama_model):
     bs, seq_len = 4, 10
@@ -76,10 +77,11 @@ def test_llama_model(llama_model, hf_llama_model):
                 output_attentions=True,
                 output_hidden_states=True,
             )
-        
+
         assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=1e-5)
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.attention_weights, y2.attentions))
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.hidden_states, y2.hidden_states))
+
 
 def test_llama_completion(llama_model_with_head, hf_llama_causal_model):
     bs, seq_len = 4, 10
@@ -88,7 +90,7 @@ def test_llama_completion(llama_model_with_head, hf_llama_causal_model):
         key = jax.random.PRNGKey(0)
         x = jax.random.randint(key, (bs, seq_len), 0, model.config.vocab_size - 1, dtype=jnp.int32)
         params = torch_to_jax_states(hf_llama_causal_model, head_dim=model.head_dim, dtype=torch.float32)
-        
+
         config = InferenceConfig()
         engine = Engine(model, config, {**init_param, "params": params["params"]})
         engine.init_params(use_tpu=False)
@@ -101,6 +103,7 @@ def test_llama_completion(llama_model_with_head, hf_llama_causal_model):
             )
         print(y, y2)
         assert np.all(y == y2.numpy())
+
 
 def test_kv_cache(llama_model):
     bs, seq_len = 4, 10
@@ -115,6 +118,8 @@ def test_kv_cache(llama_model):
         kv_caches = y.kv_caches
 
         new_caches = tuple(c.rollback(1) for c in kv_caches)
-        y2 = model.apply(init_param, x[:, -1:], output_attentions=True, output_hidden_states=True, use_cache=True, kv_caches=new_caches)
+        y2 = model.apply(
+            init_param, x[:, -1:], output_attentions=True, output_hidden_states=True, use_cache=True, kv_caches=new_caches
+        )
 
-        assert jnp.allclose(y.last_hidden_state[:, seq_len - 1 :seq_len], y2.last_hidden_state, atol=1e-6)
+        assert jnp.allclose(y.last_hidden_state[:, seq_len - 1 : seq_len], y2.last_hidden_state, atol=1e-6)

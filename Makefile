@@ -1,5 +1,5 @@
 SHELL=/bin/bash
-LINT_PATHS=jaxml/ tests/
+LINT_PATHS=src/jaxml/ tests/
 
 pytest:
 	pytest tests/

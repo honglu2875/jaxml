@@ -17,7 +17,9 @@ import jax.numpy as jnp
 import pytest
 
 from jaxml.config import ModelConfig
-from jaxml.models.llama import LlamaMLP as LlamaMLPJAX, LlamaDecoder, LlamaModel, LlamaModelWithHead
+from jaxml.models.llama import LlamaDecoder
+from jaxml.models.llama import LlamaMLP as LlamaMLPJAX
+from jaxml.models.llama import LlamaModel, LlamaModelWithHead
 from jaxml.nn.attention import Attention, AttentionWithRoPE
 
 
@@ -100,13 +102,16 @@ def llama_mlp(config_small):
 def llama_decoder(config_small):
     return get_layer_and_param(LlamaDecoder, config_small)
 
+
 @pytest.fixture
 def llama_model(config_small):
     return get_layer_and_param(LlamaModel, config_small, discrete=True)
 
+
 @pytest.fixture
 def llama_model_with_head(config_small):
     return get_layer_and_param(LlamaModelWithHead, config_small, discrete=True)
+
 
 @pytest.fixture
 def hf_attention_with_rope(hf_llama_config):

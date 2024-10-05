@@ -15,13 +15,10 @@
 
 from typing import Any, Optional
 
-import flax
 import jax
 import jax.numpy as jnp
-from jax.sharding import Mesh, NamedSharding, PartitionSpec
 from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
-import warnings
 
 from ..cache import KVCache
 from ..nn.attention import Attention, AttentionWithRoPE
@@ -29,9 +26,7 @@ from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
 from ..nn.norms import RMSNorm
-from ..nn.position import RotaryEmbedding
-from ..utils import get_default_pos_ids
-from ..outputs import AttentionOutput, DecoderOutput, BaseModelOutputWithCache, CausalLMOutputWithCache
+from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
 
 
 class LlamaMLP(Block):
@@ -134,11 +129,7 @@ class LlamaDecoder(Block):
 
 class LlamaModel(Block):
     def setup(self):
-        self.embed_tokens = Embed(
-            num_embeddings=self.config.vocab_size, 
-            features=self.hidden_size, 
-            dtype=self.dtype
-        )
+        self.embed_tokens = Embed(num_embeddings=self.config.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.layers = [LlamaDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
         self.norm = RMSNorm(self.hidden_size, eps=self.norm_eps)
 
@@ -160,11 +151,8 @@ class LlamaModel(Block):
                 # our convention is that negative ids (such as -100) is masked by default.
                 attention_mask = input_ids >= 0
 
-
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
-        hidden_states = with_sharding_constraint(
-            inputs_embeds, ("batch", "length", "embed")
-        )
+        hidden_states = with_sharding_constraint(inputs_embeds, ("batch", "length", "embed"))
 
         all_hidden_states = []
         all_self_attns = []
@@ -182,16 +170,10 @@ class LlamaModel(Block):
                 kv_cache=kv_cache,
                 output_attentions=output_attentions,
             )
-            hidden_states, kv_cache, attn_weight = (
-                output.hidden_states,
-                output.kv_cache,
-                output.attention_weight
-            )
-
+            hidden_states, kv_cache, attn_weight = (output.hidden_states, output.kv_cache, output.attention_weight)
 
             all_self_attns.append(attn_weight)
             next_kv_caches.append(kv_cache)
-
 
         hidden_states = self.norm(hidden_states)
         all_hidden_states.append(hidden_states)
@@ -201,18 +183,16 @@ class LlamaModel(Block):
             kv_caches=tuple(next_kv_caches) if use_cache else None,
             hidden_states=tuple(all_hidden_states) if output_hidden_states else None,
             attention_weights=tuple(all_self_attns) if output_attentions else None,
-        )        
-        
-        
+        )
+
+
 class LlamaModelWithHead(Block):
-    
+
     lm_head_init: Any = nn.initializers.xavier_uniform
     lm_head_init_args: tuple = ()
 
     def setup(self):
-        self.model = LlamaModel(
-            self.config, dtype=self.dtype
-        )
+        self.model = LlamaModel(self.config, dtype=self.dtype)
         self.lm_head = DenseGeneral(
             features=self.config.vocab_size,
             dtype=self.dtype,

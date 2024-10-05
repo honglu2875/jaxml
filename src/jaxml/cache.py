@@ -15,7 +15,6 @@
 
 from typing import Any, Optional
 
-import jax
 import jax.numpy as jnp
 from flax import struct
 
@@ -67,10 +66,7 @@ class KVCache(struct.PyTreeNode):
             assert self.v is None
             assert self.mask is None
             pos_id = get_default_pos_ids(mask)
-            k, v, mask = map(
-                self._pad,
-                ((k, 0), (v, 0), (mask, False))
-            )
+            k, v, mask = map(self._pad, ((k, 0), (v, 0), (mask, False)))
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
 
         assert k.shape[1] == v.shape[1] == 1
@@ -81,7 +77,7 @@ class KVCache(struct.PyTreeNode):
         new_mask = self.mask.at[tuple(full_idx.T)].set(1)
 
         return self.replace(k=new_k, v=new_v, mask=new_mask, pos_id=self.next_pos_id)
-    
+
     def rollback(self, n: int):
         if n <= 0:
             raise ValueError("n must be greater than 0.")
@@ -91,7 +87,5 @@ class KVCache(struct.PyTreeNode):
         filter_mask = jnp.arange(self.k.shape[1]) <= prev_pos
         new_k = jnp.where(filter_mask[..., None, None], self.k, 0)
         new_v = jnp.where(filter_mask[..., None, None], self.v, 0)
-        
+
         return self.replace(k=new_k, v=new_v, mask=filter_mask, pos_id=prev_pos)
-
-

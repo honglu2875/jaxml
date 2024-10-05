@@ -14,11 +14,11 @@
 # limitations under the License.
 
 import functools
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 import tqdm
-from typing import Optional
 
 from .cache import KVCache
 
@@ -122,7 +122,7 @@ def generate(
     top_p: float = 0.0,
     temperature: float = 1.0,
     include_prompt: bool = False,
-    show_progress: bool = False
+    show_progress: bool = False,
 ):
     """
     Args:
@@ -198,7 +198,6 @@ def generate(
         state, token = loop_fn(state, i)
         new_tokens.append(token)
     generated_toks = jnp.stack(new_tokens, axis=-1)
-    
 
     if include_prompt:
         return jnp.concatenate((first_generated_tok, generated_toks), axis=-1)
