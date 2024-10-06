@@ -55,9 +55,10 @@ class Timeit:
 
 
 @functools.lru_cache()
-def _hash(s: str) -> int:
+def _hash(*args) -> int:
     m = hashlib.sha256()
-    m.update(s.encode(encoding="utf-8"))
+    for s in args:
+        m.update(s.encode(encoding="utf-8"))
     return m.hexdigest()
 
 

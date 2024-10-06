@@ -214,12 +214,21 @@ class Engine:
         from .._generate import generate
 
         sampling_method = SamplingMethod.from_values(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
-        logger.info(f"Given the parameters {top_k=}, {top_p=}, {min_p=}, {temperature=}, the sampling method is determined as follows: {str(sampling_method)}.")
+        logger.info(
+            f"Given the parameters {top_k=}, {top_p=}, {min_p=}, {temperature=}, the sampling method is determined as follows: {str(sampling_method)}."
+        )
 
         # For every unique model call, cache the AOT-compiled function to disk
         # Note: top_k value cannot be traced and need to be hashed as well.
         top_k = 0 if top_k < 0 else top_k
-        call_hash = _hash(str(self.model) + str(self.config) + str(prompt_tokens.shape) + str(max_new_tokens) + str(sampling_method) + str(top_k))
+        call_hash = _hash(
+            str(self.model),
+            str(self.config),
+            str(prompt_tokens.shape),
+            str(max_new_tokens),
+            str(sampling_method),
+            str(top_k),
+        )
 
         return generate(
             self.params,

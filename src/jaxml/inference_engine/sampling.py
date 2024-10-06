@@ -1,8 +1,8 @@
 import functools
+
 import jax
 import jax.numpy as jnp
 from flax import struct
-
 
 NEG_INF = float("-inf")
 
@@ -78,4 +78,3 @@ class SamplingMethod:
             return jax.random.categorical(rng, logits / temp)
 
         return _sampling_fn
-

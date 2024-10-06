@@ -19,15 +19,13 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
-import tqdm
 from jax_tqdm import scan_tqdm
 
 from jaxml.cache import KVCache
-from jaxml.utils import Timeit, load_if_exists
 from jaxml.inference_engine.sampling import SamplingMethod
+from jaxml.utils import load_if_exists
 
 logger = logging.getLogger(__name__)
-
 
 
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
@@ -119,7 +117,7 @@ def generate(
         top_p=top_p,
         temp=temperature,
     )
-    # loop_fn = scan_tqdm(max_new_tokens - 1)(loop_fn)
+    loop_fn = scan_tqdm(max_new_tokens - 1)(loop_fn)
 
     @load_if_exists(name="decode", hash=call_hash)
     def _decode(params, kv_caches, rng, first_generated_tok):
