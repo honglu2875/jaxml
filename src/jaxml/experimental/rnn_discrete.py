@@ -1,12 +1,12 @@
-import flax
-import flax.linen as nn
-from flax import struct
+from typing import Any, Optional
+
 import jax
 import jax.numpy as jnp
+from flax import struct
 
-
-from ..nn.linear import DenseGeneral
 from ..nn.embedding import Embed
+from ..nn.linear import DenseGeneral
+from ..nn.norms import RMSNorm
 from .module import Module
 
 
@@ -21,7 +21,7 @@ class RNNDiscreteConfig:
 
 
 class RNNDiscrete(Module):
-    """A Simple RNN where inputs are discrete classes and outputs are single-class 
+    """A Simple RNN where inputs are discrete classes and outputs are single-class
     probability distributions."""
 
     config: RNNDiscreteConfig
@@ -32,7 +32,7 @@ class RNNDiscrete(Module):
         self.embed = Embed(
             num_embedding=self.config.num_classes,
             features=self.config.hidden_dim,
-            dtype=self.dtype, 
+            dtype=self.dtype,
         )
         self.layers = [
             DenseGeneral(
@@ -41,7 +41,7 @@ class RNNDiscrete(Module):
                 weight_dtype=self.dtype,
                 dtype=self.dtype,
                 use_bias=self.config.use_bias,
-            ) 
+            )
         ]
         self.norm = RMSNorm(self.config.hidden_size, eps=self.norm_eps)
         self.output = DenseGeneral(
@@ -49,7 +49,7 @@ class RNNDiscrete(Module):
             axis=-1,
             weight_dtype=self.dtype,
             dtype=self.dtype,
-            use_bias=self.config.use_bias, 
+            use_bias=self.config.use_bias,
         )
 
     def __call__(

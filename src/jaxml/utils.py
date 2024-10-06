@@ -13,14 +13,52 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
+import hashlib
 import json
-from typing import Any
+import logging
+import pickle
+import time
+from pathlib import Path
+from typing import Any, Callable
 
 import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
+
+logger = logging.getLogger(__name__)
+
+
+class Timeit:
+    def __init__(self):
+        self.start = None
+        self.end = None
+
+    def __enter__(self):
+        self.start = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.end = time.perf_counter()
+
+    def __str__(self):
+        if self.start is None:
+            return "Not started."
+        elif self.end is None:
+            return str(time.perf_counter() - self.start)
+        else:
+            return str(self.end - self.start)
+
+    __repr__ = __str__
+
+
+@functools.lru_cache()
+def _hash(s: str) -> int:
+    m = hashlib.sha256()
+    m.update(s.encode(encoding="utf-8"))
+    return m.hexdigest()
 
 
 def check_shape(tensor, *shape):
@@ -126,22 +164,100 @@ def pprint_pytree(obj: Any):
     print(pretty_json)
 
 
-def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:
+def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
     try:
         from transformers import AutoModelForCausalLM
     except ImportError as e:
         raise ImportError("Please install transformers library.") from e
-    
 
     from jaxml.config import ModelConfig
-    from jaxml.models.llama import LlamaForCausalLM
+    from jaxml.models.llama import LlamaModelWithHead
 
     _model = AutoModelForCausalLM.from_pretrained(name)
     _state_dict = _model.state_dict()
     params = torch_to_jax_states(_state_dict, head_dim=_model.config.hidden_size // _model.config.num_attention_heads)
     config = ModelConfig.from_hf(_model.config)
-    model = LlamaForCausalLM(config)
+    model = LlamaModelWithHead(config)
     return model, params
 
+
+def timeit(logger):
+    def _factory(fn):
+        name = fn.__name__
+
+        @functools.wraps(fn)
+        def _wrapped(*args, **kwargs):
+            start_time = time.perf_counter()
+            ret = fn(*args, **kwargs)
+            logger.info(f"Execution time for {name}: {time.perf_counter() - start_time}")
+            return ret
+
+        return _wrapped
+
+    return _factory
+
+
+@timeit(logger)
+def save_compiled_fn(fn, name: str, hash=0) -> int:
+    from jax.experimental.serialize_executable import serialize
+
+    path = Path(".jaxml") / f"{name}_{hash}"
+    path.mkdir(parents=True, exist_ok=True)
+    fn_path = path / "aot"
+    spec_path = path / "in_out_spec"
+    aot_fn, in_tree, out_tree = serialize(fn)
+    with fn_path.open("wb") as f:
+        f.write(aot_fn)
+    with spec_path.open("wb") as f:
+        io_spec_bytes = pickle.dumps((in_tree, out_tree))
+        f.write(io_spec_bytes)
+    return len(aot_fn) + len(io_spec_bytes)
+
+
+def compiled_fn_exist(name: str, hash=0):
+    return (Path(".jaxml") / f"{name}_{hash}").exists()
+
+
+@timeit(logger)
+def load_compiled_fn(name: str, hash=0):
+    from jax.experimental.serialize_executable import deserialize_and_load
+
+    path = Path(".jaxml") / f"{name}_{hash}"
+    fn_path = path / "aot"
+    spec_path = path / "in_out_spec"
+    if not fn_path.exists() or not spec_path.exists():
+        raise ValueError(f"Cannot find read from the folder {path}")
+
+    with fn_path.open("rb") as f:
+        aot_fn = f.read()
+    with spec_path.open("rb") as f:
+        in_tree, out_tree = pickle.load(f)
+    compiled_fn = deserialize_and_load(
+        aot_fn,
+        in_tree,
+        out_tree,
+    )
+    return compiled_fn
+
+
+def load_if_exists(name: str, hash: int):
+    def _decorator(fn: Callable):
+        @functools.wraps(fn)
+        def _wrapped_fn(*args, **kwargs):
+            if compiled_fn_exist(name, hash):
+                _cfn = load_compiled_fn(name, hash)
+            else:
+                lowered = jax.jit(fn).lower(*args, **kwargs)
+                with Timeit() as t:
+                    _cfn = lowered.compile()
+                logger.info(f"Compiled function '{name}' ({t} seconds).")
+                byte_count = save_compiled_fn(_cfn, name, hash=hash)
+                logger.info(f"Cached AOT-compiled function '{name}' ({byte_count} bytes).")
+
+            return _cfn(*args, **kwargs)
+
+        return _wrapped_fn
+
+    return _decorator
