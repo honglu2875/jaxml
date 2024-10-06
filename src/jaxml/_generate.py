@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import functools
+import logging
 from typing import Optional
 
 import jax
@@ -21,7 +22,10 @@ import jax.numpy as jnp
 import tqdm
 from jax_tqdm import scan_tqdm
 
-from .cache import KVCache
+from jaxml.cache import KVCache
+from jaxml.utils import Timeit, compiled_fn_exist, load_compiled_fn, save_compiled_fn
+
+logger = logging.getLogger(__name__)
 
 
 @functools.partial(jax.jit, static_argnames=("top_k", "filter_value"))
@@ -96,8 +100,8 @@ def _pad_to(x, length, axis=0):
     return jnp.concatenate((jnp.zeros(pad_shape), x), axis=axis)
 
 
-def _loop_fn(cache_and_rng_and_out, i, params, sample_fn, eval_fn, top_k, top_p, temp):
-    kv_caches, key, tok = cache_and_rng_and_out
+def _loop_fn(cache_and_rng_and_out, i, sample_fn, eval_fn, top_k, top_p, temp):
+    params, kv_caches, key, tok = cache_and_rng_and_out
     key, subkey = jax.random.split(key)
     outputs, kv_caches = eval_fn(
         params,
@@ -107,7 +111,7 @@ def _loop_fn(cache_and_rng_and_out, i, params, sample_fn, eval_fn, top_k, top_p,
     )
     out_tk = sample_fn(key, outputs, top_k, top_p, temp)
 
-    return (kv_caches, key, out_tk), out_tk.squeeze(1).T
+    return (params, kv_caches, key, out_tk), out_tk.squeeze(1).T
 
 
 def generate(
@@ -116,6 +120,7 @@ def generate(
     prompt_tokens: jnp.ndarray,
     attention_mask: Optional[jnp.ndarray],
     kv_caches: list[KVCache],
+    call_hash: int,
     do_sample: bool = True,
     seed: int = 0,
     max_new_tokens: int = 100,
@@ -130,6 +135,9 @@ def generate(
         params: FrozenDict containing the model parameters
         eval_fn: the evaluation function (usually the `model.apply` or `jax.jit(model.apply)`)
         prompt_tokens: the tokenized prompt
+        attention_mask: The attention mask
+        kv_caches: The (list of) kv-caches
+        call_hash: A hash unique to each AOT-function for decoding
         do_sample: whether to sample the distribution or take the argmax
         seed: random seed
         max_new_tokens: the max generation length
@@ -163,28 +171,36 @@ def generate(
 
     loop_fn = functools.partial(
         _loop_fn,
-        params=params,
         sample_fn=sample_fn,
         eval_fn=eval_fn,
         top_k=top_k,
         top_p=top_p,
         temp=temperature,
     )
-    #loop_fn = jax.jit(loop_fn, static_argnames=("sample_fn", "eval_fn", "top_k", "top_p", "temp"))
-    loop_fn = scan_tqdm(max_new_tokens - 1)(loop_fn)
-    generated_toks = jax.lax.scan(
-        loop_fn,
-        (kv_caches, rng, first_generated_tok),
-        jnp.arange(max_new_tokens - 1) + prompt_len,
-    )[1].T
-    """
-    state = (kv_caches, rng, first_generated_tok)
-    new_tokens = []
-    for i in tqdm.trange(prompt_len, prompt_len + max_new_tokens - 1, disable=not show_progress):
-        state, token = loop_fn(state, i)
-        new_tokens.append(token)
-    generated_toks = jnp.stack(new_tokens, axis=-1)
-    """
+    # loop_fn = scan_tqdm(max_new_tokens - 1)(loop_fn)
+
+    if compiled_fn_exist("generate", hash=call_hash):
+        with Timeit() as t:
+            _cfn = load_compiled_fn("generate", hash=call_hash)
+        logger.info(f"Loaded cached decoding function ({t} seconds).")
+    else:
+
+        @jax.jit
+        def _fn(params, kv_caches, rng, first_generated_tok):
+            return jax.lax.scan(
+                loop_fn,
+                (params, kv_caches, rng, first_generated_tok),
+                jnp.arange(max_new_tokens - 1),
+            )[1].T
+
+        lowered = _fn.lower(params, kv_caches, rng, first_generated_tok)
+        with Timeit() as t:
+            _cfn = lowered.compile()
+        logger.info(f"Compilation took {t} seconds.")
+
+        size = save_compiled_fn(_cfn, "generate", hash=call_hash)
+        logger.info(f"Saved serialized decoding function ({size} bytes).")
+    generated_toks = _cfn(params, kv_caches, rng, first_generated_tok)
 
     if include_prompt:
         return jnp.concatenate((first_generated_tok, generated_toks), axis=-1)

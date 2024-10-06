@@ -12,7 +12,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from jaxml.cache import KVCache
-from jaxml.utils import timeit
+from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,7 @@ class Engine:
             ("heads", "model"),
             ("kv_length", None),
             ("length", None),
-            ("intermediate", "model"),
+            ("intermediate", None),
             ("heads_merged", "model"),
             ("head_states", None),
         )
@@ -217,12 +217,16 @@ class Engine:
 
         from .._generate import generate
 
+        # For every unique model call, cache the AOT-compiled function to disk
+        call_hash = _hash(str(self.model) + str(self.config) + str(prompt_tokens.shape) + str(max_new_tokens))
+
         return generate(
             self.params,
             apply,
             prompt_tokens,
             attention_mask,
             kv_caches,
+            call_hash,
             do_sample=do_sample,
             seed=seed,
             max_new_tokens=max_new_tokens,

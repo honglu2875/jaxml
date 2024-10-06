@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import functools
+import hashlib
 import json
 import logging
 import pickle
@@ -28,6 +29,36 @@ import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
+
+
+class Timeit:
+    def __init__(self):
+        self.start = None
+        self.end = None
+
+    def __enter__(self):
+        self.start = time.perf_counter()
+        yield self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.end = time.perf_counter()
+
+    def __str__(self):
+        if self.start is None:
+            return "Not started."
+        elif self.end is None:
+            return str(time.perf_counter() - self.start)
+        else:
+            return str(self.end - self.start)
+
+    __repr__ = __str__
+
+
+@functools.lru_cache()
+def _hash(s: str) -> int:
+    m = hashlib.sha256()
+    m.update(s.encode(encoding="utf-8"))
+    return m.hexdigest()
 
 
 def check_shape(tensor, *shape):
@@ -169,10 +200,10 @@ def timeit(logger):
 
 
 @timeit(logger)
-def save_compiled_fn(fn, hash=0):
+def save_compiled_fn(fn, name: str, hash=0) -> int:
     from jax.experimental.serialize_executable import serialize
 
-    path = Path(".jaxml") / f"{fn.__name__}_{hash}"
+    path = Path(".jaxml") / f"{name}_{hash}"
     path.mkdir(parents=True, exist_ok=True)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
@@ -180,14 +211,20 @@ def save_compiled_fn(fn, hash=0):
     with fn_path.open("wb") as f:
         f.write(aot_fn)
     with spec_path.open("wb") as f:
-        pickle.dump((in_tree, out_tree), f)
+        io_spec_bytes = pickle.dumps((in_tree, out_tree))
+        f.write(io_spec_bytes)
+    return len(aot_fn) + len(io_spec_bytes)
+
+
+def compiled_fn_exist(name: str, hash=0):
+    return (Path(".jaxml") / f"{name}_{hash}").exists()
 
 
 @timeit(logger)
-def load_compiled_fn(fn, hash=0):
+def load_compiled_fn(fn, name: str, hash=0):
     from jax.experimental.serialize_executable import deserialize_and_load
 
-    path = Path(".jaxml") / f"{fn.__name__}_{hash}"
+    path = Path(".jaxml") / f"{name}_{hash}"
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     if not fn_path.exists() or not spec_path.exists():
