@@ -12,6 +12,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from jaxml.cache import KVCache
+from jaxml.inference_engine.sampling import SamplingMethod
 from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
@@ -199,26 +200,26 @@ class Engine:
         self,
         prompt_tokens: jnp.ndarray,
         attention_mask: Optional[jnp.ndarray] = None,
-        do_sample: bool = True,
         seed: int = 0,
         max_new_tokens: int = 10,
         top_k: int = 0,
         top_p: float = 0.0,
+        min_p: float = 0.0,
         temperature: float = 1.0,
-        no_jit: bool = False,
         show_progress: bool = False,
     ):
-        if no_jit:
-            apply = self.wrapped_apply_fn
-        else:
-            apply = jax.jit(self.wrapped_apply_fn, static_argnames=("use_cache",))
-
+        apply = self.wrapped_apply_fn
         kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + max_new_tokens)
 
         from .._generate import generate
 
+        sampling_method = SamplingMethod.from_values(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
+        logger.info(f"Given the parameters {top_k=}, {top_p=}, {min_p=}, {temperature=}, the sampling method is determined as follows: {str(sampling_method)}.")
+
         # For every unique model call, cache the AOT-compiled function to disk
-        call_hash = _hash(str(self.model) + str(self.config) + str(prompt_tokens.shape) + str(max_new_tokens))
+        # Note: top_k value cannot be traced and need to be hashed as well.
+        top_k = 0 if top_k < 0 else top_k
+        call_hash = _hash(str(self.model) + str(self.config) + str(prompt_tokens.shape) + str(max_new_tokens) + str(sampling_method) + str(top_k))
 
         return generate(
             self.params,
@@ -227,11 +228,12 @@ class Engine:
             attention_mask,
             kv_caches,
             call_hash,
-            do_sample=do_sample,
+            sampling_method,
             seed=seed,
             max_new_tokens=max_new_tokens,
             top_k=top_k,
             top_p=top_p,
+            min_p=min_p,
             temperature=temperature,
             show_progress=show_progress,
         )

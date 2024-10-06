@@ -20,7 +20,7 @@ import logging
 import pickle
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import chex
 import jax
@@ -38,7 +38,7 @@ class Timeit:
 
     def __enter__(self):
         self.start = time.perf_counter()
-        yield self
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.end = time.perf_counter()
@@ -221,7 +221,7 @@ def compiled_fn_exist(name: str, hash=0):
 
 
 @timeit(logger)
-def load_compiled_fn(fn, name: str, hash=0):
+def load_compiled_fn(name: str, hash=0):
     from jax.experimental.serialize_executable import deserialize_and_load
 
     path = Path(".jaxml") / f"{name}_{hash}"
@@ -240,3 +240,24 @@ def load_compiled_fn(fn, name: str, hash=0):
         out_tree,
     )
     return compiled_fn
+
+
+def load_if_exists(name: str, hash: int):
+    def _decorator(fn: Callable):
+        @functools.wraps(fn)
+        def _wrapped_fn(*args, **kwargs):
+            if compiled_fn_exist(name, hash):
+                _cfn = load_compiled_fn(name, hash)
+            else:
+                lowered = jax.jit(fn).lower(*args, **kwargs)
+                with Timeit() as t:
+                    _cfn = lowered.compile()
+                logger.info(f"Compiled function '{name}' ({t} seconds).")
+                byte_count = save_compiled_fn(_cfn, name, hash=hash)
+                logger.info(f"Cached AOT-compiled function '{name}' ({byte_count} bytes).")
+
+            return _cfn(*args, **kwargs)
+
+        return _wrapped_fn
+
+    return _decorator
