@@ -1,4 +1,4 @@
-
+import time
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -18,10 +18,12 @@ encoded = tokenizer(prompt, return_tensors='np')
 prompt_tokens = jnp.array(encoded.input_ids)
 attention_mask = jnp.array(encoded.attention_mask)
 
-config = InferenceConfig(max_sequence_length=100, tp_size=4)
+config = InferenceConfig(max_sequence_length=200, tp_size=1)
 engine = Engine(model, config, params)
 engine.init_params(use_tpu=True)
 
 #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+start = time.perf_counter()
 output = engine.generate(prompt_tokens, attention_mask=attention_mask, max_new_tokens=10, do_sample=True, temperature=1.0, show_progress=True, no_jit=True)
+print("Time", time.perf_counter() - start)
 print(tokenizer.batch_decode(np.array(output)))

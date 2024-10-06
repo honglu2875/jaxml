@@ -19,6 +19,7 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 import tqdm
+from jax_tqdm import scan_tqdm
 
 from .cache import KVCache
 
@@ -169,23 +170,8 @@ def generate(
         top_p=top_p,
         temp=temperature,
     )
-    # Scan suffers from shape mismatch.
-    # Potentially there are ways to still mitigate that (build separate kernels and pad the context window)
-    # But I wonder how much gain there still is. Leave it as future todo.
-
-    """
-    if show_progress:
-        def wrap_with_tqdm(fn):
-            pbar = tqdm.pbar(range(max_new_tokens - 1))
-            def _wrapped(carry, x):
-                debug.callback(lambda args, transform: pbar.update(1))
-                return fn(carry, x)
-            return _wrapped
-        loop_fn = wrap_with_tqdm(loop_fn)
-    """
-
-    loop_fn = jax.jit(loop_fn, static_argnames=("sample_fn", "eval_fn", "top_k", "top_p", "temp"))
-    """
+    #loop_fn = jax.jit(loop_fn, static_argnames=("sample_fn", "eval_fn", "top_k", "top_p", "temp"))
+    loop_fn = scan_tqdm(max_new_tokens - 1)(loop_fn)
     generated_toks = jax.lax.scan(
         loop_fn,
         (kv_caches, rng, first_generated_tok),
@@ -198,6 +184,7 @@ def generate(
         state, token = loop_fn(state, i)
         new_tokens.append(token)
     generated_toks = jnp.stack(new_tokens, axis=-1)
+    """
 
     if include_prompt:
         return jnp.concatenate((first_generated_tok, generated_toks), axis=-1)
