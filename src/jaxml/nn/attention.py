@@ -22,10 +22,13 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
+from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
 from flax import linen as nn
+import math
 
 from ..cache import KVCache
 from ..outputs import AttentionOutput
+from ..utils import get_default_pos_ids
 from .linear import DenseGeneral
 from .module import Block
 from .position import RotaryEmbedding
@@ -142,7 +145,7 @@ class Attention(Block):
     @property
     def qk_scale(self):
         """The scale applied after qk in MHA. Feel free to override in cases such as muP."""
-        return jnp.sqrt(self.head_dim)
+        return math.sqrt(self.head_dim)
 
     def mha(
         self,
@@ -185,6 +188,35 @@ class Attention(Block):
 
         return attn_output, out_weight
 
+    def mha_flash(
+        self,
+        query_states: jnp.ndarray,
+        key_states: jnp.ndarray,
+        value_states: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
+        causal: bool = True,
+        alibi_slope=None,
+        softmax_fp32: bool = True,
+        output_attentions: bool = False,
+    ):
+        if output_attentions:
+            raise NotImplementedError("Output attention scores for TPU attention is not implemented.")
+        if alibi_slope is not None:
+            raise NotImplementedError("The current JAX FlashAttention materializes the whole alibi-bias, defeating the purpose of using it for inference.")
+        bs, q_len, num_heads, head_dim = query_states.shape
+        kv_len = key_states.shape[1]
+        if q_len < 128:
+            # Pad to minimal block size
+            query_states = jnp.concatenate([query_states, jnp.zeros((bs, 128 - q_len, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
+        if kv_len % 128 != 0:
+            key_states = jnp.concatenate([key_states, jnp.zeros((bs, 128 - kv_len % 128, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
+            value_states = jnp.concatenate([value_states, jnp.zeros((bs, 128 - kv_len % 128, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
+
+        query_states, key_states, value_states = map(lambda x: x.transpose(0, 2, 1, 3), (query_states, key_states, value_states))
+        output = flash_attention(query_states, key_states, value_states, causal=causal, sm_scale=1 / self.qk_scale)
+
+        return output.transpose(0, 2, 1, 3)[:, :q_len], None
+
     def post_mha(
         self,
         attn_output: jnp.ndarray,
@@ -205,6 +237,7 @@ class Attention(Block):
         position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
+        use_flash: bool = False,
         *kwargs,
     ) -> AttentionOutput:
         """The base class implements basic MHA **without** positional encoding such as RoPE."""
@@ -217,7 +250,8 @@ class Attention(Block):
         )
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
-        attn_output, attn_weight = self.mha(
+        mha_fn = self.mha_flash if use_flash else self.mha
+        attn_output, attn_weight = mha_fn(
             query_states,
             key_states,
             value_states,
@@ -254,6 +288,7 @@ class AttentionWithRoPE(Attention):
         position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
+        use_flash: bool = False,
         **kwargs,
     ) -> AttentionOutput:
         query_states, key_states, value_states = self.qkv_proj(hidden_states)
@@ -275,7 +310,8 @@ class AttentionWithRoPE(Attention):
         )
         key_states, value_states = self.repeat_kv(key_states, value_states)
 
-        attn_output, attn_weight = self.mha(
+        mha_fn = self.mha_flash if use_flash else self.mha
+        attn_output, attn_weight = mha_fn(
             query_states,
             key_states,
             value_states,

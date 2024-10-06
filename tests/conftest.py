@@ -30,7 +30,7 @@ def config_small():
         num_heads=6,
         num_layers=2,
         intermediate_ratio=(3, 1),
-        max_position_embeddings=256,
+        max_position_embeddings=512,
         vocab_size=1024,
         num_kv_heads=3,
         norm_eps=1e-6,

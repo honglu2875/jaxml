@@ -23,5 +23,5 @@ Currently support:
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)
 - [x] AOT-compile for prefilling function and decoding function, and cache them!
-
+- [x] Allow JAX-flash-attention (`jax.experimental.pallas.ops.flash_attention`)
 
