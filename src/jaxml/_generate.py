@@ -19,7 +19,7 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
-from jax_tqdm import scan_tqdm
+import tqdm
 
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod
@@ -34,7 +34,7 @@ def _pad_to(x, length, axis=0):
     return jnp.concatenate((jnp.zeros(pad_shape), x), axis=axis)
 
 
-def _loop_fn(cache_and_rng_and_out, i, sample_fn, eval_fn, top_k, top_p, temp):
+def _loop_fn(cache_and_rng_and_out, i, sample_fn, eval_fn, top_k, top_p, min_p, temp):
     params, kv_caches, key, tok = cache_and_rng_and_out
     key, subkey = jax.random.split(key)
     outputs, kv_caches = eval_fn(
@@ -43,9 +43,27 @@ def _loop_fn(cache_and_rng_and_out, i, sample_fn, eval_fn, top_k, top_p, temp):
         kv_caches=kv_caches,
         use_cache=True,
     )
-    out_tk = sample_fn(key, outputs, top_k, top_p, temp)
+    out_tk = sample_fn(subkey, outputs, top_k, top_p, min_p, temp)
 
     return (params, kv_caches, key, out_tk), out_tk.squeeze(1).T
+
+
+def _loop_fn_no_scan(key, kv_caches, tok, params, sample_fn, eval_fn, top_k, top_p, min_p, temp):
+    # Why not using `_loop_fn` for for-loop:
+    #   Outer loop is not compiled, and there is no guarantee that `params` is not copied.
+    #   It actually copies and causes an OOM on TPU-v4 with Llama2 7B.
+    #   The way to fix it is not to return `params`, thus removing the ambiguity.
+    key, subkey = jax.random.split(key)
+    outputs, kv_caches = eval_fn(
+        params,
+        tok,
+        kv_caches=kv_caches,
+        use_cache=True,
+    )
+    out_tk = sample_fn(subkey, outputs, top_k, top_p, min_p, temp)
+
+    return key, kv_caches, out_tk
+
 
 
 def generate(
@@ -63,7 +81,7 @@ def generate(
     min_p: float = 0.0,
     temperature: float = 1.0,
     include_prompt: bool = False,
-    show_progress: bool = False,
+    fuse_decoding: bool = False,
 ):
     """
     Args:
@@ -80,6 +98,7 @@ def generate(
         top_p: top p
         temperature: temperature
         include_prompt: whether to include the prompt in the return
+        fuse_decoding: whether to fuse decoding in compiling 
     Returns:
         the completed token array (containing the prompt)
     """
@@ -91,6 +110,14 @@ def generate(
     batch_size, prompt_len = prompt_tokens.shape[:2]
 
     sample_fn = sampling_method.get_sampling_fn()
+    loop_fn_params = dict(
+        sample_fn=sample_fn,
+        eval_fn=eval_fn,
+        top_k=top_k,
+        top_p=top_p,
+        min_p=min_p,
+        temp=temperature,
+    )
 
     # Note that top_k value cannot be traced due to the limit of jax.lax.top_k
     @load_if_exists(name="prefill", hash=call_hash)
@@ -109,25 +136,31 @@ def generate(
 
     first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature)
 
-    loop_fn = functools.partial(
-        _loop_fn,
-        sample_fn=sample_fn,
-        eval_fn=eval_fn,
-        top_k=top_k,
-        top_p=top_p,
-        temp=temperature,
-    )
-    loop_fn = scan_tqdm(max_new_tokens - 1)(loop_fn)
 
-    @load_if_exists(name="decode", hash=call_hash)
-    def _decode(params, kv_caches, rng, first_generated_tok):
-        return jax.lax.scan(
-            loop_fn,
-            (params, kv_caches, rng, first_generated_tok),
-            jnp.arange(max_new_tokens - 1),
-        )[1].T
+    if fuse_decoding:
+        loop_fn = functools.partial(_loop_fn, **loop_fn_params)
 
-    generated_toks = _decode(params, kv_caches, rng, first_generated_tok)
+        @load_if_exists(name="decode", hash=call_hash)
+        def _decode(params, kv_caches, rng, first_generated_tok):
+            return jax.lax.scan(
+                loop_fn,
+                (params, kv_caches, rng, first_generated_tok),
+                jnp.arange(max_new_tokens - 1),
+            )[1].T
+
+        generated_toks = _decode(params, kv_caches, rng, first_generated_tok)
+    else:
+        # This could potentially turn into token-streaming
+        loop_fn = functools.partial(_loop_fn_no_scan, **loop_fn_params)
+        loop_fn = load_if_exists(name="decode_one_step", hash=call_hash, log=False)(loop_fn)
+
+        new_tokens = []
+        token = first_generated_tok
+        for i in tqdm.trange(max_new_tokens - 1):
+            rng, kv_caches, token = loop_fn(rng, kv_caches, token, params)
+            new_tokens.append(token.squeeze(1).T)
+
+        generated_toks = jnp.stack(new_tokens, axis=-1)
 
     if include_prompt:
         return jnp.concatenate((first_generated_tok, generated_toks), axis=-1)

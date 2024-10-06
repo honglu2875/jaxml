@@ -189,10 +189,11 @@ def timeit(logger):
         name = fn.__name__
 
         @functools.wraps(fn)
-        def _wrapped(*args, **kwargs):
+        def _wrapped(*args, log=True, **kwargs):
             start_time = time.perf_counter()
             ret = fn(*args, **kwargs)
-            logger.info(f"Execution time for {name}: {time.perf_counter() - start_time}")
+            if log:
+                logger.info(f"Execution time for {name}: {time.perf_counter() - start_time}")
             return ret
 
         return _wrapped
@@ -222,6 +223,7 @@ def compiled_fn_exist(name: str, hash=0):
 
 
 @timeit(logger)
+@functools.lru_cache()
 def load_compiled_fn(name: str, hash=0):
     from jax.experimental.serialize_executable import deserialize_and_load
 
@@ -229,7 +231,7 @@ def load_compiled_fn(name: str, hash=0):
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     if not fn_path.exists() or not spec_path.exists():
-        raise ValueError(f"Cannot find read from the folder {path}")
+        raise ValueError(f"Cannot find files from the folder {path}")
 
     with fn_path.open("rb") as f:
         aot_fn = f.read()
@@ -243,19 +245,21 @@ def load_compiled_fn(name: str, hash=0):
     return compiled_fn
 
 
-def load_if_exists(name: str, hash: int):
+def load_if_exists(name: str, hash: int, log: bool = True):
     def _decorator(fn: Callable):
         @functools.wraps(fn)
         def _wrapped_fn(*args, **kwargs):
             if compiled_fn_exist(name, hash):
-                _cfn = load_compiled_fn(name, hash)
+                _cfn = load_compiled_fn(name, hash, log=log)
             else:
                 lowered = jax.jit(fn).lower(*args, **kwargs)
                 with Timeit() as t:
                     _cfn = lowered.compile()
-                logger.info(f"Compiled function '{name}' ({t} seconds).")
-                byte_count = save_compiled_fn(_cfn, name, hash=hash)
-                logger.info(f"Cached AOT-compiled function '{name}' ({byte_count} bytes).")
+                if log:
+                    logger.info(f"Compiled function '{name}' ({t} seconds).")
+                byte_count = save_compiled_fn(_cfn, name, hash=hash, log=log)
+                if log:
+                    logger.info(f"Cached AOT-compiled function '{name}' ({byte_count} bytes).")
 
             return _cfn(*args, **kwargs)
 

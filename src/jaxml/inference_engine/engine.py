@@ -206,7 +206,7 @@ class Engine:
         top_p: float = 0.0,
         min_p: float = 0.0,
         temperature: float = 1.0,
-        show_progress: bool = False,
+        fuse_decoding: bool = False,
     ):
         apply = self.wrapped_apply_fn
         kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + max_new_tokens)
@@ -244,5 +244,5 @@ class Engine:
             top_p=top_p,
             min_p=min_p,
             temperature=temperature,
-            show_progress=show_progress,
+            fuse_decoding=fuse_decoding,
         )
