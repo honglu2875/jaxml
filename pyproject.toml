@@ -2,10 +2,6 @@
 requires = ["setuptools>=64", "setuptools_scm[toml]>=7"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-
-[tool.setuptools_scm]
 
 [project]
 name = "jaxml"
@@ -14,13 +10,26 @@ authors = [{name = "Honglu Fan"}]
 readme = "README.md"
 requires-python = ">=3.10"
 version = "0.0.0"
+dependencies = [
+    "jax==0.4.37",
+    "jaxlib==0.4.36",
+    "flax==0.9.0",
+    "orbax==0.1.9",
+    "chex==0.1.86",
+    "jax-tqdm==0.2.2",
+]
 
 [project.optional-dependencies]
+tpu = [
+    "jax==0.4.37",
+    "jaxlib==0.4.36",
+    "libtpu-nightly @ https://storage.googleapis.com/libtpu-nightly-releases/wheels/libtpu-nightly/libtpu_nightly-0.1.dev20241216+nightly-py3-none-linux_x86_64.whl",
+]
 dev = [
-    "pytest",
-    "black",
-    "isort",
-    "flake8",
-    "torch",
-    "transformers",
+    "pytest>=8.3.4",
+    "black>=24.0.0",
+    "isort>=5.13.2",
+    "flake8>=7.1.1",
+    "torch>=2.1.1",
+    "transformers>=4.47.0",
 ]
