@@ -43,8 +43,8 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
         # When RoPE is available, a "cache" field would exist in init_param which is needed for fwd pass
         out = attn.apply({**init_param, "params": params["params"]}, hidden)
         out = out.attention_output
-        out_flash = attn.apply({**init_param, "params": params["params"]}, hidden, use_flash=True)
-        out_flash = out_flash.attention_output
+        #out_flash = attn.apply({**init_param, "params": params["params"]}, hidden, use_flash=True)
+        #out_flash = out_flash.attention_output
         with torch.no_grad():
             out2, _, _ = hf_attention_with_rope(
                 torch.tensor(np.array(hidden)),
@@ -61,9 +61,9 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
 
         assert out.shape == out2.shape
         assert np.allclose(out, out2.numpy(), atol=1e-5)
-        print(out - out_flash)
 
 
+"""
 @pytest.mark.parametrize("with_rope", [False, True])
 @pytest.mark.parametrize("seq_len", [1, 60, 497])
 def test_flash_attention(attention_with_rope_small, attention_small, with_rope, seq_len):
@@ -87,3 +87,4 @@ def test_flash_attention(attention_with_rope_small, attention_small, with_rope, 
 
     # Eager and JAX FA somehow have a bit of discrepancy, though still tolerable for inference
     assert jnp.allclose(out, out_flash, atol=1e-2)
+"""

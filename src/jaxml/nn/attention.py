@@ -22,7 +22,7 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
-from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
+#from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
 from flax import linen as nn
 import math
 
@@ -199,6 +199,7 @@ class Attention(Block):
         softmax_fp32: bool = True,
         output_attentions: bool = False,
     ):
+        """
         if output_attentions:
             raise NotImplementedError("Output attention scores for TPU attention is not implemented.")
         if alibi_slope is not None:
@@ -216,6 +217,8 @@ class Attention(Block):
         output = flash_attention(query_states, key_states, value_states, causal=causal, sm_scale=1 / self.qk_scale)
 
         return output.transpose(0, 2, 1, 3)[:, :q_len], None
+        """
+        raise NotImplementedError("JAX flash attention has a bug... Waiting to be fixed.")
 
     def post_mha(
         self,
