@@ -221,7 +221,7 @@ wheels = [
 
 [[package]]
 name = "flax"
-version = "0.9.0"
+version = "0.10.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
@@ -234,9 +234,9 @@ dependencies = [
     { name = "tensorstore" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e2/21/ee8b1fb88974e768bcf281cb83c76875c736aa8a3981ce133f685738e945/flax-0.9.0.tar.gz", hash = "sha256:8b7f361eed0f5324e81f9dc8d02ea53da5f993d7c2e37e7aa5b37d3f6331dd53", size = 3073134 }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/38/4a0203198ac9459832abd33246d4e4fe250528b928a1fcd14cd6559bfcb4/flax-0.10.2.tar.gz", hash = "sha256:6f831350026ad48182ba6588bb4dd72dc1084985d9aca923254cb3e4c78d75f3", size = 5082773 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/e8/e0aa0c81a4b2c14bcaf7566d865039d4ae39ed604b8ba90708f8faedbda5/flax-0.9.0-py3-none-any.whl", hash = "sha256:12cd8f7162165ddd56877fb1cd9a4fcb47a31569e4c5343eeb59a36369fa2cfe", size = 780735 },
+    { url = "https://files.pythonhosted.org/packages/50/a2/daca2bc563e1fd53c33fbff1e33e84004639f7ad9e1a9a54370480a7780d/flax-0.10.2-py3-none-any.whl", hash = "sha256:5bc0954b98d1596e8984f8e1bb84105e6e1dd9eae311cee3a777d7a335470a76", size = 424180 },
 ]
 
 [[package]]
@@ -377,12 +377,10 @@ name = "jaxml"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "chex" },
     { name = "flax" },
     { name = "jax" },
     { name = "jax-tqdm" },
     { name = "jaxlib" },
-    { name = "orbax" },
 ]
 
 [package.optional-dependencies]
@@ -403,9 +401,8 @@ tpu = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
-    { name = "chex", specifier = "==0.1.86" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=7.1.1" },
-    { name = "flax", specifier = "==0.9.0" },
+    { name = "flax", specifier = "==0.10.2" },
     { name = "isort", marker = "extra == 'dev'", specifier = ">=5.13.2" },
     { name = "jax", specifier = "==0.4.37" },
     { name = "jax", marker = "extra == 'tpu'", specifier = "==0.4.37" },
@@ -413,7 +410,6 @@ requires-dist = [
     { name = "jaxlib", specifier = "==0.4.36" },
     { name = "jaxlib", marker = "extra == 'tpu'", specifier = "==0.4.36" },
     { name = "libtpu-nightly", marker = "extra == 'tpu'", url = "https://storage.googleapis.com/libtpu-nightly-releases/wheels/libtpu-nightly/libtpu_nightly-0.1.dev20241216+nightly-py3-none-linux_x86_64.whl" },
-    { name = "orbax", specifier = "==0.1.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.3.4" },
     { name = "torch", marker = "extra == 'dev'", specifier = ">=2.1.1" },
     { name = "transformers", marker = "extra == 'dev'", specifier = ">=4.47.0" },
@@ -849,15 +845,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/5f/e8b09028b37a8c1c1
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/8b/7032a6788205e9da398a8a33e1030ee9a22bd9289126e5afed9aac33bcde/optax-0.2.3-py3-none-any.whl", hash = "sha256:083e603dcd731d7e74d99f71c12f77937dd53f79001b4c09c290e4f47dd2e94f", size = 289647 },
 ]
-
-[[package]]
-name = "orbax"
-version = "0.1.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "orbax-checkpoint" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/c7/78/0e144f12703c95d4495e9abc390c2f548ee9f24d2e487137108a921b1d81/orbax-0.1.9.tar.gz", hash = "sha256:42dd487ceef9fbf027f4720f3d041686af75120466a528a8a8141226bc197218", size = 1649 }
 
 [[package]]
 name = "orbax-checkpoint"
