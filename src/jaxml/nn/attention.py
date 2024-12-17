@@ -22,7 +22,8 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
-from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
+#from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention, SegmentIds
+from jax.experimental.pallas.ops.tpu.splash_attention import make_splash_mha, CausalMask, FullMask, MultiHeadMask, SegmentIds
 from flax import linen as nn
 import math
 
@@ -205,17 +206,40 @@ class Attention(Block):
             raise NotImplementedError("The current JAX FlashAttention materializes the whole alibi-bias, defeating the purpose of using it for inference.")
         bs, q_len, num_heads, head_dim = query_states.shape
         kv_len = key_states.shape[1]
-        if q_len < 128:
+        if q_len % 128:
             # Pad to minimal block size
-            query_states = jnp.concatenate([query_states, jnp.zeros((bs, 128 - q_len, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
+            query_states = jnp.concatenate([query_states, jnp.zeros((bs, 128 - q_len % 128, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
         if kv_len % 128 != 0:
-            key_states = jnp.concatenate([key_states, jnp.zeros((bs, 128 - kv_len % 128, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
-            value_states = jnp.concatenate([value_states, jnp.zeros((bs, 128 - kv_len % 128, num_heads, head_dim), dtype=query_states.dtype)], axis=1)
+            # Pad to be divisible by kv blocks
+            key_states = jnp.concatenate([key_states, jnp.zeros((bs, 128 - kv_len % 128, num_heads, head_dim), dtype=key_states.dtype)], axis=1)
+            value_states = jnp.concatenate([value_states, jnp.zeros((bs, 128 - kv_len % 128, num_heads, head_dim), dtype=value_states.dtype)], axis=1)
+            if attention_mask is not None:
+                attention_mask = jnp.concatenate([attention_mask, jnp.zeros((bs, 128 - kv_len % 128), dtype=bool)], axis=1)
+        if head_dim % 128 != 0:
+            # Pad head dim to be divisible by 128
+            query_states, key_states, value_states = map(lambda x: jnp.concatenate([x, jnp.zeros((bs, x.shape[1], num_heads, 128 - head_dim % 128), dtype=x.dtype)], axis=-1), (query_states, key_states, value_states))
+        mask_shape = (query_states.shape[1], key_states.shape[1])
 
+        if attention_mask is None:
+            kv_seg = jnp.repeat((jnp.arange(key_states.shape[1])[None] >= kv_len).astype(int) * 2, bs, axis=0)
+        else:
+            kv_seg = ((jnp.arange(key_states.shape[1])[None] >= kv_len) | ~attention_mask).astype(int) * 2
+        segment_ids = SegmentIds(
+            q=jnp.repeat((jnp.arange(query_states.shape[1])[None] >= q_len).astype(int), bs, axis=0),
+            kv=kv_seg,
+        )
+        segment_ids = None
         query_states, key_states, value_states = map(lambda x: x.transpose(0, 2, 1, 3), (query_states, key_states, value_states))
-        output = flash_attention(query_states, key_states, value_states, causal=causal, sm_scale=1 / self.qk_scale)
+        query_states /= self.qk_scale
 
-        return output.transpose(0, 2, 1, 3)[:, :q_len], None
+        if causal and q_len != 1:
+            attn_fn = make_splash_mha(MultiHeadMask([CausalMask(shape=mask_shape, offset=0) for _ in range(num_heads)]), head_shards=1, q_seq_shards=1)
+        else:
+            attn_fn = make_splash_mha(MultiHeadMask([FullMask(_shape=mask_shape) for _ in range(num_heads)]), head_shards=1, q_seq_shards=1)
+
+        output = jax.vmap(attn_fn)(query_states, key_states, value_states, segment_ids=segment_ids)
+
+        return output.transpose(0, 2, 1, 3)[:, :q_len, :, :head_dim], None
 
     def post_mha(
         self,
@@ -288,7 +312,7 @@ class AttentionWithRoPE(Attention):
         position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
-        use_flash: bool = False,
+        use_flash: bool = True,
         **kwargs,
     ) -> AttentionOutput:
         query_states, key_states, value_states = self.qkv_proj(hidden_states)

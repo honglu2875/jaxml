@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 import torch
 
+from jaxml.cache import KVCache
 from jaxml.test_utils.torch_utils import DummyPosEmb
 from jaxml.utils import torch_to_jax_states
 
@@ -43,8 +44,6 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
         # When RoPE is available, a "cache" field would exist in init_param which is needed for fwd pass
         out = attn.apply({**init_param, "params": params["params"]}, hidden)
         out = out.attention_output
-        out_flash = attn.apply({**init_param, "params": params["params"]}, hidden, use_flash=True)
-        out_flash = out_flash.attention_output
         with torch.no_grad():
             out2, _, _ = hf_attention_with_rope(
                 torch.tensor(np.array(hidden)),
@@ -61,12 +60,12 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
 
         assert out.shape == out2.shape
         assert np.allclose(out, out2.numpy(), atol=1e-5)
-        print(out - out_flash)
 
 
 @pytest.mark.parametrize("with_rope", [False, True])
-@pytest.mark.parametrize("seq_len", [1, 60, 497])
-def test_flash_attention(attention_with_rope_small, attention_small, with_rope, seq_len):
+@pytest.mark.parametrize("seq_len", [1, 60, 128, 497])
+@pytest.mark.parametrize("with_cache", [False, True])
+def test_flash_attention(attention_with_rope_small, attention_small, with_rope, seq_len, with_cache):
     bs = 4
     if with_rope:
         attn, init_param = attention_with_rope_small
@@ -77,13 +76,31 @@ def test_flash_attention(attention_with_rope_small, attention_small, with_rope, 
 
     key = jax.random.PRNGKey(0)
 
-    hidden_size = attn.config.hidden_size
-    hidden = jax.random.uniform(key, (bs, seq_len, hidden_size), dtype=jnp.float32)
+    hidden_size = attn.hidden_size
+    num_heads = attn.num_heads
+    num_kv_heads = attn.config.num_key_value_heads
+    head_dim = attn.head_dim
+    if with_cache and seq_len > 1:
+        hidden_len = 1
+        key, k_key, v_key = jax.random.split(key, 3)
+        k = jax.random.uniform(k_key, (bs, seq_len - hidden_len, num_kv_heads, head_dim))
+        v = jax.random.uniform(v_key, (bs, seq_len - hidden_len, num_kv_heads, head_dim))
+        mask = jnp.ones((bs, seq_len - hidden_len), dtype=bool)
+        kv_cache = KVCache.init(seq_len, None, None, dtype=jnp.float32)
+        kv_cache = kv_cache.update(k, v, mask)
+    else:
+        hidden_len = seq_len
+        kv_cache = None
+    hidden = jax.random.uniform(key, (bs, hidden_len, hidden_size), dtype=jnp.float32)
 
-    out = attn.apply({**init_param, "params": params["params"]}, hidden)
+
+    out = attn.apply(params, hidden, use_flash=False, kv_cache=kv_cache)
     out = out.attention_output
-    out_flash = attn.apply({**init_param, "params": params["params"]}, hidden, use_flash=True)
+    out_flash = attn.apply(params, hidden, use_flash=True, kv_cache=kv_cache)
     out_flash = out_flash.attention_output
-
-    # Eager and JAX FA somehow have a bit of discrepancy, though still tolerable for inference
+    print(jnp.abs(out - out_flash).mean())
+    print(jnp.abs(out - out_flash).max())
+    #print(kv_cache)
+    print(out.shape)
+    print((jnp.abs(out - out_flash) > 1e-2).sum() / out.size)
     assert jnp.allclose(out, out_flash, atol=1e-2)
