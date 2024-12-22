@@ -155,24 +155,84 @@ def hf_attention_mistral(hf_mistral_config):
     return MistralAttention(hf_mistral_config, layer_idx=0)
 
 
-@pytest.fixture
-def torch_dense():
+def dummy_module_wrap(module, name: str):
     import torch
 
-    return torch.nn.Linear(48, 64)
+    class Dummy(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.add_module(name, module)
+
+        def forward(self, *args, **kwargs):
+            return getattr(self, name)(*args, **kwargs)
+
+    return Dummy()
+
+
+def dummy_flax_module_wrap(module, name: str):
+    import flax
+
+    class Dummy(flax.linen.Module):
+        def setup(self):
+            setattr(self, name, module)
+
+        def __call__(self, *args, **kwargs):
+            return getattr(self, name)(*args, **kwargs)
+
+    return Dummy()
 
 
 @pytest.fixture
-def jax_dense():
-    from jaxml.nn.linear import DenseGeneral
+def torch_component_factory():
+    def _fn(name: str):
+        import torch
 
-    model = DenseGeneral(
-        features=(64,),
-        axis=-1,
-        kernel_axes=("in", "out"),
-        dtype=jnp.float32,
-        weight_dtype=jnp.float32,
-        name="test",
-        use_bias=True,
-    )
-    return model
+        match name:
+            case "dense":
+                return torch.nn.Linear(48, 64)
+            case "rms_norm":
+                return dummy_module_wrap(torch.nn.RMSNorm(48, eps=1e-5, dtype=torch.float32), name="norm")
+            case "layer_norm":
+                return dummy_module_wrap(torch.nn.LayerNorm(48, eps=1e-5, bias=True, dtype=torch.float32), name="norm")
+
+    return _fn
+
+
+@pytest.fixture
+def jax_component_factory():
+    def _fn(name: str):
+        from jaxml.nn.linear import DenseGeneral
+        from jaxml.nn.norms import RMSNorm, LayerNorm
+
+        match name:
+            case "dense":
+                return DenseGeneral(
+                    features=(64,),
+                    axis=-1,
+                    kernel_axes=("in", "out"),
+                    dtype=jnp.float32,
+                    weight_dtype=jnp.float32,
+                    name="test",
+                    use_bias=True,
+                )
+            case "rms_norm":
+                return dummy_flax_module_wrap(
+                    RMSNorm(
+                        hidden_size=48,
+                        eps=1e-5,
+                        dtype=jnp.float32,
+                    ),
+                    "norm",
+                )
+            case "layer_norm":
+                 return dummy_flax_module_wrap(
+                    LayerNorm(
+                        hidden_size=48,
+                        eps=1e-5,
+                        use_bias=True,
+                        dtype=jnp.float32,
+                    ),
+                    "norm",
+                )
+    return _fn
+

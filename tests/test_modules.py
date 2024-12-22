@@ -16,17 +16,22 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
+import pytest
 
 from jaxml.utils import torch_to_jax_states
 
 
-def test_dense(jax_dense, torch_dense):
+@pytest.mark.parametrize("name", ["dense", "rms_norm", "layer_norm"])
+def test_modules(jax_component_factory, torch_component_factory, name):
+    jax_comp = jax_component_factory(name)
+    torch_comp = torch_component_factory(name)
+
     with jax.default_device(jax.devices("cpu")[0]):
         key = jax.random.PRNGKey(0)
         x = jax.random.uniform(key, (4, 10, 48), dtype=jnp.float32)
-        params = torch_to_jax_states(torch_dense, dtype=torch.float32)
-        y = jax_dense.apply(params, x)
+        params = torch_to_jax_states(torch_comp, dtype=torch.float32)
+        y = jax_comp.apply(params, x)
         with torch.no_grad():
-            y2 = torch_dense(torch.tensor(np.array(x))).numpy()
+            y2 = torch_comp(torch.tensor(np.array(x))).numpy()
 
         assert np.allclose(y, y2, atol=1e-5)
