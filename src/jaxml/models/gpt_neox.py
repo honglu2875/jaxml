@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright 2023 Honglu Fan (https://github.com/honglu2875).
+# Copyright 2024 Honglu Fan (https://github.com/honglu2875).
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,30 +24,20 @@ from ..cache import KVCache
 from ..nn.attention import Attention, AttentionWithRoPE
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
-from ..nn.position import RotaryEmbedding
 from ..nn.module import Block
-from ..nn.norms import RMSNorm
-from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
+from ..nn.norms import LayerNorm
+from ..nn.position import RotaryEmbedding
+from ..outputs import AttentionOutput, BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
 
 
-class LlamaMLP(Block):
+class GPTNeoXMLP(Block):
     kernel_init: Any = nn.initializers.xavier_uniform
-    act_fn: Any = jax.nn.silu
+    act_fn: Any = jax.nn.gelu
 
     def setup(self):
         if self.config is None:
             raise ValueError("Must provide a config for MLP.")
         # input dim supposed to be self.hidden_size
-        self.gate_proj = DenseGeneral(
-            features=self.intermediate_size,
-            dtype=self.dtype,
-            kernel_init=self.kernel_init,
-            kernel_init_args=(),
-            with_logical_partitioning=True,
-            kernel_axes=("embed", "intermediate"),
-            name="gate_proj",
-            use_bias=self.use_bias,
-        )
         self.up_proj = DenseGeneral(
             features=self.intermediate_size,
             dtype=self.dtype,
@@ -74,26 +64,25 @@ class LlamaMLP(Block):
             x.shape[-1] == self.hidden_size
         ), f"Input to MLP layers have different dimensions than the hidden dimension. Got {x.shape[-1]}"
         x = with_sharding_constraint(x, ("batch", "length", "embed"))
-        gate = self.act_fn(self.gate_proj(x))
-        proj = self.up_proj(x)
-        x = self.down_proj(gate * proj)
+        x = self.act_fn(self.up_proj(x))
+        x = self.down_proj(x)
         return x
 
 
-class LlamaDecoder(Block):
+class GPTNeoXDecoder(Block):
     def setup(self):
         if not self.config.use_rope:
-            self.self_attn = Attention(self.config, dtype=self.dtype)
+            self.self_attn = Attention(self.config, fused_qkv=True, dtype=self.dtype)
         else:
-            self.self_attn = AttentionWithRoPE(self.config, dtype=self.dtype)
-        self.mlp = LlamaMLP(self.config, dtype=self.dtype)
-        self.input_layernorm = RMSNorm(
+            self.self_attn = AttentionWithRoPE(self.config, fused_qkv=True, dtype=self.dtype)
+        self.mlp = GPTNeoXMLP(self.config, dtype=self.dtype)
+        self.input_layernorm = LayerNorm(
             hidden_size=self.hidden_size,
             eps=self.norm_eps,
             dtype=self.dtype,
-            upcast=True,  # always upcast norm computation!
+            upcast=True,
         )
-        self.post_attention_layernorm = RMSNorm(
+        self.post_attention_layernorm = LayerNorm(
             hidden_size=self.hidden_size,
             eps=self.norm_eps,
             dtype=self.dtype,
@@ -110,10 +99,9 @@ class LlamaDecoder(Block):
         output_attentions: bool = False,
         training: bool = False,
     ) -> DecoderOutput:
-        residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
-        output = self.self_attn(
-            hidden_states=hidden_states,
+        attn_input = self.input_layernorm(hidden_states)
+        attn_output: AttentionOutput = self.self_attn(
+            hidden_states=attn_input,
             cos_sin=cos_sin,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -121,20 +109,24 @@ class LlamaDecoder(Block):
             output_attentions=output_attentions,
         )
 
-        hidden_states = residual + output.attention_output
-
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states) + residual
+        if self.config.use_parallel_residual:
+            mlp_input = self.post_attention_layernorm(hidden_states)
+            mlp_output = self.mlp(mlp_input)
+            hidden_states = mlp_output + attn_output.attention_output + hidden_states
+        else:
+            attn_output_with_res = attn_output.attention_output + hidden_states
+            mlp_input = self.post_attention_layernorm(attn_output_with_res)
+            mlp_output = self.mlp(mlp_input)
+            hidden_states = mlp_output + attn_output_with_res
 
         return DecoderOutput(
             hidden_states=hidden_states,
-            kv_cache=output.kv_cache,
-            attention_weight=output.attention_weight,
+            kv_cache=attn_output.kv_cache,
+            attention_weight=attn_output.attention_weight,
         )
 
 
-class LlamaModel(Block):
+class GPTNeoXModel(Block):
     def setup(self):
         self.embed_tokens = Embed(num_embeddings=self.config.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.rotary_emb = RotaryEmbedding(
@@ -143,8 +135,8 @@ class LlamaModel(Block):
             base=self.config.rope_theta,
             rotary_pct=self.config.rotary_pct,
         )
-        self.layers = [LlamaDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
-        self.norm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
+        self.layers = [GPTNeoXDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
+        self.norm = LayerNorm(self.hidden_size, eps=self.norm_eps)
 
     def __call__(
         self,
@@ -203,13 +195,13 @@ class LlamaModel(Block):
         )
 
 
-class LlamaModelWithHead(Block):
+class GPTNeoXModelWithHead(Block):
 
     lm_head_init: Any = nn.initializers.xavier_uniform
     lm_head_init_args: tuple = ()
 
     def setup(self):
-        self.model = LlamaModel(self.config, dtype=self.dtype)
+        self.gpt_neox = GPTNeoXModel(self.config, dtype=self.dtype)
         self.lm_head = DenseGeneral(
             features=self.config.vocab_size,
             dtype=self.dtype,
@@ -230,7 +222,7 @@ class LlamaModelWithHead(Block):
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
     ) -> CausalLMOutputWithCache:
-        outputs = self.model(
+        outputs = self.gpt_neox(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,

@@ -20,20 +20,32 @@ import pytest
 import torch
 
 from jaxml.test_utils.torch_utils import DummyPosEmb
-from jaxml.utils import torch_to_jax_states
+from jaxml.hf_utils import to_neox_jax_params, to_llama_jax_params
 
 
-@pytest.mark.parametrize("with_rope", [False, True])
-def test_attention_with_rope(attention_with_rope_small, attention_small, hf_attention_with_rope, with_rope):
+@pytest.mark.parametrize(
+    "model_type,with_rope",
+    [
+        ("llama", False),
+        ("llama", True),
+        ("neox", False),
+        ("neox", True),
+    ]
+)
+def test_attention_with_rope(attention_factory, model_type, with_rope, cos_sin):
     with jax.default_device(jax.devices("cpu")[0]):
         bs, seq_len = 4, 10
-        if with_rope:
-            attn, init_param = attention_with_rope_small
-        else:
-            attn, init_param = attention_small
-            hf_attention_with_rope.rotary_emb = DummyPosEmb()
+        hf, (attn, init_param) = attention_factory(model_type=model_type, with_rope=with_rope)
+        if not with_rope:
+            hf.rotary_emb = DummyPosEmb()
 
-        params = torch_to_jax_states(hf_attention_with_rope, head_dim=attn.head_dim, dtype=torch.float32)
+        match model_type:
+            case "llama":
+                params = to_llama_jax_params(hf, dtype="float32")
+            case "neox":
+                params = to_neox_jax_params(hf, dtype="float32")
+            case _:
+                raise
 
         key = jax.random.PRNGKey(0)
 
@@ -41,15 +53,14 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
         hidden = jax.random.uniform(key, (bs, seq_len, hidden_size), dtype=jnp.float32)
 
         # When RoPE is available, a "cache" field would exist in init_param which is needed for fwd pass
-        out = attn.apply({**init_param, "params": params["params"]}, hidden)
+        out = attn.apply({**init_param, "params": params["params"]}, hidden, cos_sin=cos_sin)
         out = out.attention_output
         #out_flash = attn.apply({**init_param, "params": params["params"]}, hidden, use_flash=True)
         #out_flash = out_flash.attention_output
-        with torch.no_grad():
-            out2, _, _ = hf_attention_with_rope(
-                torch.tensor(np.array(hidden)),
-                position_ids=torch.arange(seq_len)[None],
-                attention_mask=torch.triu(
+        kwargs = {
+            "hidden_states": torch.tensor(np.array(hidden)),
+            "position_ids": torch.arange(seq_len)[None],
+            "attention_mask": torch.triu(
                     torch.full(
                         (seq_len, seq_len),
                         fill_value=float("-inf"),
@@ -57,7 +68,20 @@ def test_attention_with_rope(attention_with_rope_small, attention_small, hf_atte
                     ),
                     diagonal=1,
                 )[None, None].repeat(bs, 1, 1, 1),
-            )
+        }
+        if model_type == "neox":
+            rotary_dim = int(attn.config.head_dim * attn.config.rotary_pct)
+            if with_rope:
+                kwargs["position_embeddings"] = tuple(
+                    map(lambda x: torch.tensor(np.array(x[None, :seq_len, :rotary_dim])), cos_sin)
+                )
+            else:
+                kwargs["position_embeddings"] = (
+                    torch.ones((1, seq_len, rotary_dim), dtype=torch.float32),
+                    torch.zeros((1, seq_len, rotary_dim), dtype=torch.float32),
+                )
+        with torch.no_grad():
+            out2 = hf(**kwargs)[0]
 
         assert out.shape == out2.shape
         assert np.allclose(out, out2.numpy(), atol=1e-5)

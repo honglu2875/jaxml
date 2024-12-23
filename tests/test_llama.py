@@ -20,6 +20,7 @@ import torch
 from jaxml.cache import KVCache
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.utils import torch_to_jax_states
+from jaxml.hf_utils import to_llama_jax_params
 
 
 def test_llama_mlp(llama_mlp, hf_llama_mlp):
@@ -36,14 +37,16 @@ def test_llama_mlp(llama_mlp, hf_llama_mlp):
         assert np.allclose(y, y2, atol=1e-5)
 
 
-def test_llama_decoder(llama_decoder, hf_llama_decoder):
+def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin):
     bs, seq_len = 4, 10
     with jax.default_device(jax.devices("cpu")[0]):
         decoder, init_param = llama_decoder
+
         key = jax.random.PRNGKey(0)
         x = jax.random.uniform(key, (bs, seq_len, 48), dtype=jnp.float32)
+
         params = torch_to_jax_states(hf_llama_decoder, head_dim=decoder.head_dim, dtype=torch.float32)
-        y = decoder.apply({**init_param, "params": params["params"]}, x, output_attentions=True)
+        y = decoder.apply({**init_param, "params": params["params"]}, x, cos_sin, output_attentions=True)
         with torch.no_grad():
             y2 = hf_llama_decoder(
                 torch.tensor(np.array(x)),
@@ -69,7 +72,7 @@ def test_llama_model(llama_model, hf_llama_model):
         model, init_param = llama_model
         key = jax.random.PRNGKey(0)
         x = jax.random.randint(key, (bs, seq_len), 0, model.config.vocab_size - 1, dtype=jnp.int32)
-        params = torch_to_jax_states(hf_llama_model, head_dim=model.head_dim, dtype=torch.float32)
+        params = to_llama_jax_params(hf_llama_model, dtype=torch.float32)
         y = model.apply({**init_param, "params": params["params"]}, x, output_attentions=True, output_hidden_states=True)
         with torch.no_grad():
             y2 = hf_llama_model(
@@ -89,7 +92,7 @@ def test_llama_completion(llama_model_with_head, hf_llama_causal_model):
         model, init_param = llama_model_with_head
         key = jax.random.PRNGKey(0)
         x = jax.random.randint(key, (bs, seq_len), 0, model.config.vocab_size - 1, dtype=jnp.int32)
-        params = torch_to_jax_states(hf_llama_causal_model, head_dim=model.head_dim, dtype=torch.float32)
+        params = to_llama_jax_params(hf_llama_causal_model, dtype=torch.float32)
 
         config = InferenceConfig()
         engine = Engine(model, config, {**init_param, "params": params["params"]})

@@ -97,7 +97,7 @@ class Attention(Block):
             name="o_proj",
         )
 
-    def qkv_proj(self, hidden: jnp.ndarray):
+    def qkv(self, hidden: jnp.ndarray):
         if self.fused_qkv:
             out = self.qkv_proj(hidden)
             query, key, value = out[:, :, 0], out[:, :, 1], out[:, :, 2]
@@ -241,13 +241,13 @@ class Attention(Block):
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
         use_flash: bool = False,
-        *kwargs,
+        **kwargs,
     ) -> AttentionOutput:
         """The base class implements basic MHA **without** positional encoding such as RoPE."""
         if position_ids is not None:
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
-        query_states, key_states, value_states = self.qkv_proj(hidden_states)
+        query_states, key_states, value_states = self.qkv(hidden_states)
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
             key_states, value_states, attention_mask, kv_cache
         )
@@ -278,23 +278,18 @@ class AttentionWithRoPE(Attention):
         super().setup()
         if self.config.use_alibi:
             raise NotImplementedError("Having ALiBi and RoPE together is not intended (though the math works).")
-        self.rotary_emb = RotaryEmbedding(
-            dim=self.head_dim,
-            max_length=self.config.max_position_embeddings,
-            base=self.config.rope_theta,
-        )
 
     def __call__(
         self,
         hidden_states: jnp.ndarray,
+        cos_sin: Optional[tuple[jnp.ndarray, jnp.ndarray]] = None,
         attention_mask: Optional[jnp.ndarray] = None,
         position_ids: Optional[jnp.ndarray] = None,
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
         use_flash: bool = False,
-        **kwargs,
     ) -> AttentionOutput:
-        query_states, key_states, value_states = self.qkv_proj(hidden_states)
+        query_states, key_states, value_states = self.qkv(hidden_states)
 
         if attention_mask is None:
             attention_mask = self._get_default_mask(hidden_states, kv_cache)
@@ -305,9 +300,15 @@ class AttentionWithRoPE(Attention):
             else:
                 position_ids = jnp.repeat(jnp.arange(key_states.shape[1])[None], key_states.shape[0], axis=0)
 
-        k_len = None if kv_cache is None or kv_cache.k is None else kv_cache.k.shape[1]
-        cos, sin = self.rotary_emb(key_states, seq_len=k_len)
-        query_states, key_states = self.rotary_emb.apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+        if cos_sin is not None:
+            cos, sin = cos_sin
+            query_states, key_states = RotaryEmbedding.apply_rotary_pos_emb(
+                query_states,
+                key_states,
+                cos,
+                sin,
+                position_ids,
+            )
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
             key_states, value_states, attention_mask, kv_cache
         )

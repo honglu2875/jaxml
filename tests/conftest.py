@@ -20,9 +20,15 @@ from jaxml.config import ModelConfig
 from jaxml.models.llama import LlamaDecoder
 from jaxml.models.llama import LlamaMLP as LlamaMLPJAX
 from jaxml.models.llama import LlamaModel, LlamaModelWithHead
+from jaxml.models.gpt_neox import GPTNeoXModel, GPTNeoXModelWithHead
 from jaxml.nn.attention import Attention, AttentionWithRoPE
+from jaxml.nn.position import RotaryEmbedding
 
 
+
+
+
+# ---------- Configs ---------- #
 @pytest.fixture
 def config_small():
     return ModelConfig(
@@ -35,7 +41,6 @@ def config_small():
         num_kv_heads=3,
         norm_eps=1e-6,
     )
-
 
 @pytest.fixture
 def hf_llama_config():
@@ -54,6 +59,25 @@ def hf_llama_config():
         attn_implementation="eager",
     )
 
+@pytest.fixture
+def hf_neox_config():
+    from transformers import GPTNeoXConfig
+
+    return GPTNeoXConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        hidden_act="gelu",
+        layer_norm_eps=1e-6,
+        rotary_emb_base=10000.0,
+        rotary_pct=0.5,
+        use_parallel_residual=True,
+        attn_implementation="eager",
+        attention_bias=False,
+    )
 
 @pytest.fixture
 def hf_mistral_config():
@@ -71,9 +95,11 @@ def hf_mistral_config():
         hidden_act="silu",
     )
 
-
-def get_layer_and_param(cls, config, discrete=False):
-    layer = cls(config=config, dtype=jnp.float32)
+def get_layer_and_param(cls, config, discrete=False, fused_qkv=False):
+    if fused_qkv:
+        layer = cls(config=config, fused_qkv=fused_qkv, dtype=jnp.float32)
+    else:
+        layer = cls(config=config, dtype=jnp.float32)
     if discrete:
         x = jnp.zeros((2, 10), dtype=jnp.int32)
     else:
@@ -83,15 +109,76 @@ def get_layer_and_param(cls, config, discrete=False):
     return layer, params
 
 
+
+
+
+# ---------- Individual layers ---------- #
 @pytest.fixture
-def attention_small(config_small):
-    return get_layer_and_param(Attention, config_small)
+def attention_factory(hf_llama_config, hf_neox_config):
+    def _fn(model_type: str, with_rope: bool):
+        from transformers.models.llama.modeling_llama import LlamaAttention
+        from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
 
+        match model_type:
+            case "llama":
+                hf = LlamaAttention(hf_llama_config, layer_idx=0)
+            case "neox":
+                hf = GPTNeoXAttention(hf_neox_config, layer_idx=0)
+            case _:
+                raise
+
+        config = ModelConfig.from_hf(hf.config)
+        if with_rope:
+            return hf, get_layer_and_param(AttentionWithRoPE, config, fused_qkv=model_type=="neox")
+        else:
+            return hf, get_layer_and_param(Attention, config, fused_qkv=model_type=="neox")
+
+    return _fn
 
 @pytest.fixture
-def attention_with_rope_small(config_small):
-    return get_layer_and_param(AttentionWithRoPE, config_small)
+def rope_factory(hf_llama_config, hf_neox_config):
+    def _fn(model_type): 
+        import torch
+        from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding, apply_rotary_pos_emb as apply_llama
+        from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXRotaryEmbedding, apply_rotary_pos_emb as apply_neox
 
+        match model_type:
+            case "llama":
+                hf = LlamaRotaryEmbedding(config=hf_llama_config)
+                def apply_fn(query, key, cos, sin, rotary_ndims):
+                    return apply_llama(query, key, cos, sin)
+            case "neox":
+                hf = GPTNeoXRotaryEmbedding(config=hf_neox_config)
+                def apply_fn(query, key, cos, sin, rotary_ndims):
+                    query_rot = query[..., : rotary_ndims]
+                    query_pass = query[..., rotary_ndims :]
+                    key_rot = key[..., : rotary_ndims]
+                    key_pass = key[..., rotary_ndims :]
+                    query, key = apply_neox(query_rot, key_rot, cos, sin)
+                    query = torch.cat((query, query_pass), dim=-1)
+                    key = torch.cat((key, key_pass), dim=-1)
+                    return query, key
+            case _:
+                raise
+
+        config = ModelConfig.from_hf(hf.config)
+        return hf, RotaryEmbedding(
+            dim=config.head_dim,
+            max_length=config.max_position_embeddings,
+            base=config.rope_theta,
+            rotary_pct=config.rotary_pct,
+        ), apply_fn
+
+    return _fn
+
+@pytest.fixture
+def cos_sin(rope_factory):
+    hf, rope, _ = rope_factory("llama")
+    seq_len = 10
+    key = jax.random.PRNGKey(0)
+    x = jax.random.uniform(key, (4, seq_len, hf.config.hidden_size), dtype=jnp.float32)
+    p = rope.init(key, x, seq_len=seq_len)
+    return rope.apply(p, x, seq_len=seq_len)
 
 @pytest.fixture
 def llama_mlp(config_small):
@@ -104,6 +191,31 @@ def llama_decoder(config_small):
 
 
 @pytest.fixture
+def hf_llama_mlp(hf_llama_config):
+    from transformers.models.llama.modeling_llama import LlamaMLP
+
+    return LlamaMLP(hf_llama_config)
+
+
+@pytest.fixture
+def hf_attention_mistral(hf_mistral_config):
+    from transformers.models.mistral.modeling_mistral import MistralAttention
+
+    return MistralAttention(hf_mistral_config, layer_idx=0)
+
+
+@pytest.fixture
+def hf_llama_decoder(hf_llama_config):
+    from transformers.models.llama.modeling_llama import LlamaDecoderLayer
+
+    return LlamaDecoderLayer(hf_llama_config, layer_idx=0)
+
+
+
+
+
+# ---------- Models ---------- #
+@pytest.fixture
 def llama_model(config_small):
     return get_layer_and_param(LlamaModel, config_small, discrete=True)
 
@@ -114,47 +226,49 @@ def llama_model_with_head(config_small):
 
 
 @pytest.fixture
-def hf_attention_with_rope(hf_llama_config):
-    from transformers.models.llama.modeling_llama import LlamaAttention
-
-    return LlamaAttention(hf_llama_config, layer_idx=0)
-
-
-@pytest.fixture
-def hf_llama_mlp(hf_llama_config):
-    from transformers.models.llama.modeling_llama import LlamaMLP
-
-    return LlamaMLP(hf_llama_config)
+def neox_model(hf_neox_config):
+    cfg = ModelConfig.from_hf(hf_neox_config)
+    return get_layer_and_param(GPTNeoXModel, cfg, discrete=True)
 
 
 @pytest.fixture
-def hf_llama_decoder(hf_llama_config):
-    from transformers.models.llama.modeling_llama import LlamaDecoderLayer
-
-    return LlamaDecoderLayer(hf_llama_config, layer_idx=0)
+def neox_model_with_head(hf_neox_config):
+    cfg = ModelConfig.from_hf(hf_neox_config)
+    return get_layer_and_param(GPTNeoXModelWithHead, cfg, discrete=True)
 
 
 @pytest.fixture
 def hf_llama_model(hf_llama_config):
-    from transformers.models.llama.modeling_llama import LlamaModel
+    from transformers import LlamaModel
 
     return LlamaModel(hf_llama_config)
 
 
 @pytest.fixture
 def hf_llama_causal_model(hf_llama_config):
-    from transformers.models.llama.modeling_llama import LlamaForCausalLM
+    from transformers import LlamaForCausalLM
 
     return LlamaForCausalLM(hf_llama_config)
 
 
 @pytest.fixture
-def hf_attention_mistral(hf_mistral_config):
-    from transformers.models.mistral.modeling_mistral import MistralAttention
+def hf_neox_model(hf_neox_config):
+    from transformers import GPTNeoXModel
 
-    return MistralAttention(hf_mistral_config, layer_idx=0)
+    return GPTNeoXModel(hf_neox_config)
 
 
+@pytest.fixture
+def hf_neox_causal_model(hf_neox_config):
+    from transformers import GPTNeoXForCausalLM
+
+    return GPTNeoXForCausalLM(hf_neox_config)
+
+
+
+
+
+# ---------- Component unit test utilities ---------- #
 def dummy_module_wrap(module, name: str):
     import torch
 

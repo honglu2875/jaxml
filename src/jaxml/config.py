@@ -20,13 +20,18 @@ class ModelConfig:
     sliding_window: Optional[int] = struct.field(default=None, pytree_node=False)
 
     use_bias: bool = struct.field(default=False, pytree_node=False)
-    # Only effective when using ALiBi
-    upcast_alibi: bool = struct.field(default=True, pytree_node=False)
-
     use_alibi: bool = struct.field(default=False, pytree_node=False)
     use_rope: bool = struct.field(default=True, pytree_node=False)
-    # Only effective when using RoPE
-    rope_theta: int = struct.field(default=10_000, pytree_node=False)
+
+    ####### Only effective for ALiBi #######
+    upcast_alibi: bool = struct.field(default=True, pytree_node=False)
+
+    ####### Only effective for RoPE #######
+    rope_theta: float = struct.field(default=10_000.0, pytree_node=False)
+    # Limit the percentage of heads to apply RoPE (NeoX style)
+    rotary_pct: float = struct.field(default=1.0, pytree_node=False)
+    # Only effective in GPT-NeoX for the two arch variants
+    use_parallel_residual: bool = struct.field(default=True, pytree_node=False)
 
     def __post_init__(self):
         if self.use_alibi and self.use_rope:
@@ -48,16 +53,46 @@ class ModelConfig:
 
     @classmethod
     def from_hf(cls, config):
-        """Construct a ModelConfig from LlamaConfig."""
+        """Construct a ModelConfig from LlamaConfig or GPTNeoXConfig."""
+        from transformers import LlamaConfig, GPTNeoXConfig
+
         factor = math.gcd(config.intermediate_size, config.hidden_size)
+
+        ####### Shared params #######
+        head_dim=config.hidden_size // config.num_attention_heads
+        num_heads=config.num_attention_heads
+        num_layers=config.num_hidden_layers
+        max_position_embeddings=config.max_position_embeddings
+        vocab_size=config.vocab_size
+        intermediate_ratio=(config.intermediate_size // factor, config.hidden_size // factor)
+
+        ####### Case-by-case #######
+        if type(config) is LlamaConfig:
+            norm_eps=config.rms_norm_eps
+            num_kv_heads=config.num_key_value_heads
+            rope_theta=config.rope_theta
+            # no impact
+            use_parallel_residual, rotary_pct=True, 1.0
+        elif type(config) is GPTNeoXConfig:
+            norm_eps=config.layer_norm_eps
+            num_kv_heads=num_heads
+            rope_theta=float(config.rotary_emb_base)
+            use_parallel_residual=config.use_parallel_residual
+            rotary_pct=config.rotary_pct
+        else:
+            raise ValueError(f"Unsupported config class {config.__class__}")
+
         return cls(
-            head_dim=config.hidden_size // config.num_attention_heads,
-            num_heads=config.num_attention_heads,
-            num_layers=config.num_hidden_layers,
-            max_position_embeddings=config.max_position_embeddings,
-            vocab_size=config.vocab_size,
-            intermediate_ratio=(config.intermediate_size // factor, config.hidden_size // factor),
-            norm_eps=config.rms_norm_eps,
-            num_kv_heads=config.num_key_value_heads,
-            rope_theta=config.rope_theta,
+            head_dim=head_dim,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            max_position_embeddings=max_position_embeddings,
+            vocab_size=vocab_size,
+            intermediate_ratio=intermediate_ratio,
+            norm_eps=norm_eps,
+            num_kv_heads=num_kv_heads,
+            use_rope=True,
+            rope_theta=rope_theta,
+            use_parallel_residual=use_parallel_residual,
+            rotary_pct=rotary_pct,
         )

@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import pickle
+import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -29,6 +30,20 @@ import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
+
+
+_str_to_np_dtype = {
+    "float16": np.float16,
+    "float32": np.float32,
+    "float64": np.float64,
+}
+
+_torch_to_np_dtype = {
+    torch.float16: np.float16,
+    torch.float32: np.float32,
+    torch.float64: np.float64,
+    # "bf16": np.float16,
+}
 
 
 class Timeit:
@@ -93,12 +108,7 @@ def torch_to_jax_states(
         head_dim: if not None, it will try to reshape the last axis of q, k, v
             weights further into (..., head_dim, num_head).
     """
-    _to_np_dtype = {
-        torch.float16: np.float16,
-        torch.float32: np.float32,
-        torch.float64: np.float64,
-        # "bf16": np.float16,
-    }
+    _to_np_dtype = _str_to_np_dtype if isinstance(dtype, str) else _torch_to_np_dtype
 
     if isinstance(input, torch.nn.Module):
         states = input.state_dict()
@@ -112,8 +122,10 @@ def torch_to_jax_states(
     _dense_key_map = {"weight": ("kernel", lambda x: x.T)}
     if head_dim is None:
         _qkv_separate_map = _dense_key_map
+        _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], 3, -1))}
     else:
         _qkv_separate_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, head_dim))}
+        _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, 3, head_dim).transpose(0, 2, 1, 3))}
     _emb_key_map = {"weight": ("embedding", lambda x: x)}
     _exclude_keys = {"post_attention_layernorm", "input_layernorm", "norm"}
 
@@ -131,6 +143,8 @@ def torch_to_jax_states(
                 _key_map = _emb_key_map
             elif any(k in split for k in ["q_proj", "k_proj", "v_proj"]):
                 _key_map = _qkv_separate_map
+            elif "qkv_proj" in split:
+                _key_map = _qkv_fused_map
             else:
                 _key_map = _dense_key_map
 

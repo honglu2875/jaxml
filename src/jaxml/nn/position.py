@@ -22,9 +22,10 @@ class RotaryEmbedding(nn.Module):
     dim: int
     # max_trained_length is the initial context window, and we may extend it at inference time.
     max_length: int = 2048
-    base: int = 10000
+    base: float = 10000.0
     dtype: Any = jnp.float32
     disable_cache: bool = False
+    rotary_pct: float = 1.0
 
     @staticmethod
     def rotate_half(x):
@@ -36,17 +37,43 @@ class RotaryEmbedding(nn.Module):
     @staticmethod
     def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
         # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
+        rotary_dim = cos.shape[-1]
         cos = jnp.expand_dims(jnp.take(cos, position_ids, axis=0), axis=2)
         sin = jnp.expand_dims(jnp.take(sin, position_ids, axis=0), axis=2)
-        q_embed = (q * cos) + (RotaryEmbedding.rotate_half(q) * sin)
-        k_embed = (k * cos) + (RotaryEmbedding.rotate_half(k) * sin)
+        qr, kr = q[..., :rotary_dim], k[..., :rotary_dim]
+        q_embed = (qr * cos) + (RotaryEmbedding.rotate_half(qr) * sin)
+        k_embed = (kr * cos) + (RotaryEmbedding.rotate_half(kr) * sin)
+        if rotary_dim < q.shape[1]:
+            q_embed, k_embed = map(
+                lambda x: jnp.concatenate([x[0], x[1][..., rotary_dim:]], axis=-1),
+                ((q_embed, q), (k_embed, k)),
+            )
         return q_embed, k_embed
 
+    @property
+    def full_rotate(self):
+        return self.rotary_pct >= 1.0
+
     def setup(self):
+        if self.full_rotate:
+            self.rotary_dim = self.dim
+        else:
+            self.rotary_dim = int(self.dim * self.rotary_pct)
+        if self.rotary_dim <= 0:
+            raise ValueError(
+                f"Rotary dimension cannot be less than or equal to 0. The `rotary_pct`({self.rotary_pct}) might be too "
+                f"small relative to the head dim ({self.dim})."
+            )
+        elif self.rotary_dim % 2 == 1:
+            raise ValueError(
+                f"Rotary dimension cannot be an odd number. Please adjust the `rotary_pct`({self.rotary_pct}) "
+                f"according to the head dim ({self.dim})."
+            )
+
         self.inv_freq = self.variable(
             "cache",
             "inv_freq",
-            lambda: 1.0 / (self.base ** (jnp.arange(0, self.dim, 2, dtype=jnp.float32) / self.dim)),
+            lambda: 1.0 / (self.base ** (jnp.arange(0, self.rotary_dim, 2, dtype=jnp.float32) / self.rotary_dim)),
         )
 
         if not self.disable_cache:
