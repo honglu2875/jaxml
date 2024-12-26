@@ -65,7 +65,6 @@ def _loop_fn_no_scan(key, kv_caches, tok, params, sample_fn, eval_fn, top_k, top
     return key, kv_caches, out_tk
 
 
-
 def generate(
     params,
     eval_fn,
@@ -98,7 +97,7 @@ def generate(
         top_p: top p
         temperature: temperature
         include_prompt: whether to include the prompt in the return
-        fuse_decoding: whether to fuse decoding in compiling 
+        fuse_decoding: whether to fuse decoding in compiling
     Returns:
         the completed token array (containing the prompt)
     """
@@ -135,7 +134,6 @@ def generate(
         )
 
     first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature)
-
 
     if fuse_decoding:
         loop_fn = functools.partial(_loop_fn, **loop_fn_params)

@@ -54,31 +54,33 @@ class ModelConfig:
     @classmethod
     def from_hf(cls, config):
         """Construct a ModelConfig from LlamaConfig or GPTNeoXConfig."""
-        from transformers import LlamaConfig, GPTNeoXConfig
+        from transformers import GPTNeoXConfig, LlamaConfig
 
         factor = math.gcd(config.intermediate_size, config.hidden_size)
 
         ####### Shared params #######
-        head_dim=config.hidden_size // config.num_attention_heads
-        num_heads=config.num_attention_heads
-        num_layers=config.num_hidden_layers
-        max_position_embeddings=config.max_position_embeddings
-        vocab_size=config.vocab_size
-        intermediate_ratio=(config.intermediate_size // factor, config.hidden_size // factor)
+        head_dim = config.hidden_size // config.num_attention_heads
+        num_heads = config.num_attention_heads
+        num_layers = config.num_hidden_layers
+        max_position_embeddings = config.max_position_embeddings
+        vocab_size = config.vocab_size
+        intermediate_ratio = (config.intermediate_size // factor, config.hidden_size // factor)
 
         ####### Case-by-case #######
         if type(config) is LlamaConfig:
-            norm_eps=config.rms_norm_eps
-            num_kv_heads=config.num_key_value_heads
-            rope_theta=config.rope_theta
+            norm_eps = config.rms_norm_eps
+            num_kv_heads = config.num_key_value_heads
+            rope_theta = config.rope_theta
             # no impact
-            use_parallel_residual, rotary_pct=True, 1.0
+            use_parallel_residual, rotary_pct = True, 1.0
+            use_bias = False
         elif type(config) is GPTNeoXConfig:
-            norm_eps=config.layer_norm_eps
-            num_kv_heads=num_heads
-            rope_theta=float(config.rotary_emb_base)
-            use_parallel_residual=config.use_parallel_residual
-            rotary_pct=config.rotary_pct
+            norm_eps = config.layer_norm_eps
+            num_kv_heads = num_heads
+            rope_theta = float(config.rotary_emb_base)
+            use_parallel_residual = config.use_parallel_residual
+            rotary_pct = config.rotary_pct
+            use_bias = True
         else:
             raise ValueError(f"Unsupported config class {config.__class__}")
 
@@ -95,4 +97,5 @@ class ModelConfig:
             rope_theta=rope_theta,
             use_parallel_residual=use_parallel_residual,
             rotary_pct=rotary_pct,
+            use_bias=use_bias,
         )

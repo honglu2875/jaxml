@@ -210,6 +210,7 @@ class GPTNeoXModelWithHead(Block):
             with_logical_partitioning=True,
             kernel_axes=("embed", "vocab"),
             name="lm_head",
+            use_bias=False,  # lm_head almost certain does not use bias
         )
 
     def __call__(

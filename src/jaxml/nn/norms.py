@@ -58,7 +58,6 @@ class LayerNorm(nn.Module):
     use_bias: bool = True
     dtype: jnp.dtype = jnp.float32
 
-
     def setup(self):
         """
         Aim to be the same as torch LayerNorm
@@ -79,7 +78,7 @@ class LayerNorm(nn.Module):
                 axes=(self.axis_name,),
             )
 
-    def  __call__(self, hidden_states):
+    def __call__(self, hidden_states):
         input_dtype = hidden_states.dtype
         if self.upcast:
             hidden_states = hidden_states.astype(jnp.float32)

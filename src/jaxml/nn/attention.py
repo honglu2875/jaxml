@@ -18,13 +18,14 @@
 # This file has been modified from its original version
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/attentions.py
 
+import math
 from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
-#from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
+
+# from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
 from flax import linen as nn
-import math
 
 from ..cache import KVCache
 from ..outputs import AttentionOutput
@@ -67,6 +68,7 @@ class Attention(Block):
                 dtype=self.dtype,
                 weight_dtype=self.weight_dtype,
                 name="qkv_proj",
+                use_bias=self.use_bias,
             )
         else:
             self.q_proj, self.k_proj, self.v_proj = map(
@@ -80,6 +82,7 @@ class Attention(Block):
                     dtype=self.dtype,
                     weight_dtype=self.weight_dtype,
                     name=x[1],
+                    use_bias=self.use_bias,
                 ),
                 (
                     (self.num_heads, "q_proj"),
@@ -95,6 +98,7 @@ class Attention(Block):
             with_logical_partitioning=True,
             kernel_axes=("heads_merged", "embed"),
             name="o_proj",
+            use_bias=self.use_bias,
         )
 
     def qkv(self, hidden: jnp.ndarray):
@@ -247,7 +251,9 @@ class Attention(Block):
         if position_ids is not None:
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
+        print(hidden_states.shape)
         query_states, key_states, value_states = self.qkv(hidden_states)
+        print(query_states.shape, key_states.shape)
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
             key_states, value_states, attention_mask, kv_cache
         )

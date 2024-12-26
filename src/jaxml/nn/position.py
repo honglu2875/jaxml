@@ -43,7 +43,7 @@ class RotaryEmbedding(nn.Module):
         qr, kr = q[..., :rotary_dim], k[..., :rotary_dim]
         q_embed = (qr * cos) + (RotaryEmbedding.rotate_half(qr) * sin)
         k_embed = (kr * cos) + (RotaryEmbedding.rotate_half(kr) * sin)
-        if rotary_dim < q.shape[1]:
+        if rotary_dim < q.shape[-1]:
             q_embed, k_embed = map(
                 lambda x: jnp.concatenate([x[0], x[1][..., rotary_dim:]], axis=-1),
                 ((q_embed, q), (k_embed, k)),

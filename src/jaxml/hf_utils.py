@@ -30,3 +30,41 @@ def to_neox_jax_params(model, dtype="float16"):
         if name != key:
             state_dict[name] = state_dict.pop(key)
     return torch_to_jax_states(state_dict, head_dim=neox_config.hidden_size // neox_config.num_attention_heads, dtype=dtype)
+
+
+def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
+    """Load Huggingface llama compatible models directly from either local path
+    or the hf-hub identifier."""
+    try:
+        from transformers import AutoModelForCausalLM
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+
+    from jaxml.config import ModelConfig
+    from jaxml.models.llama import LlamaModelWithHead
+
+    _model = AutoModelForCausalLM.from_pretrained(name)
+    params = to_llama_jax_params(_model)
+    config = ModelConfig.from_hf(_model.config)
+    model = LlamaModelWithHead(config)
+    return model, params
+
+
+def load_neox_from_hf(name: str) -> tuple["GPTNeoXForCausalLM", dict]:  # noqa: F821
+    """Load Huggingface llama compatible models directly from either local path
+    or the hf-hub identifier."""
+    try:
+        from transformers import AutoModelForCausalLM
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+
+    from jaxml.config import ModelConfig
+    from jaxml.models.gpt_neox import GPTNeoXModelWithHead
+
+    _model = AutoModelForCausalLM.from_pretrained(name)
+    params = to_neox_jax_params(_model)
+    config = ModelConfig.from_hf(_model.config)
+    model = GPTNeoXModelWithHead(config)
+    return model, params
+
+

@@ -24,9 +24,9 @@ from ..cache import KVCache
 from ..nn.attention import Attention, AttentionWithRoPE
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
-from ..nn.position import RotaryEmbedding
 from ..nn.module import Block
 from ..nn.norms import RMSNorm
+from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
 
 

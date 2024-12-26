@@ -18,9 +18,9 @@ import numpy as np
 import torch
 
 from jaxml.cache import KVCache
+from jaxml.hf_utils import to_llama_jax_params
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.utils import torch_to_jax_states
-from jaxml.hf_utils import to_llama_jax_params
 
 
 def test_llama_mlp(llama_mlp, hf_llama_mlp):
@@ -37,8 +37,9 @@ def test_llama_mlp(llama_mlp, hf_llama_mlp):
         assert np.allclose(y, y2, atol=1e-5)
 
 
-def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin):
+def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin_factory):
     bs, seq_len = 4, 10
+    cos_sin = cos_sin_factory("llama")
     with jax.default_device(jax.devices("cpu")[0]):
         decoder, init_param = llama_decoder
 

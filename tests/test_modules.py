@@ -15,8 +15,8 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import torch
 import pytest
+import torch
 
 from jaxml.utils import torch_to_jax_states
 

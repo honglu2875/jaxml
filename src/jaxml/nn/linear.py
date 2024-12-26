@@ -106,10 +106,8 @@ class DenseGeneral(Module):
         contract_ind = tuple(range(0, len(axis)))
         output = compute_dot_general(inputs, kernel, axis, contract_ind)
         if self.use_bias:
-            bias_axes, bias_shape = (
-                self.kernel_axes[-len(features) :],
-                kernel_shape[-len(features) :],
-            )
+            bias_axes = self.kernel_axes[-len(features) :]
+            bias_shape = kernel_shape[-len(features) :]
             bias = self.param(
                 "bias",
                 nn.with_logical_partitioning(self.bias_init, bias_axes),

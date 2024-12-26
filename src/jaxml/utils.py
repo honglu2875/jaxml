@@ -124,8 +124,14 @@ def torch_to_jax_states(
         _qkv_separate_map = _dense_key_map
         _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], 3, -1))}
     else:
-        _qkv_separate_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, head_dim))}
-        _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, 3, head_dim).transpose(0, 2, 1, 3))}
+        _qkv_separate_map = {
+            "weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, head_dim)),
+            "bias": ("bias", lambda x: x.reshape(-1, head_dim)),
+        }
+        _qkv_fused_map = {
+            "weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, 3, head_dim).transpose(0, 2, 1, 3)),
+            "bias": ("bias", lambda x: x.reshape(-1, 3, head_dim).transpose(1, 0, 2)),
+        }
     _emb_key_map = {"weight": ("embedding", lambda x: x)}
     _exclude_keys = {"post_attention_layernorm", "input_layernorm", "norm"}
 
@@ -177,25 +183,6 @@ def pprint_pytree(obj: Any):
     # Serialize as JSON for pretty printing
     pretty_json = json.dumps(formatted_tree, indent=2)
     print(pretty_json)
-
-
-def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
-    """Load Huggingface llama compatible models directly from either local path
-    or the hf-hub identifier."""
-    try:
-        from transformers import AutoModelForCausalLM
-    except ImportError as e:
-        raise ImportError("Please install transformers library.") from e
-
-    from jaxml.config import ModelConfig
-    from jaxml.models.llama import LlamaModelWithHead
-
-    _model = AutoModelForCausalLM.from_pretrained(name)
-    _state_dict = _model.state_dict()
-    params = torch_to_jax_states(_state_dict, head_dim=_model.config.hidden_size // _model.config.num_attention_heads)
-    config = ModelConfig.from_hf(_model.config)
-    model = LlamaModelWithHead(config)
-    return model, params
 
 
 def timeit(logger):
