@@ -81,12 +81,14 @@ class GPTNeoXDecoder(Block):
             eps=self.norm_eps,
             dtype=self.dtype,
             upcast=True,
+            use_bias=True,
         )
         self.post_attention_layernorm = LayerNorm(
             hidden_size=self.hidden_size,
             eps=self.norm_eps,
             dtype=self.dtype,
             upcast=True,
+            use_bias=True,
         )
 
     def __call__(
@@ -136,7 +138,7 @@ class GPTNeoXModel(Block):
             rotary_pct=self.config.rotary_pct,
         )
         self.layers = [GPTNeoXDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
-        self.norm = LayerNorm(self.hidden_size, eps=self.norm_eps)
+        self.norm = LayerNorm(self.hidden_size, eps=self.norm_eps, use_bias=True)
 
     def __call__(
         self,

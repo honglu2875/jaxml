@@ -30,7 +30,7 @@ prompt_tokens = jnp.array(encoded.input_ids)
 attention_mask = jnp.array(encoded.attention_mask)
 
 config = InferenceConfig(max_sequence_length=200, tp_size=1)
-engine = Engine(model, config, params)
+engine = Engine(model, config, params, dtype=jnp.float32)
 engine.init_params(use_tpu=True)
 
 #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
@@ -39,3 +39,14 @@ output = engine.generate(prompt_tokens, attention_mask=attention_mask, max_new_t
 print("Time", time.perf_counter() - start)
 print(tokenizer.batch_decode(np.array(output)))
 
+# --- debug --- #
+print("--- debug ---")
+inp = encoded["input_ids"]
+print(f"{inp=}")
+print(f"{tok_input=}")
+init_params = model.init(jax.random.PRNGKey(0), inp, output_attentions=True, output_hidden_states=True)
+fwd = model.apply(init_params | params, inp, output_attentions=True, output_hidden_states=True)
+fwd2 = hf_model(**tok_input, output_attentions=True, output_hidden_states=True)
+diff_h = [np.abs(a - b.detach().numpy()) for a, b in zip(fwd.hidden_states, fwd2.hidden_states)]
+diff_a = [np.abs(a - b.detach().numpy()) for a, b in zip(fwd.attention_weights, fwd2.attentions)]
+breakpoint()

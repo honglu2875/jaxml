@@ -3,12 +3,12 @@ import re
 from .utils import torch_to_jax_states
 
 
-def to_llama_jax_params(model, dtype="float16"):
+def to_llama_jax_params(model, dtype: str = "float16"):
     llama_config = model.config
     return torch_to_jax_states(model.state_dict(), head_dim=llama_config.head_dim, dtype=dtype)
 
 
-def to_neox_jax_params(model, dtype="float16"):
+def to_neox_jax_params(model, dtype: str = "float16"):
     neox_config = model.config
     # the substitution rules may be fragile, but we specifically target HF's neox
     _sub = {
@@ -32,7 +32,7 @@ def to_neox_jax_params(model, dtype="float16"):
     return torch_to_jax_states(state_dict, head_dim=neox_config.hidden_size // neox_config.num_attention_heads, dtype=dtype)
 
 
-def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
+def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
     try:
@@ -44,13 +44,13 @@ def load_llama_from_hf(name: str) -> tuple["LlamaForCausalLM", dict]:  # noqa: F
     from jaxml.models.llama import LlamaModelWithHead
 
     _model = AutoModelForCausalLM.from_pretrained(name)
-    params = to_llama_jax_params(_model)
+    params = to_llama_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = LlamaModelWithHead(config)
     return model, params
 
 
-def load_neox_from_hf(name: str) -> tuple["GPTNeoXForCausalLM", dict]:  # noqa: F821
+def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple["GPTNeoXForCausalLM", dict]:  # noqa: F821
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
     try:
@@ -62,7 +62,7 @@ def load_neox_from_hf(name: str) -> tuple["GPTNeoXForCausalLM", dict]:  # noqa: 
     from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 
     _model = AutoModelForCausalLM.from_pretrained(name)
-    params = to_neox_jax_params(_model)
+    params = to_neox_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = GPTNeoXModelWithHead(config)
     return model, params

@@ -68,6 +68,12 @@ class DenseGeneral(Module):
     use_bias: bool = False
     bias_init: Callable = nn.initializers.zeros
 
+    # dot_general has three precision options: DEFAULT, HIGH, HIGHEST
+    # If the model is trained in fp32 or bf16, it's usually okay to set it to DEFAULT (in 1 bf16).
+    # If otherwise, HIGH or HIGHEST is recommended.
+    # But setting default to HIGH just in case.
+    precision: str = "high"
+
     @nn.compact
     def __call__(self, inputs: jnp.ndarray) -> jnp.ndarray:
         """Applies a linear transformation to the inputs along multiple dimensions.
@@ -79,10 +85,11 @@ class DenseGeneral(Module):
           The transformed input.
         """
 
+        precision = lax.Precision(self.precision.lower())
         def compute_dot_general(inputs, kernel, axis, contract_ind):
             """Computes a dot_general operation."""
             dot_general = lax.dot_general
-            return dot_general(inputs, kernel, ((axis, contract_ind), ((), ())), precision=None)
+            return dot_general(inputs, kernel, ((axis, contract_ind), ((), ())), precision=precision)
 
         features = _canonicalize_tuple(self.features)
         axis = _canonicalize_tuple(self.axis)

@@ -75,7 +75,7 @@ def hf_neox_config():
         rotary_pct=0.5,
         use_parallel_residual=True,
         attn_implementation="eager",
-        attention_bias=False,
+        attention_bias=True,
     )
 
 

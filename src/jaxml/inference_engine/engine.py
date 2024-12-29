@@ -30,17 +30,12 @@ class InferenceConfig:
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
 
-    model: nn.Module
-    config: InferenceConfig
-    params: FrozenDict
-    kv_cache: Optional[list[KVCache]]
-    dtype: Any = jnp.bfloat16
-
-    def __init__(self, model: nn.Module, config: InferenceConfig, params: FrozenDict):
+    def __init__(self, model: nn.Module, config: InferenceConfig, params: FrozenDict, dtype: Any = jnp.float32):
         self.model = model
         assert config.tp_size * config.dp_size <= jax.device_count()
         self.config = config
         self.params = params
+        self.dtype = dtype
 
     def init_cache(self, max_seq_len: Optional[int] = None) -> list[KVCache]:
         max_seq_len = max_seq_len or self.config.max_sequence_length

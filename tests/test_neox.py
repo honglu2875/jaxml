@@ -23,8 +23,9 @@ def test_neox_model(neox_model, hf_neox_model):
             )
         assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=1e-4)
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.attention_weights, y2.attentions))
+        print("attention weight diffs:", [np.abs(a - b.numpy()).max() for a, b in zip(y.attention_weights, y2.attentions)])
         # last layer appears to have a bump in error... strange
-        print([np.abs(a - b.numpy()).max() for a, b in zip(y.hidden_states, y2.hidden_states)])
+        print("hidden state diffs:", [np.abs(a - b.numpy()).max() for a, b in zip(y.hidden_states, y2.hidden_states)])
         assert all(np.allclose(a, b.numpy(), atol=1e-4) for a, b in zip(y.hidden_states, y2.hidden_states))
 
 
