@@ -47,6 +47,8 @@ class Attention(Block):
     fused_qkv: bool = False
     use_alibi: bool = False
 
+    precision: str = "high"
+
     def setup(self):
         self.num_key_value_heads = self.config.num_key_value_heads
 
@@ -162,7 +164,7 @@ class Attention(Block):
         softmax_fp32: bool = True,
         output_attentions: bool = False,
     ):
-        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states) / self.qk_scale
+        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.precision) / self.qk_scale
 
         _, _, q_len, k_len = x.shape
         dtype = query_states.dtype
@@ -188,7 +190,7 @@ class Attention(Block):
         else:
             out_weight = None
 
-        attn_output = jnp.einsum("bhst,bthn->bshn", attn_weight, value_states)
+        attn_output = jnp.einsum("bhst,bthn->bshn", attn_weight, value_states, precision=self.precision)
 
         return attn_output, out_weight
 
