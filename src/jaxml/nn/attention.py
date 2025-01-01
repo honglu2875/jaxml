@@ -253,9 +253,7 @@ class Attention(Block):
         if position_ids is not None:
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
-        print(hidden_states.shape)
         query_states, key_states, value_states = self.qkv(hidden_states)
-        print(query_states.shape, key_states.shape)
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
             key_states, value_states, attention_mask, kv_cache
         )
