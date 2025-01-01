@@ -10,8 +10,8 @@ from jaxml.inference_engine.engine import Engine, InferenceConfig
 
 
 #model_name = "NousResearch/Meta-Llama-3-8B"
-model_name = "EleutherAI/pythia-1b"
 #model, params = load_llama_from_hf(model_name)
+model_name = "EleutherAI/pythia-1b"
 model, params = load_neox_from_hf(model_name)
 hf_model = AutoModelForCausalLM.from_pretrained(model_name)
 
@@ -21,7 +21,8 @@ prompt = ["The weather of Chicago is", "To implement quick sort,"]
 # ---- reference ---- #
 with torch.no_grad():
     tok_input = tokenizer(prompt, return_tensors="pt")
-    out = hf_model.generate(**tok_input, max_new_tokens=100, do_sample=True, temperature=1.0)
+    #out = hf_model.generate(**tok_input, max_new_tokens=100, do_sample=True, temperature=1.0)
+    out = hf_model.generate(**tok_input, max_new_tokens=100, do_sample=False)
 print(tokenizer.batch_decode(out))
 
 encoded = tokenizer(prompt, return_tensors='np')
@@ -35,10 +36,11 @@ engine.init_params(use_tpu=True)
 
 #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
 start = time.perf_counter()
-output = engine.generate(prompt_tokens, attention_mask=attention_mask, max_new_tokens=150, top_k=0, temperature=1.0, fuse_decoding=True)
+output = engine.generate(prompt_tokens, attention_mask=attention_mask, max_new_tokens=150, top_k=0, temperature=1.0, fuse_decoding=False)
 print("Time", time.perf_counter() - start)
 print(tokenizer.batch_decode(np.array(output)))
 
+"""
 # --- debug --- #
 print("--- debug ---")
 inp = encoded["input_ids"]
@@ -50,3 +52,4 @@ fwd2 = hf_model(**tok_input, output_attentions=True, output_hidden_states=True)
 diff_h = [np.abs(a - b.detach().numpy()) for a, b in zip(fwd.hidden_states, fwd2.hidden_states)]
 diff_a = [np.abs(a - b.detach().numpy()) for a, b in zip(fwd.attention_weights, fwd2.attentions)]
 breakpoint()
+"""

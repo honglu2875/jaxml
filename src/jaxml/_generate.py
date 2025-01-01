@@ -76,7 +76,7 @@ def generate(
     seed: int = 0,
     max_new_tokens: int = 100,
     top_k: int = 0,
-    top_p: float = 0.0,
+    top_p: float = 1.0,
     min_p: float = 0.0,
     temperature: float = 1.0,
     include_prompt: bool = False,

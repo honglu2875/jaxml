@@ -198,7 +198,7 @@ class Engine:
         seed: int = 0,
         max_new_tokens: int = 10,
         top_k: int = 0,
-        top_p: float = 0.0,
+        top_p: float = 1.0,
         min_p: float = 0.0,
         temperature: float = 1.0,
         fuse_decoding: bool = False,
