@@ -68,8 +68,7 @@ class DenseGeneral(Module):
     use_bias: bool = False
     bias_init: Callable = nn.initializers.zeros
 
-    #precision=lax.DotAlgorithmPreset.BF16_BF16_F32
-    precision: str = "high"
+    precision: str = "default"
 
     @nn.compact
     def __call__(self, inputs: jnp.ndarray) -> jnp.ndarray:

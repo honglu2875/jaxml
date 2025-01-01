@@ -47,7 +47,7 @@ class Attention(Block):
     fused_qkv: bool = False
     use_alibi: bool = False
 
-    precision: str = "high"
+    mm_precision: str = "high"
 
     def setup(self):
         self.num_key_value_heads = self.config.num_key_value_heads
@@ -71,6 +71,7 @@ class Attention(Block):
                 weight_dtype=self.weight_dtype,
                 name="qkv_proj",
                 use_bias=self.use_bias,
+                precision=self.mm_precision,
             )
         else:
             self.q_proj, self.k_proj, self.v_proj = map(
@@ -85,6 +86,7 @@ class Attention(Block):
                     weight_dtype=self.weight_dtype,
                     name=x[1],
                     use_bias=self.use_bias,
+                    precision=self.mm_precision,
                 ),
                 (
                     (self.num_heads, "q_proj"),
@@ -101,6 +103,7 @@ class Attention(Block):
             kernel_axes=("heads_merged", "embed"),
             name="o_proj",
             use_bias=self.use_bias,
+            precision=self.mm_precision,
         )
 
     def qkv(self, hidden: jnp.ndarray):
@@ -164,7 +167,7 @@ class Attention(Block):
         softmax_fp32: bool = True,
         output_attentions: bool = False,
     ):
-        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.precision) / self.qk_scale
+        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) / self.qk_scale
 
         _, _, q_len, k_len = x.shape
         dtype = query_states.dtype
@@ -190,7 +193,7 @@ class Attention(Block):
         else:
             out_weight = None
 
-        attn_output = jnp.einsum("bhst,bthn->bshn", attn_weight, value_states, precision=self.precision)
+        attn_output = jnp.einsum("bhst,bthn->bshn", attn_weight, value_states, precision=self.mm_precision)
 
         return attn_output, out_weight
 

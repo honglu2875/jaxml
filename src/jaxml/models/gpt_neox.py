@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import functools
 from typing import Any, Optional
 
 import jax
@@ -32,7 +33,7 @@ from ..outputs import AttentionOutput, BaseModelOutputWithCache, CausalLMOutputW
 
 class GPTNeoXMLP(Block):
     kernel_init: Any = nn.initializers.xavier_uniform
-    act_fn: Any = jax.nn.gelu
+    act_fn: Any = functools.partial(jax.nn.gelu, approximate=False)
 
     def setup(self):
         if self.config is None:
@@ -47,6 +48,7 @@ class GPTNeoXMLP(Block):
             kernel_axes=("embed", "intermediate"),
             name="up_proj",
             use_bias=self.use_bias,
+            precision="high",
         )
         self.down_proj = DenseGeneral(
             features=self.hidden_size,
@@ -57,6 +59,7 @@ class GPTNeoXMLP(Block):
             kernel_axes=("intermediate", "embed"),
             name="down_proj",
             use_bias=self.use_bias,
+            precision="high",
         )
 
     def __call__(self, x, **kwargs):
@@ -72,9 +75,9 @@ class GPTNeoXMLP(Block):
 class GPTNeoXDecoder(Block):
     def setup(self):
         if not self.config.use_rope:
-            self.self_attn = Attention(self.config, fused_qkv=True, dtype=self.dtype)
+            self.self_attn = Attention(self.config, fused_qkv=True, dtype=self.dtype, mm_precision="high")
         else:
-            self.self_attn = AttentionWithRoPE(self.config, fused_qkv=True, dtype=self.dtype)
+            self.self_attn = AttentionWithRoPE(self.config, fused_qkv=True, dtype=self.dtype, mm_precision="high")
         self.mlp = GPTNeoXMLP(self.config, dtype=self.dtype)
         self.input_layernorm = LayerNorm(
             hidden_size=self.hidden_size,
@@ -213,6 +216,7 @@ class GPTNeoXModelWithHead(Block):
             kernel_axes=("embed", "vocab"),
             name="lm_head",
             use_bias=False,  # lm_head almost certain does not use bias
+            precision="high",
         )
 
     def __call__(
