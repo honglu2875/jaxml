@@ -13,6 +13,7 @@ from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod
+from jaxml.outputs import GenerationOutput
 from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,9 @@ class InferenceConfig:
     tp_size: int = 1
     dp_size: int = 1
     max_sequence_length: int = 128
-    # JIT-compile configs
-    length_stride: Optional[int] = None
 
+
+CACHE_STRIDE = 128
 
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
@@ -40,7 +41,7 @@ class Engine:
     def init_cache(self, max_seq_len: Optional[int] = None) -> list[KVCache]:
         max_seq_len = max_seq_len or self.config.max_sequence_length
         num_layers = self.model.config.num_layers
-        return [KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers)]
+        return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
 
     @staticmethod
     def mesh_sharding(pspec: Optional[PartitionSpec], mesh: Optional[Mesh]) -> NamedSharding:
@@ -202,9 +203,9 @@ class Engine:
         min_p: float = 0.0,
         temperature: float = 1.0,
         fuse_decoding: bool = False,
+        include_prompt: bool = True,
     ):
         apply = self.wrapped_apply_fn
-        kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + max_new_tokens)
 
         from .._generate import generate
 
@@ -216,28 +217,45 @@ class Engine:
         # For every unique model call, cache the AOT-compiled function to disk
         # Note: top_k value cannot be traced and need to be hashed as well.
         top_k = 0 if top_k < 0 else top_k
-        call_hash = _hash(
-            str(self.model),
-            str(self.config),
-            str(prompt_tokens.shape),
-            str(max_new_tokens),
-            str(sampling_method),
-            str(top_k),
-        )
 
-        return generate(
-            self.params,
-            apply,
-            prompt_tokens,
-            attention_mask,
-            kv_caches,
-            call_hash,
-            sampling_method,
-            seed=seed,
-            max_new_tokens=max_new_tokens,
-            top_k=top_k,
-            top_p=top_p,
-            min_p=min_p,
-            temperature=temperature,
-            fuse_decoding=fuse_decoding,
-        )
+        output_tokens = [prompt_tokens] if include_prompt else []
+        kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + CACHE_STRIDE)
+        for i in range(0, max_new_tokens, CACHE_STRIDE):
+            cache_length = prompt_tokens.shape[1] + i + CACHE_STRIDE
+            new_tokens = CACHE_STRIDE if i + CACHE_STRIDE <= max_new_tokens else max_new_tokens - i
+
+            if i > 0:
+                kv_caches = tuple(c.resize(cache_length) for c in kv_caches)
+
+            call_hash = _hash(
+                str(self.model),
+                str(self.config),
+                str(prompt_tokens.shape),
+                str(max_new_tokens),
+                str(sampling_method),
+                str(top_k),
+                str(cache_length),
+            )
+
+            step_output: GenerationOutput = generate(
+                self.params,
+                apply,
+                prompt_tokens if not output_tokens else output_tokens[-1],
+                attention_mask,
+                kv_caches,
+                call_hash,
+                sampling_method,
+                seed=seed,
+                max_new_tokens=new_tokens,
+                top_k=top_k,
+                top_p=top_p,
+                min_p=min_p,
+                temperature=temperature,
+                fuse_decoding=fuse_decoding,
+                include_prompt=False,
+                skip_prefill=(i != 0),
+            )
+            output_tokens.append(step_output.tokens)
+            kv_caches = step_output.kv_caches
+
+        return jnp.concatenate(output_tokens, axis=-1)

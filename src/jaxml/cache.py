@@ -57,8 +57,8 @@ class KVCache(struct.PyTreeNode):
         return self.mask
 
     def _pad(self, x):
-        x, value = x
-        shape = (x.shape[0], self.max_seq_len - x.shape[1]) + x.shape[2:]
+        x, value, max_seq_len = x
+        shape = (x.shape[0], max_seq_len - x.shape[1]) + x.shape[2:]
         return jnp.concatenate([x, jnp.full(shape, value, dtype=x.dtype)], axis=1)
 
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
@@ -66,7 +66,8 @@ class KVCache(struct.PyTreeNode):
             assert self.v is None
             assert self.mask is None
             pos_id = get_default_pos_ids(mask)
-            k, v, mask = map(self._pad, ((k, 0), (v, 0), (mask, False)))
+            l = self.max_seq_len
+            k, v, mask = map(self._pad, ((k, 0, l), (v, 0, l), (mask, False, l)))
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
 
         assert k.shape[1] == v.shape[1] == 1
@@ -89,3 +90,18 @@ class KVCache(struct.PyTreeNode):
         new_v = jnp.where(filter_mask[..., None, None], self.v, 0)
 
         return self.replace(k=new_k, v=new_v, mask=filter_mask, pos_id=prev_pos)
+
+    def resize(self, new_size: int):
+        if new_size > self.max_seq_len:
+            new_k, new_v, new_mask = map(
+                self._pad,
+                ((self.k, 0, new_size), (self.v, 0, new_size), (self.mask, False, new_size)),
+            )
+            return self.replace(k=new_k, v=new_v, mask=new_mask, max_seq_len=new_size)
+        else:
+            return self.replace(
+                k=self.k[:, :new_size],
+                v=self.v[:, :new_size],
+                mask=self.mask[:, :new_size],
+                max_seq_len=new_size,
+            )

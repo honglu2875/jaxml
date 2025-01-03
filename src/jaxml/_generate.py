@@ -24,6 +24,7 @@ import tqdm
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod
 from jaxml.utils import load_if_exists
+from jaxml.outputs import GenerationOutput
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def generate(
     eval_fn,
     prompt_tokens: jnp.ndarray,
     attention_mask: Optional[jnp.ndarray],
-    kv_caches: list[KVCache],
+    kv_caches: tuple[KVCache],
     call_hash: int,
     sampling_method: SamplingMethod,
     seed: int = 0,
@@ -81,6 +82,7 @@ def generate(
     temperature: float = 1.0,
     include_prompt: bool = False,
     fuse_decoding: bool = False,
+    skip_prefill: bool = False,
 ):
     """
     Args:
@@ -98,8 +100,11 @@ def generate(
         temperature: temperature
         include_prompt: whether to include the prompt in the return
         fuse_decoding: whether to fuse decoding in compiling
+        skip_prefill: True if k and v are prefilled inside kv_caches and we skip prefill
     Returns:
-        the completed token array (containing the prompt)
+        GenerationOutput consisting of:
+            the completed token array (containing the prompt)
+            the kv-caches
     """
     prompt_tokens = jnp.array(prompt_tokens)
     if prompt_tokens.ndim == 1:
@@ -118,35 +123,39 @@ def generate(
         temp=temperature,
     )
 
-    # Note that top_k value cannot be traced due to the limit of jax.lax.top_k
-    @load_if_exists(name="prefill", hash=call_hash)
-    def _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature):
-        first_generated_logit, kv_caches = eval_fn(
-            params,
-            prompt_tokens,
-            attention_mask,
-            kv_caches,
-            use_cache=True,
-        )
-        return (
-            sample_fn(rng, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature),
-            kv_caches,
-        )
+    if skip_prefill:
+        first_generated_tok = prompt_tokens[:, -1:]
+    else:
+        # Note that top_k value cannot be traced due to the limit of jax.lax.top_k
+        @load_if_exists(name="prefill", hash=call_hash)
+        def _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature):
+            first_generated_logit, kv_caches = eval_fn(
+                params,
+                prompt_tokens,
+                attention_mask,
+                kv_caches,
+                use_cache=True,
+            )
+            return (
+                sample_fn(rng, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature),
+                kv_caches,
+            )
 
-    first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature)
+        first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature)
 
     if fuse_decoding:
         loop_fn = functools.partial(_loop_fn, **loop_fn_params)
 
         @load_if_exists(name="decode", hash=call_hash)
         def _decode(params, kv_caches, rng, first_generated_tok):
-            return jax.lax.scan(
+            output = jax.lax.scan(
                 loop_fn,
                 (params, kv_caches, rng, first_generated_tok),
                 jnp.arange(max_new_tokens - 1),
-            )[1].T
+            )
+            return output[1].T, output[0][1]  # tokens, kv_caches
 
-        generated_toks = _decode(params, kv_caches, rng, first_generated_tok)
+        generated_toks, kv_caches = _decode(params, kv_caches, rng, first_generated_tok)
     else:
         # This could potentially turn into token-streaming
         loop_fn = functools.partial(_loop_fn_no_scan, **loop_fn_params)
@@ -154,13 +163,18 @@ def generate(
 
         new_tokens = []
         token = first_generated_tok
-        for i in tqdm.trange(max_new_tokens - 1):
+        for i in tqdm.trange(max_new_tokens if skip_prefill else max_new_tokens - 1):
             rng, kv_caches, token = loop_fn(rng, kv_caches, token, params)
             new_tokens.append(token.squeeze(1).T)
 
         generated_toks = jnp.stack(new_tokens, axis=-1)
 
-    if include_prompt:
-        return jnp.concatenate((first_generated_tok, generated_toks), axis=-1)
+    if skip_prefill:
+        tokens = generated_toks
     else:
-        return jnp.concatenate((prompt_tokens, first_generated_tok, generated_toks), axis=-1)
+        if include_prompt:
+            tokens =  jnp.concatenate((prompt_tokens, first_generated_tok, generated_toks), axis=-1)
+        else:
+            tokens = jnp.concatenate((first_generated_tok, generated_toks), axis=-1)
+
+    return GenerationOutput(tokens=tokens, kv_caches=kv_caches)

@@ -49,3 +49,9 @@ class AttentionOutput:
     attention_output: jnp.ndarray
     attention_weight: Optional[jnp.ndarray] = None
     kv_cache: Optional[KVCache] = None
+
+
+@flax.struct.dataclass
+class GenerationOutput:
+    tokens: jnp.ndarray
+    kv_caches: list[KVCache]
