@@ -34,12 +34,14 @@ logger = logging.getLogger(__name__)
 
 _str_to_np_dtype = {
     "float16": np.float16,
+    "bfloat16": jnp.bfloat16,
     "float32": np.float32,
     "float64": np.float64,
 }
 
 _torch_to_np_dtype = {
     torch.float16: np.float16,
+    torch.bfloat16: jnp.bfloat16,
     torch.float32: np.float32,
     torch.float64: np.float64,
     # "bf16": np.float16,

@@ -9,10 +9,10 @@ from jaxml.hf_utils import load_llama_from_hf, load_neox_from_hf
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 
 
-#model_name = "NousResearch/Meta-Llama-3-8B"
-#model, params = load_llama_from_hf(model_name)
-model_name = "EleutherAI/pythia-1b"
-model, params = load_neox_from_hf(model_name)
+model_name = "NousResearch/Meta-Llama-3-8B"
+model, params = load_llama_from_hf(model_name, dtype="bfloat16")
+#model_name = "EleutherAI/pythia-1b"
+#model, params = load_neox_from_hf(model_name)
 hf_model = AutoModelForCausalLM.from_pretrained(model_name)
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -32,13 +32,13 @@ print(encoded)
 prompt_tokens = jnp.array(encoded.input_ids)
 attention_mask = jnp.array(encoded.attention_mask)
 
-config = InferenceConfig(max_sequence_length=200, tp_size=1)
-engine = Engine(model, config, params, dtype=jnp.float32)
+config = InferenceConfig(tp_size=1)
+engine = Engine(model, config, params, dtype=jnp.float16)
 engine.init_params(use_tpu=True)
 
 #with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
 start = time.perf_counter()
-output = engine.generate(prompt_tokens, attention_mask=attention_mask, max_new_tokens=1000, top_k=0, temperature=1.0, fuse_decoding=False)
+output = engine.generate(prompt_tokens, attention_mask=attention_mask, max_new_tokens=3000, top_k=0, temperature=1.0, fuse_decoding=False)
 print("Time", time.perf_counter() - start)
 print(tokenizer.batch_decode(np.array(output)))
 

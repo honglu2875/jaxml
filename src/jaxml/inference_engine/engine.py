@@ -23,10 +23,9 @@ logger = logging.getLogger(__name__)
 class InferenceConfig:
     tp_size: int = 1
     dp_size: int = 1
-    max_sequence_length: int = 128
 
 
-CACHE_STRIDE = 128
+CACHE_STRIDE = 256
 
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
@@ -38,8 +37,8 @@ class Engine:
         self.params = params
         self.dtype = dtype
 
-    def init_cache(self, max_seq_len: Optional[int] = None) -> list[KVCache]:
-        max_seq_len = max_seq_len or self.config.max_sequence_length
+    def init_cache(self, max_seq_len: int) -> list[KVCache]:
+        max_seq_len = max_seq_len
         num_layers = self.model.config.num_layers
         return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
 
@@ -217,24 +216,27 @@ class Engine:
         # For every unique model call, cache the AOT-compiled function to disk
         # Note: top_k value cannot be traced and need to be hashed as well.
         top_k = 0 if top_k < 0 else top_k
+        prompt_len = prompt_tokens.shape[1]
+        total_len = prompt_len + max_new_tokens
 
         output_tokens = [prompt_tokens] if include_prompt else []
-        kv_caches = self.init_cache(max_seq_len=prompt_tokens.shape[1] + CACHE_STRIDE)
-        for i in range(0, max_new_tokens, CACHE_STRIDE):
-            cache_length = prompt_tokens.shape[1] + i + CACHE_STRIDE
-            new_tokens = CACHE_STRIDE if i + CACHE_STRIDE <= max_new_tokens else max_new_tokens - i
+        initial_buffer_len = (prompt_len // CACHE_STRIDE + 1) * CACHE_STRIDE
+        kv_caches = self.init_cache(max_seq_len=initial_buffer_len)
+        for cache_len in range(initial_buffer_len, total_len + CACHE_STRIDE, CACHE_STRIDE):
+            # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of CACHE_STRIDE
+            # `new_token_count` keeps track of the remaining tokens to fill
+            new_token_count = min(cache_len - prompt_len, CACHE_STRIDE, CACHE_STRIDE - cache_len + total_len)
 
-            if i > 0:
-                kv_caches = tuple(c.resize(cache_length) for c in kv_caches)
+            if cache_len > initial_buffer_len:
+                kv_caches = tuple(c.resize(cache_len) for c in kv_caches)
 
             call_hash = _hash(
                 str(self.model),
                 str(self.config),
                 str(prompt_tokens.shape),
-                str(max_new_tokens),
                 str(sampling_method),
                 str(top_k),
-                str(cache_length),
+                str(cache_len),
             )
 
             step_output: GenerationOutput = generate(
@@ -246,14 +248,14 @@ class Engine:
                 call_hash,
                 sampling_method,
                 seed=seed,
-                max_new_tokens=new_tokens,
+                max_new_tokens=new_token_count,
                 top_k=top_k,
                 top_p=top_p,
                 min_p=min_p,
                 temperature=temperature,
                 fuse_decoding=fuse_decoding,
                 include_prompt=False,
-                skip_prefill=(i != 0),
+                skip_prefill=(cache_len > initial_buffer_len),
             )
             output_tokens.append(step_output.tokens)
             kv_caches = step_output.kv_caches
