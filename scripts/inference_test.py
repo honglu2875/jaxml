@@ -32,7 +32,7 @@ print(encoded)
 prompt_tokens = jnp.array(encoded.input_ids)
 attention_mask = jnp.array(encoded.attention_mask)
 
-config = InferenceConfig(tp_size=1)
+config = InferenceConfig(tp_size=4)
 engine = Engine(model, config, params, dtype=jnp.float16)
 engine.init_params(use_tpu=True)
 

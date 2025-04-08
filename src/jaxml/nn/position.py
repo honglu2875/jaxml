@@ -26,6 +26,7 @@ class RotaryEmbedding(nn.Module):
     dtype: Any = jnp.float32
     disable_cache: bool = False
     rotary_pct: float = 1.0
+    rope_scale: float = 1.0
 
     @staticmethod
     def rotate_half(x):
@@ -55,6 +56,11 @@ class RotaryEmbedding(nn.Module):
         return self.rotary_pct >= 1.0
 
     def setup(self):
+        if self.rope_scale < 1.0:
+            raise ValueError(
+                f"Although rope scale in theory can be < 1.0, it is more likely a mistake (potential confusion of "
+                f"whether dividing or multiplying it). I raise the error for awareness (got {self.rope_scale})."
+            )
         if self.full_rotate:
             self.rotary_dim = self.dim
         else:
@@ -82,7 +88,7 @@ class RotaryEmbedding(nn.Module):
             self.sin_cached = self.variable("cache", "sin_cached", lambda: jnp.sin(emb).astype(self.dtype))
 
     def get_emb(self, seq_len: int):
-        t = jnp.arange(seq_len, dtype=jnp.float32)
+        t = jnp.arange(seq_len, dtype=jnp.float32) / self.rope_scale
         freqs = jnp.dot(t[:, None], self.inv_freq.value[None], precision="float32", preferred_element_type="float32")
         #freqs = jnp.einsum("i,j->ij", t, self.inv_freq.value)
         # Different from paper, but it uses a different permutation in order to obtain the same calculation

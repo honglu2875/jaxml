@@ -102,7 +102,8 @@ class Engine:
             ("heads", "model"),
             ("kv_length", None),
             ("length", None),
-            ("intermediate", None),
+            ("embed", None),
+            ("intermediate", "model"),
             ("heads_merged", "model"),
             ("head_states", None),
         )

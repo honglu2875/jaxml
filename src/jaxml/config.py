@@ -18,6 +18,8 @@ class ModelConfig:
 
     num_kv_heads: Optional[int] = struct.field(default=None, pytree_node=False)
     sliding_window: Optional[int] = struct.field(default=None, pytree_node=False)
+    sliding_window_pattern: Optional[int] = struct.field(default=None, pytree_node=False)
+    attn_scale: Optional[int] = struct.field(default=None, pytree_node=False)
 
     use_bias: bool = struct.field(default=False, pytree_node=False)
     use_alibi: bool = struct.field(default=False, pytree_node=False)
@@ -28,6 +30,7 @@ class ModelConfig:
 
     ####### Only effective for RoPE #######
     rope_theta: float = struct.field(default=10_000.0, pytree_node=False)
+    rope_scale: float = struct.field(default=1.0, pytree_node=False)
     # Limit the percentage of heads to apply RoPE (NeoX style)
     rotary_pct: float = struct.field(default=1.0, pytree_node=False)
     # Only effective in GPT-NeoX for the two arch variants
@@ -54,7 +57,7 @@ class ModelConfig:
     @classmethod
     def from_hf(cls, config):
         """Construct a ModelConfig from LlamaConfig or GPTNeoXConfig."""
-        from transformers import GPTNeoXConfig, LlamaConfig
+        from transformers import GPTNeoXConfig, LlamaConfig, Gemma3TextConfig
 
         factor = math.gcd(config.intermediate_size, config.hidden_size)
 
@@ -71,16 +74,35 @@ class ModelConfig:
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta
+            rope_scale = config.rope_scaling["factor"] if config.rope_scaling is not None else 1.0
+            attn_scale = config.num_hidden_layers ** -0.5
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False
+            sliding_window = None
+            sliding_window_pattern = None
         elif type(config) is GPTNeoXConfig:
             norm_eps = config.layer_norm_eps
             num_kv_heads = num_heads
             rope_theta = float(config.rotary_emb_base)
+            rope_scale = 1.0  # NeoX was born before RoPE scaling
             use_parallel_residual = config.use_parallel_residual
             rotary_pct = config.rotary_pct
+            attn_scale = config.num_hidden_layers ** -0.5
             use_bias = True
+            sliding_window = None
+            sliding_window_pattern = None
+        elif type(config) is Gemma3TextConfig:
+            norm_eps = config.rms_norm_eps
+            num_kv_heads = config.num_key_value_heads
+            rope_theta = config.rope_theta
+            rope_scale = config.rope_scaling["factor"] if config.rope_scaling is not None else 1.0
+            attn_scale = config.query_pre_attn_scalar ** -0.5
+            # no impact
+            use_parallel_residual, rotary_pct = True, 1.0
+            use_bias = False
+            sliding_window = config.sliding_window
+            sliding_window_pattern = int(config.sliding_window_pattern)
         else:
             raise ValueError(f"Unsupported config class {config.__class__}")
 
@@ -98,4 +120,8 @@ class ModelConfig:
             use_parallel_residual=use_parallel_residual,
             rotary_pct=rotary_pct,
             use_bias=use_bias,
+            sliding_window=sliding_window,
+            sliding_window_pattern=sliding_window_pattern,
+            attn_scale=attn_scale,
+            rope_scale=rope_scale,
         )

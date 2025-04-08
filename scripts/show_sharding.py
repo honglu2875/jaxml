@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from transformers import AutoTokenizer
-from jaxml.utils import load_llama_from_hf
+from jaxml.hf_utils import load_llama_from_hf, load_neox_from_hf
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 
 
@@ -10,7 +10,7 @@ model_name = "NousResearch/Meta-Llama-3-8B"
 model, params = load_llama_from_hf(model_name)
 
 
-config = InferenceConfig(max_sequence_length=100, tp_size=4)
+config = InferenceConfig(tp_size=4)
 engine = Engine(model, config, params)
 engine.init_params(use_tpu=True)
 

@@ -19,7 +19,7 @@
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/attentions.py
 
 import math
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -46,6 +46,7 @@ class Attention(Block):
     weight_dtype: Any = jnp.float32
     fused_qkv: bool = False
     use_alibi: bool = False
+    qk_norm_factory: Callable | None = None  # Gemma3 applies RMS norms after q and k projections
 
     mm_precision: str = "high"
 
@@ -94,6 +95,10 @@ class Attention(Block):
                     (self.num_key_value_heads, "v_proj"),
                 ),
             )
+        if self.qk_norm_factory is not None:
+            self.q_norm, self.k_norm = [self.qk_norm_factory(),] * 2
+
+
         self.o_proj = DenseGeneral(
             features=self.head_dim * self.num_heads,
             dtype=self.dtype,
@@ -116,6 +121,9 @@ class Attention(Block):
                 self.k_proj(hidden),
                 self.v_proj(hidden),
             )
+
+        if self.qk_norm_factory is not None:
+            query, key = (self.q_norm(query), self.k_norm(key))
 
         return query, key, value
 
@@ -163,6 +171,7 @@ class Attention(Block):
         value_states: jnp.ndarray,
         attention_mask: Optional[jnp.ndarray] = None,
         causal: bool = True,
+        sliding_window: int | None = None,
         alibi_slope=None,
         softmax_fp32: bool = True,
         output_attentions: bool = False,
@@ -178,7 +187,15 @@ class Attention(Block):
             x += bias
 
         if causal and q_len != 1:
+            # q_len == 1 iff decoding => mask is redundant
             x += jnp.triu(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=1)
+
+        if sliding_window is not None:
+            if q_len != 1:
+                x += jnp.tril(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=-sliding_window)
+            else:
+                # decoding => simply mask out the range
+                x.at[:-sliding_window].set(float("-inf"))
 
         if attention_mask is not None:
             x += jnp.where(attention_mask[:, None, None, :], 0, float("-inf"))
@@ -204,6 +221,7 @@ class Attention(Block):
         value_states: jnp.ndarray,
         attention_mask: Optional[jnp.ndarray] = None,
         causal: bool = True,
+        sliding_window: int | None = None,
         alibi_slope=None,
         softmax_fp32: bool = True,
         output_attentions: bool = False,
@@ -269,6 +287,7 @@ class Attention(Block):
             value_states,
             attention_mask=attention_mask,
             causal=True,
+            sliding_window=self.config.sliding_window,
             alibi_slope=self.alibi_slope,
             softmax_fp32=True,
             output_attentions=output_attentions,

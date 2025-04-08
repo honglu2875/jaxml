@@ -11,23 +11,23 @@ readme = "README.md"
 requires-python = ">=3.10"
 version = "0.0.0"
 dependencies = [
-    "jax==0.4.38",
-    "jaxlib==0.4.38",
-    "flax==0.10.2",
+    "jax==0.5.3",
+    "jaxlib==0.5.3",
+    "flax==0.10.5",
     "jax-tqdm==0.2.2",
 ]
 
 [project.optional-dependencies]
 tpu = [
-    "jax==0.4.38",
-    "jaxlib==0.4.38",
-    "libtpu-nightly @ https://storage.googleapis.com/libtpu-nightly-releases/wheels/libtpu-nightly/libtpu_nightly-0.1.dev20241222+nightly-py3-none-linux_x86_64.whl",
+    "jax==0.5.3",
+    "jaxlib==0.5.3",
+    "libtpu @ https://storage.googleapis.com/libtpu-nightly-releases/wheels/libtpu/libtpu-0.0.13.dev20250405+nightly-py3-none-manylinux_2_31_x86_64.whl",
 ]
 dev = [
-    "pytest>=8.3.4",
-    "black>=24.0.0",
-    "isort>=5.13.2",
-    "flake8>=7.1.1",
-    "torch>=2.1.1",
-    "transformers>=4.47.0",
+    "pytest==8.3.4",
+    "black==24.0.0",
+    "isort==5.13.2",
+    "flake8==7.1.1",
+    "torch==2.4.0",
+    "transformers==4.50.3",
 ]

@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import functools
 from typing import Any, Optional
 
 import jax
@@ -30,9 +30,9 @@ from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
 
 
-class LlamaMLP(Block):
+class GemmaMLP(Block):
     kernel_init: Any = nn.initializers.xavier_uniform
-    act_fn: Any = jax.nn.silu
+    act_fn: Any = jax.nn.gelu
 
     def setup(self):
         if self.config is None:
@@ -80,25 +80,46 @@ class LlamaMLP(Block):
         return x
 
 
-class LlamaDecoder(Block):
+class GemmaRMSNorm(RMSNorm):
+    """Gemma's RMS norm is mostly identical to Llama or Mistral, except for minor things"""
+
+    upcast=True
+
+    def __call__(self, hidden_states):
+        input_dtype = hidden_states.dtype
+        assert self.upcast, "Gemma3 always upcast."
+
+        hidden_states = hidden_states.astype(jnp.float32)
+        weight = self.weight.astype(jnp.float32)
+
+        square_mean = jnp.square(hidden_states).mean(-1, keepdims=True)
+        hidden_states = hidden_states * jax.lax.rsqrt(square_mean + self.eps)
+        return ((weight + 1.0) * hidden_states).astype(input_dtype)
+
+
+class GemmaDecoder(Block):
+    # Gemma3 alternatively applies sliding window attention based on layer id
+    use_sliding: bool = False
+
+    def _create_gemma_norm(self):
+        return GemmaRMSNorm(
+            hidden_size=self.hidden_size,
+            eps=self.norm_eps,
+            dtype=self.dtype,
+        )
+
     def setup(self):
-        if not self.config.use_rope:
-            self.self_attn = Attention(self.config, dtype=self.dtype)
-        else:
-            self.self_attn = AttentionWithRoPE(self.config, dtype=self.dtype)
-        self.mlp = LlamaMLP(self.config, dtype=self.dtype)
-        self.input_layernorm = RMSNorm(
-            hidden_size=self.hidden_size,
-            eps=self.norm_eps,
+        assert self.config.use_rope, "Gemma3 uses RoPE."
+        self.self_attn = AttentionWithRoPE(
+            self.config,
             dtype=self.dtype,
-            upcast=True,  # always upcast norm computation!
+            qk_norm_factory=lambda: self._create_gemma_norm,
         )
-        self.post_attention_layernorm = RMSNorm(
-            hidden_size=self.hidden_size,
-            eps=self.norm_eps,
-            dtype=self.dtype,
-            upcast=True,
-        )
+        self.mlp = GemmaMLP(self.config, dtype=self.dtype)
+        self.input_layernorm = self._create_gemma_norm()
+        self.post_attention_layernorm = self._create_gemma_norm()
+        self.pre_feedforward_layernorm = self._create_gemma_norm()
+        self.post_feedforward_layernorm = self._create_gemma_norm()
 
     def __call__(
         self,
@@ -121,11 +142,14 @@ class LlamaDecoder(Block):
             output_attentions=output_attentions,
         )
 
-        hidden_states = residual + output.attention_output
+        hidden_states = self.post_attention_layernorm(output.attention_output)
+        hidden_states = residual + hidden_states
 
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states) + residual
+        hidden_states = self.pre_feedforward_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = self.post_feedforward_layernorm(hidden_states)
+        hidden_states = residual + hidden_states
 
         return DecoderOutput(
             hidden_states=hidden_states,
@@ -134,7 +158,7 @@ class LlamaDecoder(Block):
         )
 
 
-class LlamaModel(Block):
+class GemmaModel(Block):
     def setup(self):
         self.embed_tokens = Embed(num_embeddings=self.config.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.rotary_emb = RotaryEmbedding(
@@ -144,8 +168,25 @@ class LlamaModel(Block):
             rotary_pct=self.config.rotary_pct,
             rope_scale=self.config.rope_scale,
         )
-        self.layers = [LlamaDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
-        self.norm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
+        self.rotary_emb_local = RotaryEmbedding(
+            dim=self.head_dim,
+            max_length=self.config.max_position_embeddings,
+            # NOTE: Gemma has a `rope_local_base_freq` argument to micro-manage local rope frequency
+            # I really do not think it is a good idea, and do not want to create an extra field
+            # just for this quirk. All Gemma3 has it as 10000.0, thus hardcoding it.
+            base=10000.0,
+            rotary_pct=self.config.rotary_pct,
+            rope_scale=1.0,
+        )
+        sw_stride = self.config.sliding_window_pattern or 1
+        self.layers = [
+            GemmaDecoder(
+                self.config,
+                dtype=self.dtype,
+                use_sliding=((i + 1) % sw_stride) > 0,
+            ) for i in range(self.num_layers)
+        ]
+        self.norm = GemmaRMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype)
 
     def __call__(
         self,
@@ -174,6 +215,8 @@ class LlamaModel(Block):
 
         k_len = None if kv_caches is None or kv_caches[0].k is None else kv_caches[0].k.shape[1]
         cos_sin = self.rotary_emb(hidden_states, seq_len=k_len)
+        cos_sin_local = self.rotary_emb_local(hidden_states, seq_len=k_len)
+        sw_stride = self.config.sliding_window_pattern or 1
 
         for idx, decoder_layer in enumerate(self.layers):
             all_hidden_states.append(hidden_states)
@@ -182,7 +225,7 @@ class LlamaModel(Block):
 
             output = decoder_layer(
                 hidden_states,
-                cos_sin=cos_sin,
+                cos_sin=cos_sin_local if (idx + 1) % sw_stride else cos_sin,
                 attention_mask=attention_mask,
                 position_ids=position_ids,
                 kv_cache=kv_cache,
@@ -204,13 +247,13 @@ class LlamaModel(Block):
         )
 
 
-class LlamaModelWithHead(Block):
+class GemmaWithHead(Block):
 
     lm_head_init: Any = nn.initializers.xavier_uniform
     lm_head_init_args: tuple = ()
 
     def setup(self):
-        self.model = LlamaModel(self.config, dtype=self.dtype)
+        self.model = GemmaModel(self.config, dtype=self.dtype)
         self.lm_head = DenseGeneral(
             features=self.config.vocab_size,
             dtype=self.dtype,

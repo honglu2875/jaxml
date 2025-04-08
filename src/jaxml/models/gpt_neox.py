@@ -139,6 +139,7 @@ class GPTNeoXModel(Block):
             max_length=self.config.max_position_embeddings,
             base=self.config.rope_theta,
             rotary_pct=self.config.rotary_pct,
+            rope_scale=self.config.rope_scale,
         )
         self.layers = [GPTNeoXDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
         self.norm = LayerNorm(self.hidden_size, eps=self.norm_eps, use_bias=True)
