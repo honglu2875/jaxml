@@ -19,9 +19,11 @@ Within the definition of model architectures, it also uses the following
 
 Currently support:
 - [x] Llama
+- [x] GPT-NeoX
+- [ ] Gemma3
 
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)
 - [x] AOT-compile for prefilling function and decoding function, and cache them!
-- [x] Allow JAX-flash-attention (`jax.experimental.pallas.ops.flash_attention`)
+- [ ] (pending a bug fix in JAX) Allow JAX-flash-attention (`jax.experimental.pallas.ops.flash_attention`)
 
