@@ -29,6 +29,7 @@ from jaxml.nn.position import RotaryEmbedding
 @pytest.fixture
 def config_small():
     return ModelConfig(
+        hidden_size=48,
         head_dim=8,
         num_heads=6,
         num_layers=2,
@@ -37,6 +38,7 @@ def config_small():
         vocab_size=1024,
         num_kv_heads=3,
         norm_eps=1e-6,
+        attn_scale=8**-0.5,
     )
 
 

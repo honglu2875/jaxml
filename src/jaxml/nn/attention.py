@@ -46,7 +46,9 @@ class Attention(Block):
     weight_dtype: Any = jnp.float32
     fused_qkv: bool = False
     use_alibi: bool = False
-    qk_norm_factory: Callable | None = None  # Gemma3 applies RMS norms after q and k projections
+
+    # Gemma3 applies RMS norms after q and k projections
+    qk_norm_cls_and_args: tuple[Callable, dict] | None = None  
 
     mm_precision: str = "high"
 
@@ -95,12 +97,13 @@ class Attention(Block):
                     (self.num_key_value_heads, "v_proj"),
                 ),
             )
-        if self.qk_norm_factory is not None:
-            self.q_norm, self.k_norm = [self.qk_norm_factory(),] * 2
+        if self.qk_norm_cls_and_args is not None:
+            _cls, _args = self.qk_norm_cls_and_args
+            self.q_norm, self.k_norm = _cls(**_args), _cls(**_args)
 
 
         self.o_proj = DenseGeneral(
-            features=self.head_dim * self.num_heads,
+            features=self.hidden_size,
             dtype=self.dtype,
             kernel_init=self.kernel_init,
             kernel_init_args=(),
@@ -122,7 +125,7 @@ class Attention(Block):
                 self.v_proj(hidden),
             )
 
-        if self.qk_norm_factory is not None:
+        if self.qk_norm_cls_and_args is not None:
             query, key = (self.q_norm(query), self.k_norm(key))
 
         return query, key, value
@@ -159,11 +162,6 @@ class Attention(Block):
 
         return tuple(map(_repeat, (key_states, value_states)))
 
-    @property
-    def qk_scale(self):
-        """The scale applied after qk in MHA. Feel free to override in cases such as muP."""
-        return math.sqrt(self.head_dim)
-
     def mha(
         self,
         query_states: jnp.ndarray,
@@ -176,7 +174,7 @@ class Attention(Block):
         softmax_fp32: bool = True,
         output_attentions: bool = False,
     ):
-        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) / self.qk_scale
+        x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) * self.attn_scale
 
         _, _, q_len, k_len = x.shape
         dtype = query_states.dtype
@@ -195,7 +193,7 @@ class Attention(Block):
                 x += jnp.tril(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=-sliding_window)
             else:
                 # decoding => simply mask out the range
-                x.at[:-sliding_window].set(float("-inf"))
+                x.at[:, :, :-sliding_window].set(float("-inf"))
 
         if attention_mask is not None:
             x += jnp.where(attention_mask[:, None, None, :], 0, float("-inf"))

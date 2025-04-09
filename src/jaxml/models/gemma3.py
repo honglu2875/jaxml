@@ -21,7 +21,7 @@ from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
 
 from ..cache import KVCache
-from ..nn.attention import Attention, AttentionWithRoPE
+from ..nn.attention import AttentionWithRoPE
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
@@ -89,6 +89,7 @@ class GemmaRMSNorm(RMSNorm):
         input_dtype = hidden_states.dtype
         assert self.upcast, "Gemma3 always upcast."
 
+        # TODO: potentially not optimal in shape/dtype yoga? XLA good enough?
         hidden_states = hidden_states.astype(jnp.float32)
         weight = self.weight.astype(jnp.float32)
 
@@ -101,7 +102,16 @@ class GemmaDecoder(Block):
     # Gemma3 alternatively applies sliding window attention based on layer id
     use_sliding: bool = False
 
-    def _create_gemma_norm(self):
+    @property
+    def _gemma_attention_norm_args(self) -> dict:
+        return dict(
+            # This is the critical difference than the norm outside attention
+            hidden_size=self.head_dim,  
+            eps=self.norm_eps,
+            dtype=self.dtype,
+        )
+
+    def _create_gemma_norm(self) -> nn.Module:
         return GemmaRMSNorm(
             hidden_size=self.hidden_size,
             eps=self.norm_eps,
@@ -113,7 +123,7 @@ class GemmaDecoder(Block):
         self.self_attn = AttentionWithRoPE(
             self.config,
             dtype=self.dtype,
-            qk_norm_factory=lambda: self._create_gemma_norm,
+            qk_norm_cls_and_args=(GemmaRMSNorm, self._gemma_attention_norm_args),
         )
         self.mlp = GemmaMLP(self.config, dtype=self.dtype)
         self.input_layernorm = self._create_gemma_norm()
@@ -247,7 +257,7 @@ class GemmaModel(Block):
         )
 
 
-class GemmaWithHead(Block):
+class GemmaModelWithHead(Block):
 
     lm_head_init: Any = nn.initializers.xavier_uniform
     lm_head_init_args: tuple = ()

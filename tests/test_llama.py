@@ -60,9 +60,14 @@ def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin_factory):
                     ),
                     diagonal=1,
                 )[None, None].repeat(bs, 1, 1, 1),
+                position_embeddings=tuple(
+                    map(lambda x: torch.tensor(np.array(x[None, :seq_len])), cos_sin)
+                ),
                 output_attentions=True,
             )
 
+        print(decoder.config)
+        print(y.hidden_states - y2[0].numpy())
         assert np.allclose(y.hidden_states, y2[0].numpy(), atol=1e-5)
         assert np.allclose(y.attention_weight, y2[1].numpy(), atol=1e-5)
 
@@ -82,6 +87,7 @@ def test_llama_model(llama_model, hf_llama_model):
                 output_hidden_states=True,
             )
 
+        print(y.last_hidden_state - y2.last_hidden_state.numpy())
         assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=1e-5)
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.attention_weights, y2.attentions))
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.hidden_states, y2.hidden_states))

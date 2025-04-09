@@ -71,17 +71,17 @@ def test_attention_with_rope(attention_factory, model_type, with_rope, cos_sin_f
             )[None, None].repeat(bs, 1, 1, 1),
             "output_attentions": True,
         }
-        if model_type == "neox":
-            rotary_dim = int(attn.config.head_dim * attn.config.rotary_pct)
-            if with_rope:
-                kwargs["position_embeddings"] = tuple(
-                    map(lambda x: torch.tensor(np.array(x[None, :seq_len, :rotary_dim])), cos_sin)
-                )
-            else:
-                kwargs["position_embeddings"] = (
-                    torch.ones((1, seq_len, rotary_dim), dtype=torch.float32),
-                    torch.zeros((1, seq_len, rotary_dim), dtype=torch.float32),
-                )
+        #if model_type == "neox":
+        rotary_dim = int(attn.config.head_dim * attn.config.rotary_pct)
+        if with_rope:
+            kwargs["position_embeddings"] = tuple(
+                map(lambda x: torch.tensor(np.array(x[None, :seq_len, :rotary_dim])), cos_sin)
+            )
+        else:
+            kwargs["position_embeddings"] = (
+                torch.ones((1, seq_len, rotary_dim), dtype=torch.float32),
+                torch.zeros((1, seq_len, rotary_dim), dtype=torch.float32),
+            )
         with torch.no_grad():
             output2 = hf(**kwargs)
             out2 = output2[0]

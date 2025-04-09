@@ -1,11 +1,23 @@
+from typing import TYPE_CHECKING
 import re
 
+from jaxml.models.llama import LlamaModelWithHead
+from jaxml.models.gpt_neox import GPTNeoXModelWithHead
+from jaxml.models.gemma3 import GemmaModelWithHead
+
 from .utils import torch_to_jax_states
+
+if TYPE_CHECKING:
+    from transformers import LlamaForCausalLM, GPTNeoXForCausalLM, GemmaForCausalLM
 
 
 def to_llama_jax_params(model, dtype: str = "float16"):
     llama_config = model.config
     return torch_to_jax_states(model.state_dict(), head_dim=llama_config.head_dim, dtype=dtype)
+
+def to_gemma_jax_params(model, dtype: str = "bfloat16"):
+    gemma_config = model.config
+    return torch_to_jax_states(model.state_dict(), head_dim=gemma_config.head_dim, dtype=dtype)
 
 
 def to_neox_jax_params(model, dtype: str = "float16"):
@@ -32,7 +44,7 @@ def to_neox_jax_params(model, dtype: str = "float16"):
     return torch_to_jax_states(state_dict, head_dim=neox_config.hidden_size // neox_config.num_attention_heads, dtype=dtype)
 
 
-def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple["LlamaForCausalLM", dict]:  # noqa: F821
+def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple[LlamaModelWithHead, dict]:
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
     try:
@@ -41,7 +53,6 @@ def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple["LlamaForCaus
         raise ImportError("Please install transformers library.") from e
 
     from jaxml.config import ModelConfig
-    from jaxml.models.llama import LlamaModelWithHead
 
     _model = AutoModelForCausalLM.from_pretrained(name)
     params = to_llama_jax_params(_model, dtype=dtype)
@@ -50,8 +61,8 @@ def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple["LlamaForCaus
     return model, params
 
 
-def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple["GPTNeoXForCausalLM", dict]:  # noqa: F821
-    """Load Huggingface llama compatible models directly from either local path
+def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple[GPTNeoXModelWithHead, dict]:
+    """Load Huggingface gpt-neox compatible models directly from either local path
     or the hf-hub identifier."""
     try:
         from transformers import AutoModelForCausalLM
@@ -59,7 +70,6 @@ def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple["GPTNeoXForCau
         raise ImportError("Please install transformers library.") from e
 
     from jaxml.config import ModelConfig
-    from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 
     _model = AutoModelForCausalLM.from_pretrained(name)
     params = to_neox_jax_params(_model, dtype=dtype)
@@ -68,3 +78,18 @@ def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple["GPTNeoXForCau
     return model, params
 
 
+def load_gemma_from_hf(name: str, dtype: str = "float32") -> tuple[GemmaModelWithHead, dict]:
+    """Load Huggingface gemma3 compatible models directly from either local path
+    or the hf-hub identifier."""
+    try:
+        from transformers import AutoModelForCausalLM
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+
+    from jaxml.config import ModelConfig
+
+    _model = AutoModelForCausalLM.from_pretrained(name).language_model
+    params = to_gemma_jax_params(_model, dtype=dtype)
+    config = ModelConfig.from_hf(_model.config)
+    model = GemmaModelWithHead(config)
+    return model, params

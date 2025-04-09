@@ -61,3 +61,7 @@ class Block(nn.Module):
     @property
     def use_bias(self):
         return self.config.use_bias
+
+    @property
+    def attn_scale(self):
+        return self.config.attn_scale

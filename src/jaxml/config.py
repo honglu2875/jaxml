@@ -7,6 +7,8 @@ from flax import struct
 @struct.dataclass
 class ModelConfig:
     head_dim: int = struct.field(pytree_node=False)
+    # in Gemma3, hidden_size is different than num_heads*head_dim!
+    hidden_size: int = struct.field(pytree_node=False)
     num_heads: int = struct.field(pytree_node=False)
     num_layers: int = struct.field(pytree_node=False)
     max_position_embeddings: int = struct.field(pytree_node=False)
@@ -19,7 +21,8 @@ class ModelConfig:
     num_kv_heads: Optional[int] = struct.field(default=None, pytree_node=False)
     sliding_window: Optional[int] = struct.field(default=None, pytree_node=False)
     sliding_window_pattern: Optional[int] = struct.field(default=None, pytree_node=False)
-    attn_scale: Optional[int] = struct.field(default=None, pytree_node=False)
+    # most of the time it is just head_dim ** -0.5, but just in case
+    attn_scale: float = struct.field(default=None, pytree_node=False)
 
     use_bias: bool = struct.field(default=False, pytree_node=False)
     use_alibi: bool = struct.field(default=False, pytree_node=False)
@@ -47,10 +50,6 @@ class ModelConfig:
         return self.num_kv_heads
 
     @property
-    def hidden_size(self):
-        return self.head_dim * self.num_heads
-
-    @property
     def intermediate_size(self):
         return self.hidden_size * self.intermediate_ratio[0] // self.intermediate_ratio[1]
 
@@ -62,12 +61,16 @@ class ModelConfig:
         factor = math.gcd(config.intermediate_size, config.hidden_size)
 
         ####### Shared params #######
-        head_dim = config.hidden_size // config.num_attention_heads
+        # hidden_size is guaranteed to exist in HF config
+        hidden_size = config.hidden_size
+        # head_dim is usually hidden_size // num_attention_heads, but it can specify a different number
+        head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
         num_heads = config.num_attention_heads
         num_layers = config.num_hidden_layers
         max_position_embeddings = config.max_position_embeddings
         vocab_size = config.vocab_size
         intermediate_ratio = (config.intermediate_size // factor, config.hidden_size // factor)
+        attn_scale = head_dim ** -0.5
 
         ####### Case-by-case #######
         if type(config) is LlamaConfig:
@@ -75,7 +78,6 @@ class ModelConfig:
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta
             rope_scale = config.rope_scaling["factor"] if config.rope_scaling is not None else 1.0
-            attn_scale = config.num_hidden_layers ** -0.5
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False
@@ -88,16 +90,15 @@ class ModelConfig:
             rope_scale = 1.0  # NeoX was born before RoPE scaling
             use_parallel_residual = config.use_parallel_residual
             rotary_pct = config.rotary_pct
-            attn_scale = config.num_hidden_layers ** -0.5
             use_bias = True
             sliding_window = None
             sliding_window_pattern = None
         elif type(config) is Gemma3TextConfig:
+            attn_scale = config.query_pre_attn_scalar ** -0.5
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta
             rope_scale = config.rope_scaling["factor"] if config.rope_scaling is not None else 1.0
-            attn_scale = config.query_pre_attn_scalar ** -0.5
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False
@@ -107,6 +108,7 @@ class ModelConfig:
             raise ValueError(f"Unsupported config class {config.__class__}")
 
         return cls(
+            hidden_size=hidden_size,
             head_dim=head_dim,
             num_heads=num_heads,
             num_layers=num_layers,
@@ -122,6 +124,6 @@ class ModelConfig:
             use_bias=use_bias,
             sliding_window=sliding_window,
             sliding_window_pattern=sliding_window_pattern,
-            attn_scale=attn_scale,
             rope_scale=rope_scale,
+            attn_scale=attn_scale,
         )
