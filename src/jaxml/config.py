@@ -1,5 +1,5 @@
-from dataclasses import fields
 import math
+from dataclasses import fields
 from typing import Optional
 
 from flax import struct
@@ -47,7 +47,6 @@ class ModelConfig:
     def replace(self, **kwargs):
         args_dict = {k.name: getattr(self, k.name) for k in fields(self)} | kwargs
         return self.__class__(**args_dict)
-        
 
     @property
     def num_key_value_heads(self):
@@ -62,7 +61,7 @@ class ModelConfig:
     @classmethod
     def from_hf(cls, config):
         """Construct a ModelConfig from LlamaConfig or GPTNeoXConfig."""
-        from transformers import GPTNeoXConfig, LlamaConfig, Gemma3TextConfig
+        from transformers import Gemma3TextConfig, GPTNeoXConfig, LlamaConfig
 
         factor = math.gcd(config.intermediate_size, config.hidden_size)
 
@@ -76,7 +75,7 @@ class ModelConfig:
         max_position_embeddings = config.max_position_embeddings
         vocab_size = config.vocab_size
         intermediate_ratio = (config.intermediate_size // factor, config.hidden_size // factor)
-        attn_scale = head_dim ** -0.5
+        attn_scale = head_dim**-0.5
 
         ####### Case-by-case #######
         if type(config) is LlamaConfig:
@@ -100,7 +99,7 @@ class ModelConfig:
             sliding_window = None
             sliding_window_pattern = None
         elif type(config) is Gemma3TextConfig:
-            attn_scale = config.query_pre_attn_scalar ** -0.5
+            attn_scale = config.query_pre_attn_scalar**-0.5
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta

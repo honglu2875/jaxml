@@ -27,6 +27,7 @@ class InferenceConfig:
 
 CACHE_STRIDE = 256
 
+
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
 

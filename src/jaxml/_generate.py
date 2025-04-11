@@ -23,8 +23,8 @@ import tqdm
 
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod
-from jaxml.utils import load_if_exists
 from jaxml.outputs import GenerationOutput
+from jaxml.utils import load_if_exists
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ def generate(
         tokens = generated_toks
     else:
         if include_prompt:
-            tokens =  jnp.concatenate((prompt_tokens, first_generated_tok, generated_toks), axis=-1)
+            tokens = jnp.concatenate((prompt_tokens, first_generated_tok, generated_toks), axis=-1)
         else:
             tokens = jnp.concatenate((first_generated_tok, generated_toks), axis=-1)
 

@@ -1,19 +1,20 @@
-from typing import TYPE_CHECKING
 import re
+from typing import TYPE_CHECKING
 
-from jaxml.models.llama import LlamaModelWithHead
-from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 from jaxml.models.gemma3 import GemmaModelWithHead
+from jaxml.models.gpt_neox import GPTNeoXModelWithHead
+from jaxml.models.llama import LlamaModelWithHead
 
 from .utils import torch_to_jax_states
 
 if TYPE_CHECKING:
-    from transformers import LlamaForCausalLM, GPTNeoXForCausalLM, GemmaForCausalLM
+    from transformers import GemmaForCausalLM, GPTNeoXForCausalLM, LlamaForCausalLM
 
 
 def to_llama_jax_params(model, dtype: str = "float16"):
     llama_config = model.config
     return torch_to_jax_states(model.state_dict(), head_dim=llama_config.head_dim, dtype=dtype)
+
 
 def to_gemma_jax_params(model, dtype: str = "bfloat16"):
     gemma_config = model.config

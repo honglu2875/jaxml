@@ -48,7 +48,7 @@ class Attention(Block):
     use_alibi: bool = False
 
     # Gemma3 applies RMS norms after q and k projections
-    qk_norm_cls_and_args: tuple[Callable, dict] | None = None  
+    qk_norm_cls_and_args: tuple[Callable, dict] | None = None
 
     mm_precision: str = "high"
 
@@ -100,7 +100,6 @@ class Attention(Block):
         if self.qk_norm_cls_and_args is not None:
             _cls, _args = self.qk_norm_cls_and_args
             self.q_norm, self.k_norm = _cls(**_args), _cls(**_args)
-
 
         self.o_proj = DenseGeneral(
             features=self.hidden_size,

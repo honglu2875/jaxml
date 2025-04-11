@@ -83,7 +83,7 @@ class GemmaMLP(Block):
 class GemmaRMSNorm(RMSNorm):
     """Gemma's RMS norm is mostly identical to Llama or Mistral, except for minor things"""
 
-    upcast=True
+    upcast = True
 
     def __call__(self, hidden_states):
         input_dtype = hidden_states.dtype
@@ -106,7 +106,7 @@ class GemmaDecoder(Block):
     def _gemma_attention_norm_args(self) -> dict:
         return dict(
             # This is the critical difference than the norm outside attention
-            hidden_size=self.head_dim,  
+            hidden_size=self.head_dim,
             eps=self.norm_eps,
             dtype=self.dtype,
         )
@@ -196,7 +196,8 @@ class GemmaModel(Block):
                 self.config,
                 dtype=self.dtype,
                 use_sliding=((i + 1) % sw_stride) > 0,
-            ) for i in range(self.num_layers)
+            )
+            for i in range(self.num_layers)
         ]
         self.norm = GemmaRMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype)
 
@@ -220,7 +221,7 @@ class GemmaModel(Block):
 
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
         # So-called "scaled embedding" for Gemma3
-        inputs_embeds *= self.hidden_size ** 0.5
+        inputs_embeds *= self.hidden_size**0.5
         hidden_states = with_sharding_constraint(inputs_embeds, ("batch", "length", "embed"))
 
         all_hidden_states = []

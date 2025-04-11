@@ -20,7 +20,7 @@ Within the definition of model architectures, it also uses the following
 Currently support:
 - [x] Llama
 - [x] GPT-NeoX
-- [ ] Gemma3
+- [x] Gemma3
 
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)

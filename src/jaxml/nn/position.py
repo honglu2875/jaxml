@@ -90,7 +90,7 @@ class RotaryEmbedding(nn.Module):
     def get_emb(self, seq_len: int):
         t = jnp.arange(seq_len, dtype=jnp.float32) / self.rope_scale
         freqs = jnp.dot(t[:, None], self.inv_freq.value[None], precision="float32", preferred_element_type="float32")
-        #freqs = jnp.einsum("i,j->ij", t, self.inv_freq.value)
+        # freqs = jnp.einsum("i,j->ij", t, self.inv_freq.value)
         # Different from paper, but it uses a different permutation in order to obtain the same calculation
         emb = jnp.concatenate((freqs, freqs), axis=-1)
         return emb

@@ -135,9 +135,15 @@ def torch_to_jax_states(
             "bias": ("bias", lambda x: x.reshape(-1, 3, head_dim).transpose(1, 0, 2)),
         }
     _emb_key_map = {"weight": ("embedding", lambda x: x)}
-    _exclude_keys = {"post_attention_layernorm", "pre_feedforward_layernorm",
-                     "post_feedforward_layernorm","input_layernorm", "norm",
-                     "q_norm", "k_norm"}
+    _exclude_keys = {
+        "post_attention_layernorm",
+        "pre_feedforward_layernorm",
+        "post_feedforward_layernorm",
+        "input_layernorm",
+        "norm",
+        "q_norm",
+        "k_norm",
+    }
 
     for k, v in states.items():
         split = k.split(".")

@@ -71,7 +71,7 @@ def test_attention_with_rope(attention_factory, model_type, with_rope, cos_sin_f
             )[None, None].repeat(bs, 1, 1, 1),
             "output_attentions": True,
         }
-        #if model_type == "neox":
+        # if model_type == "neox":
         rotary_dim = int(attn.config.head_dim * attn.config.rotary_pct)
         if with_rope:
             kwargs["position_embeddings"] = tuple(
@@ -87,7 +87,7 @@ def test_attention_with_rope(attention_factory, model_type, with_rope, cos_sin_f
             out2 = output2[0]
 
         assert out.shape == out2.shape
-        #print(np.abs(out - out2.numpy()).max())
+        # print(np.abs(out - out2.numpy()).max())
         assert np.allclose(out, out2.numpy(), atol=1e-5)
 
 

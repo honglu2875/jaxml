@@ -70,7 +70,7 @@ class SamplingMethod:
 
     @classmethod
     def from_values(cls, top_k: int, top_p: float, min_p: float, temp: float):
-        top_k = _clip_value("top_k", top_k, 0, float("inf"))        
+        top_k = _clip_value("top_k", top_k, 0, float("inf"))
         min_p = _clip_value("min_p", min_p, 0.0, 1.0)
         temp = _clip_value("temp", temp, 0.0, float("inf"))
 

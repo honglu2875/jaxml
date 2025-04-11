@@ -60,9 +60,7 @@ def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin_factory):
                     ),
                     diagonal=1,
                 )[None, None].repeat(bs, 1, 1, 1),
-                position_embeddings=tuple(
-                    map(lambda x: torch.tensor(np.array(x[None, :seq_len])), cos_sin)
-                ),
+                position_embeddings=tuple(map(lambda x: torch.tensor(np.array(x[None, :seq_len])), cos_sin)),
                 output_attentions=True,
             )
 
