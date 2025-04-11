@@ -18,6 +18,7 @@ import pytest
 
 from jaxml.config import ModelConfig
 from jaxml.models.gpt_neox import GPTNeoXModel, GPTNeoXModelWithHead
+from jaxml.models.gemma3 import GemmaDecoder, GemmaModel, GemmaModelWithHead
 from jaxml.models.llama import LlamaDecoder
 from jaxml.models.llama import LlamaMLP as LlamaMLPJAX
 from jaxml.models.llama import LlamaModel, LlamaModelWithHead
@@ -82,6 +83,32 @@ def hf_neox_config():
 
 
 @pytest.fixture
+def hf_gemma_config():
+    from transformers import Gemma3TextConfig
+
+    return Gemma3TextConfig(
+        # hidden is larger than 6*8=48
+        hidden_size=64,  
+        head_dim=8,
+        # rotary is 1M global/10k local, omitted
+        intermediate_size=144,
+        num_hidden_layers=4,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+        rope_scaling={
+          "factor": 8.0,
+          "rope_type": "linear"
+        },
+        sliding_window=32,
+        sliding_window_pattern=2,
+        use_parallel_residual=True,
+        attn_implementation="eager",
+    )
+
+
+@pytest.fixture
 def hf_mistral_config():
     from transformers import MistralConfig
 
@@ -98,13 +125,15 @@ def hf_mistral_config():
     )
 
 
-def get_layer_and_param(cls, config, discrete=False, fused_qkv=False):
+def get_layer_and_param(cls, config, discrete=False, fused_qkv=False, use_hidden=False):
     if fused_qkv:
         layer = cls(config=config, fused_qkv=fused_qkv, dtype=jnp.float32)
     else:
         layer = cls(config=config, dtype=jnp.float32)
     if discrete:
         x = jnp.zeros((2, 10), dtype=jnp.int32)
+    elif use_hidden:
+        x = jnp.zeros((2, 10, config.hidden_size), dtype=jnp.float32)
     else:
         x = jnp.zeros((2, 10, config.num_heads * config.head_dim), dtype=jnp.float32)
     key = jax.random.PRNGKey(0)
@@ -114,16 +143,19 @@ def get_layer_and_param(cls, config, discrete=False, fused_qkv=False):
 
 # ---------- Individual layers ---------- #
 @pytest.fixture
-def attention_factory(hf_llama_config, hf_neox_config):
+def attention_factory(hf_llama_config, hf_neox_config, hf_gemma_config):
     def _fn(model_type: str, with_rope: bool):
         from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXAttention
         from transformers.models.llama.modeling_llama import LlamaAttention
+        from transformers.models.gemma3.modeling_gemma3 import Gemma3Attention
 
         match model_type:
             case "llama":
                 hf = LlamaAttention(hf_llama_config, layer_idx=0)
             case "neox":
                 hf = GPTNeoXAttention(hf_neox_config, layer_idx=0)
+            case "gemma":
+                hf = Gemma3Attention(hf_gemma_config, layer_idx=0)
             case _:
                 raise
 
@@ -137,13 +169,14 @@ def attention_factory(hf_llama_config, hf_neox_config):
 
 
 @pytest.fixture
-def rope_factory(hf_llama_config, hf_neox_config):
+def rope_factory(hf_llama_config, hf_neox_config, hf_gemma_config):
     def _fn(model_type):
         import torch
         from transformers.models.gpt_neox.modeling_gpt_neox import GPTNeoXRotaryEmbedding
         from transformers.models.gpt_neox.modeling_gpt_neox import apply_rotary_pos_emb as apply_neox
         from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
         from transformers.models.llama.modeling_llama import apply_rotary_pos_emb as apply_llama
+        from transformers.models.gemma3.modeling_gemma3 import Gemma3RotaryEmbedding
 
         match model_type:
             case "llama":
@@ -165,6 +198,13 @@ def rope_factory(hf_llama_config, hf_neox_config):
                     key = torch.cat((key, key_pass), dim=-1)
                     return query, key
 
+            case "gemma":
+                hf = Gemma3RotaryEmbedding(config=hf_gemma_config)
+
+                def apply_fn(query, key, cos, sin, rotary_ndims):
+                    return apply_llama(query, key, cos, sin)
+
+
             case _:
                 raise
 
@@ -176,6 +216,7 @@ def rope_factory(hf_llama_config, hf_neox_config):
                 max_length=config.max_position_embeddings,
                 base=config.rope_theta,
                 rotary_pct=config.rotary_pct,
+                rope_scale=config.rope_scale,
             ),
             apply_fn,
         )
@@ -250,6 +291,35 @@ def neox_model_with_head(hf_neox_config):
 
 
 @pytest.fixture
+def hf_gemma_decoder(hf_gemma_config):
+    from transformers.models.gemma3.modeling_gemma3 import Gemma3DecoderLayer
+
+    return Gemma3DecoderLayer(hf_gemma_config, layer_idx=0)
+
+@pytest.fixture
+def hf_gemma_decoder_global(hf_gemma_config):
+    from transformers.models.gemma3.modeling_gemma3 import Gemma3DecoderLayer
+
+    return Gemma3DecoderLayer(hf_gemma_config, layer_idx=1)
+
+@pytest.fixture
+def gemma_decoder(hf_gemma_config):
+    cfg = ModelConfig.from_hf(hf_gemma_config)
+    # Gemma hidden size != num_head * head_dim
+    return get_layer_and_param(GemmaDecoder, cfg, use_hidden=True)
+
+@pytest.fixture
+def gemma_model(hf_gemma_config):
+    cfg = ModelConfig.from_hf(hf_gemma_config)
+    return get_layer_and_param(GemmaModel, cfg, discrete=True)
+
+@pytest.fixture
+def gemma_model_with_head(hf_gemma_config):
+    cfg = ModelConfig.from_hf(hf_gemma_config)
+    return get_layer_and_param(GemmaModelWithHead, cfg, discrete=True)
+
+
+@pytest.fixture
 def hf_llama_model(hf_llama_config):
     from transformers import LlamaModel
 
@@ -276,6 +346,19 @@ def hf_neox_causal_model(hf_neox_config):
 
     return GPTNeoXForCausalLM(hf_neox_config)
 
+
+@pytest.fixture
+def hf_gemma_model(hf_gemma_config):
+    from transformers import Gemma3TextModel
+
+    return Gemma3TextModel(hf_gemma_config)
+
+
+@pytest.fixture
+def hf_gemma_causal_model(hf_gemma_config):
+    from transformers import Gemma3ForCausalLM
+
+    return Gemma3ForCausalLM(hf_gemma_config)
 
 # ---------- Component unit test utilities ---------- #
 def dummy_module_wrap(module, name: str):

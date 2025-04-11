@@ -266,6 +266,7 @@ class Attention(Block):
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
         use_flash: bool = False,
+        sliding_window: int | None = None,
         **kwargs,
     ) -> AttentionOutput:
         """The base class implements basic MHA **without** positional encoding such as RoPE."""
@@ -285,7 +286,7 @@ class Attention(Block):
             value_states,
             attention_mask=attention_mask,
             causal=True,
-            sliding_window=self.config.sliding_window,
+            sliding_window=sliding_window,
             alibi_slope=self.alibi_slope,
             softmax_fp32=True,
             output_attentions=output_attentions,
@@ -314,6 +315,7 @@ class AttentionWithRoPE(Attention):
         kv_cache: Optional[KVCache] = None,
         output_attentions: bool = False,
         use_flash: bool = False,
+        sliding_window: int | None = None,
     ) -> AttentionOutput:
         query_states, key_states, value_states = self.qkv(hidden_states)
 
@@ -347,6 +349,7 @@ class AttentionWithRoPE(Attention):
             value_states,
             attention_mask=attention_mask,
             causal=True,
+            sliding_window=sliding_window,
             alibi_slope=None,
             softmax_fp32=True,
             output_attentions=output_attentions,

@@ -1,3 +1,4 @@
+from dataclasses import fields
 import math
 from typing import Optional
 
@@ -42,6 +43,11 @@ class ModelConfig:
     def __post_init__(self):
         if self.use_alibi and self.use_rope:
             raise ValueError("AliBi and RoPE cannot both be used.")
+
+    def replace(self, **kwargs):
+        args_dict = {k.name: getattr(self, k.name) for k in fields(self)} | kwargs
+        return self.__class__(**args_dict)
+        
 
     @property
     def num_key_value_heads(self):

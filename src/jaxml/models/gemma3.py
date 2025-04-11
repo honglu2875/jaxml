@@ -143,6 +143,7 @@ class GemmaDecoder(Block):
     ) -> DecoderOutput:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
+        sw = self.config.sliding_window if self.use_sliding else None
         output = self.self_attn(
             hidden_states=hidden_states,
             cos_sin=cos_sin,
@@ -150,6 +151,7 @@ class GemmaDecoder(Block):
             position_ids=position_ids,
             kv_cache=kv_cache,
             output_attentions=output_attentions,
+            sliding_window=sw,
         )
 
         hidden_states = self.post_attention_layernorm(output.attention_output)
@@ -217,6 +219,8 @@ class GemmaModel(Block):
                 attention_mask = input_ids >= 0
 
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
+        # So-called "scaled embedding" for Gemma3
+        inputs_embeds *= self.hidden_size ** 0.5
         hidden_states = with_sharding_constraint(inputs_embeds, ("batch", "length", "embed"))
 
         all_hidden_states = []
