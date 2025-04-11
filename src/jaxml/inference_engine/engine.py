@@ -8,6 +8,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 from flax.core import FrozenDict
+from flax.linen import logical_to_mesh_sharding
+from flax.typing import FrozenVariableDict
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
@@ -38,7 +40,7 @@ class Engine:
         self.params = params
         self.dtype = dtype
 
-    def init_cache(self, max_seq_len: int) -> list[KVCache]:
+    def init_cache(self, max_seq_len: int) -> tuple[KVCache, ...]:
         max_seq_len = max_seq_len
         num_layers = self.model.config.num_layers
         return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
@@ -71,7 +73,7 @@ class Engine:
         return jax.device_put(x, y)
 
     @timeit(logger)
-    def init_params(self, weights: Optional = None, use_tpu: bool = False, reinit_weight: bool = False):
+    def init_params(self, weights: Optional[FrozenDict] = None, use_tpu: bool = False, reinit_weight: bool = False):
         """
         Re-initialize the properly sharded parameters.
 
@@ -116,9 +118,20 @@ class Engine:
             )
 
             logical_state_spec = nn.get_partition_spec(abstract_variables)
-            logical_state_sharding = nn.logical_to_mesh_sharding(logical_state_spec, mesh, rules)
-
+            logical_state_sharding = logical_to_mesh_sharding(logical_state_spec, mesh, rules)
             input_sharding = self.mesh_sharding(PartitionSpec("data", None), mesh)
+            params_fn = jax.jit(
+                self.model.init,
+                in_shardings=(
+                    self.mesh_sharding(PartitionSpec(None, None), mesh),
+                    input_sharding,
+                ),  # PRNG key and x
+                out_shardings=logical_state_sharding,
+            )
+        else:
+            # Making linter happy
+            params_fn = lambda *_: FrozenDict({})
+            logical_state_sharding = {"params": PartitionSpec()}
 
         # In case sharded==False, use _single_device_fn to move devices accordingly
         _single_device_fn = jnp.array if use_tpu else np.array
@@ -126,32 +139,26 @@ class Engine:
         if reinit_weight:
             if not is_single_device:
                 # Directly init to sharded devices
-                params = jax.jit(
-                    self.model.init,
-                    in_shardings=(
-                        self.mesh_sharding(None, mesh),
-                        input_sharding,
-                    ),  # PRNG key and x
-                    out_shardings=logical_state_sharding,
-                )(key, dummy_input)
-                self.params = params
+                self.params = params_fn(key, dummy_input)
                 return
             else:
                 # Init weights on CPU first
-                weights = self.model.init(key, dummy_input)
+                weights: FrozenVariableDict | dict = self.model.init(key, dummy_input)
 
         # Can assume weight is not None from now, and the goal is only to shard it
         assert isinstance(weights, dict), f"weights must be a dict, got {type(weights)}"
         assert "params" in weights, f"The key params not found in 'weights'. Got {weights.keys()}"
         if not is_single_device:
-            params = {
-                "params": jax.tree.map(
-                    self._shard_params,
-                    weights["params"],
-                    logical_state_sharding["params"],
-                ),
-                **{k: jax.tree.map(_single_device_fn, v) for k, v in weights.items() if k != "params"},
-            }
+            params = FrozenDict(
+                {
+                    "params": jax.tree.map(
+                        self._shard_params,
+                        weights["params"],
+                        logical_state_sharding["params"],
+                    ),
+                    **{k: jax.tree.map(_single_device_fn, v) for k, v in weights.items() if k != "params"},
+                }
+            )
         else:
             params = jax.tree.map(_single_device_fn, weights)
 
@@ -177,7 +184,7 @@ class Engine:
         attention_mask=None,
         kv_caches=None,
         use_cache=True,
-    ) -> tuple[jnp.ndarray, list[KVCache]]:
+    ) -> tuple[jnp.ndarray, tuple[KVCache, ...]]:
 
         out, _ = self.model.apply(
             params,
@@ -185,10 +192,11 @@ class Engine:
             position_ids=None,
             attention_mask=attention_mask,
             mutable=("cache",),
-            # output_hidden_states=False, # maybe allow for toggling of hidden states in the future
-            # output_attentions=False, # maybe allow for toggling of attn wts in the future
+            # output_hidden_states=False, # TODO: maybe allow for toggling of hidden states in the future
+            # output_attentions=False, # TODO: maybe allow for toggling of attn wts in the future
             kv_caches=kv_caches,
             use_cache=use_cache,
+            keep_last_n_logits=1,
         )  # return a tuple (CausalLMOutputWithCache, dict) where dict is the mutable cache
 
         return out.logits, out.kv_caches
@@ -212,7 +220,12 @@ class Engine:
 
         sampling_method = SamplingMethod.from_values(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
         logger.info(
-            f"Given the parameters {top_k=}, {top_p=}, {min_p=}, {temperature=}, the sampling method is determined as follows: {str(sampling_method)}."
+            "Given the parameters top_k=%.2f, top_p=%.2f, min_p=%.2f, temperature=%.2f, the sampling method is determined as follows: %s.",
+            top_k,
+            top_p,
+            min_p,
+            temperature,
+            str(sampling_method),
         )
 
         # For every unique model call, cache the AOT-compiled function to disk

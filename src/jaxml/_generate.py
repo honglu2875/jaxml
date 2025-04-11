@@ -71,7 +71,7 @@ def generate(
     eval_fn,
     prompt_tokens: jnp.ndarray,
     attention_mask: Optional[jnp.ndarray],
-    kv_caches: tuple[KVCache],
+    kv_caches: tuple[KVCache, ...],
     call_hash: int,
     sampling_method: SamplingMethod,
     seed: int = 0,
@@ -111,7 +111,6 @@ def generate(
         prompt_tokens = prompt_tokens[None]
 
     rng = jax.random.PRNGKey(seed)
-    batch_size, prompt_len = prompt_tokens.shape[:2]
 
     sample_fn = sampling_method.get_sampling_fn()
     loop_fn_params = dict(

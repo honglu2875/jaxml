@@ -142,7 +142,7 @@ class Attention(Block):
         kv_cache = kv_cache.update(key_states, value_states, attention_mask)
         return kv_cache.k, kv_cache.v, kv_cache.mask, kv_cache
 
-    def repeat_kv(self, key_states: jnp.ndarray, value_states: jnp.ndarray):
+    def repeat_kv(self, key_states: jnp.ndarray, value_states: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         batch, seq_len, num_key_value_heads, head_dim = key_states.shape
         n_rep = self.config.num_heads // self.config.num_key_value_heads
 
@@ -159,7 +159,7 @@ class Attention(Block):
             )
             return hidden_states.reshape(batch, seq_len, num_key_value_heads * n_rep, head_dim)
 
-        return tuple(map(_repeat, (key_states, value_states)))
+        return tuple(_repeat(x) for x in (key_states, value_states))
 
     def mha(
         self,

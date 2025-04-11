@@ -24,10 +24,10 @@ from .utils import get_default_pos_ids
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
 
-    k: jnp.ndarray = struct.field(pytree_node=True)
-    v: jnp.ndarray = struct.field(pytree_node=True)
+    k: jnp.ndarray | None = struct.field(pytree_node=True)
+    v: jnp.ndarray | None = struct.field(pytree_node=True)
     max_seq_len: int = struct.field(pytree_node=False)
-    mask: jnp.ndarray = struct.field(pytree_node=True)
+    mask: jnp.ndarray | None = struct.field(pytree_node=True)
     dtype: Any = struct.field(pytree_node=False, default=jnp.float32)
     pos_id: Optional[jnp.ndarray] = struct.field(default=None, pytree_node=True)
 
@@ -50,6 +50,7 @@ class KVCache(struct.PyTreeNode):
 
     @property
     def next_pos_id(self):
+        assert self.pos_id is not None
         return self.pos_id + 1
 
     @property
@@ -70,6 +71,7 @@ class KVCache(struct.PyTreeNode):
             k, v, mask = map(self._pad, ((k, 0, l), (v, 0, l), (mask, False, l)))
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
 
+        assert self.v is not None and self.mask is not None
         assert k.shape[1] == v.shape[1] == 1
         batch_idx = jnp.arange(k.shape[0])[:, None]
         full_idx = jnp.concatenate([batch_idx, self.next_pos_id], axis=1)
@@ -84,6 +86,7 @@ class KVCache(struct.PyTreeNode):
             raise ValueError("n must be greater than 0.")
         if self.k is None or self.v is None:
             return self
+        assert self.pos_id is not None
         prev_pos = self.pos_id - n
         filter_mask = jnp.arange(self.k.shape[1]) <= prev_pos
         new_k = jnp.where(filter_mask[..., None, None], self.k, 0)
@@ -99,6 +102,7 @@ class KVCache(struct.PyTreeNode):
             )
             return self.replace(k=new_k, v=new_v, mask=new_mask, max_seq_len=new_size)
         else:
+            assert self.k is not None and self.v is not None and self.mask is not None
             return self.replace(
                 k=self.k[:, :new_size],
                 v=self.v[:, :new_size],

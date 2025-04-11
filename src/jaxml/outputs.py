@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Optional, Tuple
+from typing import Optional
 
-import flax
+import flax.struct
 import jax.numpy as jnp
 
 from .cache import KVCache
@@ -24,17 +24,17 @@ from .cache import KVCache
 @flax.struct.dataclass
 class BaseModelOutputWithCache:
     last_hidden_state: jnp.ndarray
-    kv_caches: Optional[List[KVCache]] = None
-    hidden_states: Optional[Tuple[jnp.ndarray, ...]] = None
-    attention_weights: Optional[Tuple[jnp.ndarray, ...]] = None
+    kv_caches: Optional[tuple[KVCache, ...]] = None
+    hidden_states: Optional[tuple[jnp.ndarray, ...]] = None
+    attention_weights: Optional[tuple[jnp.ndarray, ...]] = None
 
 
 @flax.struct.dataclass
 class CausalLMOutputWithCache:
     logits: jnp.ndarray
-    kv_caches: Optional[List[KVCache]] = None
-    hidden_states: Optional[Tuple[jnp.ndarray, ...]] = None
-    attention_weights: Optional[Tuple[jnp.ndarray, ...]] = None
+    kv_caches: Optional[tuple[KVCache, ...]] = None
+    hidden_states: Optional[tuple[jnp.ndarray, ...]] = None
+    attention_weights: Optional[tuple[jnp.ndarray, ...]] = None
 
 
 @flax.struct.dataclass
@@ -54,4 +54,4 @@ class AttentionOutput:
 @flax.struct.dataclass
 class GenerationOutput:
     tokens: jnp.ndarray
-    kv_caches: list[KVCache]
+    kv_caches: tuple[KVCache, ...]
