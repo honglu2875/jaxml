@@ -72,7 +72,7 @@ class Timeit:
 
 
 @functools.lru_cache()
-def _hash(*args) -> int:
+def _hash(*args) -> str:
     m = hashlib.sha256()
     for s in args:
         m.update(s.encode(encoding="utf-8"))
@@ -213,7 +213,7 @@ def timeit(logger):
 
 
 @timeit(logger)
-def save_compiled_fn(fn, name: str, hash=0) -> int:
+def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     from jax.experimental.serialize_executable import serialize
 
     path = Path(".jaxml") / f"{name}_{hash}"
@@ -229,7 +229,7 @@ def save_compiled_fn(fn, name: str, hash=0) -> int:
     return len(aot_fn) + len(io_spec_bytes)
 
 
-def compiled_fn_exist(name: str, hash=0):
+def compiled_fn_exist(name: str, hash: str = "0"):
     return (Path(".jaxml") / f"{name}_{hash}").exists()
 
 
@@ -256,7 +256,7 @@ def load_compiled_fn(name: str, hash=0):
     return compiled_fn
 
 
-def load_if_exists(name: str, hash: int, log: bool = True):
+def load_if_exists(name: str, hash: str, log: bool = True):
     def _decorator(fn: Callable):
         @functools.wraps(fn)
         def _wrapped_fn(*args, **kwargs):

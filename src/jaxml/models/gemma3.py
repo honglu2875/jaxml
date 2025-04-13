@@ -288,6 +288,7 @@ class GemmaModelWithHead(Block):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
+        keep_last_n_logits: int = 0,  # 0: keep all logits
     ) -> CausalLMOutputWithCache:
         outputs = self.model(
             input_ids,
@@ -298,7 +299,8 @@ class GemmaModelWithHead(Block):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-        logits = self.lm_head(outputs.last_hidden_state)
+        # logits.shape: (bs, keep_last_n_logits, vocab_size)
+        logits = self.lm_head(outputs.last_hidden_state[:, -keep_last_n_logits:])
         return CausalLMOutputWithCache(
             logits=logits,
             kv_caches=outputs.kv_caches,

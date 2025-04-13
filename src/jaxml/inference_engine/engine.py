@@ -27,18 +27,23 @@ class InferenceConfig:
     dp_size: int = 1
 
 
-CACHE_STRIDE = 256
-
-
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
 
-    def __init__(self, model: nn.Module, config: InferenceConfig, params: FrozenDict, dtype: Any = jnp.float32):
+    def __init__(
+        self,
+        model: nn.Module,
+        config: InferenceConfig,
+        params: FrozenDict,
+        dtype: Any = jnp.float32,
+        cache_stride: int = 256,
+    ):
         self.model = model
         assert config.tp_size * config.dp_size <= jax.device_count()
         self.config = config
         self.params = params
         self.dtype = dtype
+        self.cache_stride = cache_stride
 
     def init_cache(self, max_seq_len: int) -> tuple[KVCache, ...]:
         max_seq_len = max_seq_len
@@ -46,12 +51,13 @@ class Engine:
         return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
 
     @staticmethod
-    def mesh_sharding(pspec: Optional[PartitionSpec], mesh: Optional[Mesh]) -> NamedSharding:
+    def mesh_sharding(pspec: PartitionSpec, mesh: Optional[Mesh]) -> NamedSharding:
         if mesh is None:
             mesh = Mesh(jax.devices(), (None,))
         return NamedSharding(mesh, pspec)
 
     def _shard_params(self, x: Any, y: PartitionSpec):
+        assert hasattr(y, "spec")
         if x.ndim != len(y.spec):
             assert (
                 x.ndim == 2 and len(y.spec) == 3
@@ -65,7 +71,7 @@ class Engine:
                     (
                         x.shape[0],
                         -1,
-                        self.head_dim,
+                        self.model.head_dim,
                     )
                 ),
                 y,
@@ -220,7 +226,8 @@ class Engine:
 
         sampling_method = SamplingMethod.from_values(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
         logger.info(
-            "Given the parameters top_k=%.2f, top_p=%.2f, min_p=%.2f, temperature=%.2f, the sampling method is determined as follows: %s.",
+            "Given the parameters top_k=%.2f, top_p=%.2f, min_p=%.2f, temperature=%.2f, " \
+            "the sampling method is determined as follows: %s.",
             top_k,
             top_p,
             min_p,
@@ -235,12 +242,12 @@ class Engine:
         total_len = prompt_len + max_new_tokens
 
         output_tokens = [prompt_tokens] if include_prompt else []
-        initial_buffer_len = (prompt_len // CACHE_STRIDE + 1) * CACHE_STRIDE
+        initial_buffer_len = (prompt_len // self.cache_stride + 1) * self.cache_stride
         kv_caches = self.init_cache(max_seq_len=initial_buffer_len)
-        for cache_len in range(initial_buffer_len, total_len + CACHE_STRIDE, CACHE_STRIDE):
-            # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of CACHE_STRIDE
+        for cache_len in range(initial_buffer_len, total_len + self.cache_stride, self.cache_stride):
+            # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of self.cache_stride
             # `new_token_count` keeps track of the remaining tokens to fill
-            new_token_count = min(cache_len - prompt_len, CACHE_STRIDE, CACHE_STRIDE - cache_len + total_len)
+            new_token_count = min(cache_len - prompt_len, self.cache_stride, self.cache_stride - cache_len + total_len)
 
             if cache_len > initial_buffer_len:
                 kv_caches = tuple(c.resize(cache_len) for c in kv_caches)

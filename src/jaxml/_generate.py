@@ -72,7 +72,7 @@ def generate(
     prompt_tokens: jnp.ndarray,
     attention_mask: Optional[jnp.ndarray],
     kv_caches: tuple[KVCache, ...],
-    call_hash: int,
+    call_hash: str,
     sampling_method: SamplingMethod,
     seed: int = 0,
     max_new_tokens: int = 100,
@@ -162,7 +162,7 @@ def generate(
 
         new_tokens = []
         token = first_generated_tok
-        for i in tqdm.trange(max_new_tokens if skip_prefill else max_new_tokens - 1):
+        for _ in tqdm.trange(max_new_tokens if skip_prefill else max_new_tokens - 1):
             rng, kv_caches, token = loop_fn(rng, kv_caches, token, params)
             new_tokens.append(token.squeeze(1).T)
 
