@@ -19,7 +19,7 @@ model, params = load_gemma_from_hf(model_name, dtype="bfloat16")
 print(model.config)
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-prompt = ["The weather of Chicago is", "To implement quick sort,"]
+prompt = ["User: hello, can you tell me a funny story?\nAssistant:", "To implement quick sort,"]
 
 """
 # ---- reference ---- #
@@ -30,7 +30,7 @@ with torch.no_grad():
 print(tokenizer.batch_decode(out))
 """
 
-encoded = tokenizer(prompt, return_tensors='np')
+encoded = tokenizer(prompt, return_tensors='np', padding=True)
 print(encoded)
 prompt_tokens = jnp.array(encoded.input_ids)
 attention_mask = jnp.array(encoded.attention_mask)

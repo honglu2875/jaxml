@@ -23,6 +23,11 @@ tpu = [
     "jaxlib==0.5.3",
     "libtpu @ https://storage.googleapis.com/libtpu-nightly-releases/wheels/libtpu/libtpu-0.0.13.dev20250405+nightly-py3-none-manylinux_2_31_x86_64.whl",
 ]
+api = [
+    "fastapi==0.115.12",
+    "uvicorn==0.34.1",
+    "pydantic==2.11.3",
+]
 dev = [
     "pytest==8.3.4",
     "black==24.0.0",
