@@ -39,10 +39,14 @@ class InferenceConfig:
     dp_size: int = 1
 
     def __post_init__(self):
-        if self.tp_size <= 0:
-            raise ValueError(f"tp_size must be positive, got {self.tp_size}.")
-        if self.dp_size <= 0:
-            raise ValueError(f"dp_size must be positive, got {self.dp_size}.")
+        tp_size = _normalize_count("tp_size", self.tp_size)
+        dp_size = _normalize_count("dp_size", self.dp_size)
+        object.__setattr__(self, "tp_size", tp_size)
+        object.__setattr__(self, "dp_size", dp_size)
+        if tp_size <= 0:
+            raise ValueError(f"tp_size must be positive, got {tp_size}.")
+        if dp_size <= 0:
+            raise ValueError(f"dp_size must be positive, got {dp_size}.")
 
 
 class Engine:

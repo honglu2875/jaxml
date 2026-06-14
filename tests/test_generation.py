@@ -261,6 +261,27 @@ def test_inference_config_rejects_non_positive_mesh_sizes(kwargs, match):
         InferenceConfig(**kwargs)
 
 
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"tp_size": True}, "tp_size must be an integer"),
+        ({"tp_size": 1.5}, "tp_size must be an integer"),
+        ({"dp_size": True}, "dp_size must be an integer"),
+        ({"dp_size": 1.5}, "dp_size must be an integer"),
+    ],
+)
+def test_inference_config_rejects_non_integer_mesh_sizes(kwargs, match):
+    with pytest.raises(TypeError, match=match):
+        InferenceConfig(**kwargs)
+
+
+def test_inference_config_accepts_numpy_integer_mesh_sizes():
+    config = InferenceConfig(tp_size=np.int64(1), dp_size=np.int64(1))
+
+    assert config.tp_size == 1
+    assert config.dp_size == 1
+
+
 def test_engine_rejects_mesh_larger_than_available_devices(llama_model_with_head):
     model, params = llama_model_with_head
     config = InferenceConfig(tp_size=jax.device_count() + 1)
