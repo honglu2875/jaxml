@@ -50,6 +50,21 @@ _torch_to_np_dtype = {
 }
 
 
+def _resolve_np_dtype(dtype: str | torch.dtype):
+    if isinstance(dtype, str):
+        dtype_map = _str_to_np_dtype
+    elif isinstance(dtype, torch.dtype):
+        dtype_map = _torch_to_np_dtype
+    else:
+        raise TypeError(f"Expected dtype to be a string or torch.dtype, got {type(dtype)}.")
+
+    try:
+        return dtype_map[dtype]
+    except KeyError as e:
+        supported = ", ".join(str(k) for k in dtype_map)
+        raise ValueError(f"Unsupported dtype {dtype!r}. Supported dtypes are: {supported}.") from e
+
+
 class Timeit:
     def __init__(self):
         self.start = None
@@ -112,7 +127,7 @@ def torch_to_jax_states(
         head_dim: if not None, it will try to reshape the last axis of q, k, v
             weights further into (..., head_dim, num_head).
     """
-    _to_np_dtype = _str_to_np_dtype if isinstance(dtype, str) else _torch_to_np_dtype
+    np_dtype = _resolve_np_dtype(dtype)
 
     if isinstance(input, torch.nn.Module):
         states = input.state_dict()
@@ -168,9 +183,9 @@ def torch_to_jax_states(
 
         if split[-1] in _key_map:
             split[-1], func = _key_map[split[-1]]
-            val = func(v.numpy().astype(_to_np_dtype[dtype]))
+            val = func(v.numpy().astype(np_dtype))
         else:
-            val = v.numpy().astype(_to_np_dtype[dtype])
+            val = v.numpy().astype(np_dtype)
 
         _dict = jax_states["params"]
         for i, l in enumerate(split):

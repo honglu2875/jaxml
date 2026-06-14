@@ -35,3 +35,14 @@ def test_modules(jax_component_factory, torch_component_factory, name):
             y2 = torch_comp(torch.tensor(np.array(x))).numpy()
 
         assert np.allclose(y, y2, atol=1e-5)
+
+
+@pytest.mark.parametrize("dtype", ["bad", torch.int32])
+def test_torch_to_jax_states_rejects_unsupported_dtype(dtype):
+    with pytest.raises(ValueError, match="Unsupported dtype"):
+        torch_to_jax_states({"weight": torch.ones(1)}, dtype=dtype)
+
+
+def test_torch_to_jax_states_rejects_invalid_dtype_type():
+    with pytest.raises(TypeError, match="Expected dtype"):
+        torch_to_jax_states({"weight": torch.ones(1)}, dtype=np.float32)
