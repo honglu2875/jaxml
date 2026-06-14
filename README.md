@@ -26,3 +26,23 @@ Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)
 - [x] AOT-compile prefill and decode functions, and cache them!
 - [ ] (pending a bug fix in JAX) Allow JAX-flash-attention (`jax.experimental.pallas.ops.flash_attention`)
+
+# Quick start
+
+```python
+from jaxml.text_generation import GenerationConfig, TextGenerationPipeline
+
+pipeline = TextGenerationPipeline.from_hf(
+    "EleutherAI/pythia-70m",
+    architecture="neox",
+    model_dtype="float32",
+)
+
+text = pipeline.generate_text(
+    "To implement quick sort,",
+    generation_config=GenerationConfig(max_new_tokens=64, temperature=0.0),
+)
+print(text)
+```
+
+The lower-level engine still accepts token arrays directly through `jaxml.inference_engine.Engine`.

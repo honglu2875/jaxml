@@ -1,0 +1,138 @@
+from dataclasses import dataclass, field
+from typing import Any, Optional, Sequence
+
+import jax.numpy as jnp
+import numpy as np
+
+from jaxml.hf_utils import HFArchitecture, load_model_from_hf
+from jaxml.inference_engine.engine import Engine, InferenceConfig
+
+
+@dataclass(frozen=True)
+class GenerationConfig:
+    seed: int = 0
+    max_new_tokens: int = 100
+    top_k: int = 0
+    top_p: float = 1.0
+    min_p: float = 0.0
+    temperature: float = 1.0
+    fuse_decoding: bool = False
+    include_prompt: bool = True
+
+
+@dataclass
+class TextGenerationPipeline:
+    engine: Engine
+    tokenizer: Any
+    default_tokenize_kwargs: dict[str, Any] = field(default_factory=lambda: {"padding": True})
+    default_decode_kwargs: dict[str, Any] = field(default_factory=lambda: {"skip_special_tokens": True})
+
+    @classmethod
+    def from_hf(
+        cls,
+        name: str,
+        architecture: HFArchitecture = "auto",
+        model_dtype: str = "float32",
+        engine_dtype: Any = jnp.float32,
+        inference_config: Optional[InferenceConfig] = None,
+        use_tpu: bool = False,
+        cache_stride: int = 256,
+        tokenizer: Any = None,
+        tokenizer_kwargs: Optional[dict[str, Any]] = None,
+        model_kwargs: Optional[dict[str, Any]] = None,
+    ):
+        """Build a text-generation pipeline from a supported Hugging Face checkpoint."""
+        if tokenizer is None:
+            try:
+                from transformers import AutoTokenizer
+            except ImportError as e:
+                raise ImportError("Please install transformers library.") from e
+            tokenizer = AutoTokenizer.from_pretrained(name, **(tokenizer_kwargs or {}))
+
+        model, params = load_model_from_hf(
+            name,
+            architecture=architecture,
+            dtype=model_dtype,
+            **(model_kwargs or {}),
+        )
+        engine = Engine(
+            model,
+            inference_config or InferenceConfig(),
+            params,
+            dtype=engine_dtype,
+            cache_stride=cache_stride,
+        )
+        engine.init_params(use_tpu=use_tpu)
+        return cls(engine=engine, tokenizer=tokenizer)
+
+    def _encode(self, prompts: str | Sequence[str], tokenize_kwargs: Optional[dict[str, Any]] = None):
+        is_single_prompt = isinstance(prompts, str)
+        prompt_batch = [prompts] if is_single_prompt else list(prompts)
+        kwargs = self.default_tokenize_kwargs | (tokenize_kwargs or {})
+        encoded = self.tokenizer(prompt_batch, return_tensors="np", **kwargs)
+        input_ids = self._get_encoded_field(encoded, "input_ids")
+        attention_mask = self._get_encoded_field(encoded, "attention_mask", default=None)
+        return is_single_prompt, jnp.array(input_ids), None if attention_mask is None else jnp.array(attention_mask)
+
+    @staticmethod
+    def _get_encoded_field(encoded: Any, name: str, default: Any = ...):
+        if isinstance(encoded, dict):
+            if default is ...:
+                return encoded[name]
+            return encoded.get(name, default)
+        if default is ...:
+            return getattr(encoded, name)
+        return getattr(encoded, name, default)
+
+    def generate_tokens(
+        self,
+        prompts: str | Sequence[str],
+        generation_config: Optional[GenerationConfig] = None,
+        tokenize_kwargs: Optional[dict[str, Any]] = None,
+        **generation_kwargs,
+    ) -> np.ndarray:
+        _, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
+        return self._generate_tokens_from_arrays(
+            input_ids,
+            attention_mask,
+            generation_config=generation_config,
+            **generation_kwargs,
+        )
+
+    def _generate_tokens_from_arrays(
+        self,
+        input_ids: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray],
+        generation_config: Optional[GenerationConfig] = None,
+        **generation_kwargs,
+    ) -> np.ndarray:
+        config = generation_config or GenerationConfig()
+        kwargs = {
+            "seed": config.seed,
+            "max_new_tokens": config.max_new_tokens,
+            "top_k": config.top_k,
+            "top_p": config.top_p,
+            "min_p": config.min_p,
+            "temperature": config.temperature,
+            "fuse_decoding": config.fuse_decoding,
+            "include_prompt": config.include_prompt,
+        } | generation_kwargs
+        return np.array(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
+
+    def generate_text(
+        self,
+        prompts: str | Sequence[str],
+        generation_config: Optional[GenerationConfig] = None,
+        tokenize_kwargs: Optional[dict[str, Any]] = None,
+        decode_kwargs: Optional[dict[str, Any]] = None,
+        **generation_kwargs,
+    ) -> str | list[str]:
+        is_single_prompt, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
+        tokens = self._generate_tokens_from_arrays(
+            input_ids,
+            attention_mask,
+            generation_config=generation_config,
+            **generation_kwargs,
+        )
+        decoded = self.tokenizer.batch_decode(tokens, **(self.default_decode_kwargs | (decode_kwargs or {})))
+        return decoded[0] if is_single_prompt else decoded

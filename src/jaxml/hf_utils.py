@@ -1,5 +1,5 @@
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from jaxml.models.gemma3 import GemmaModelWithHead
 from jaxml.models.gpt_neox import GPTNeoXModelWithHead
@@ -45,7 +45,50 @@ def to_neox_jax_params(model, dtype: str = "float16"):
     return torch_to_jax_states(state_dict, head_dim=neox_config.hidden_size // neox_config.num_attention_heads, dtype=dtype)
 
 
-def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple[LlamaModelWithHead, dict]:
+HFArchitecture = Literal["auto", "llama", "gpt_neox", "neox", "gemma3", "gemma"]
+
+
+def _infer_hf_architecture(name: str, **config_kwargs) -> str:
+    try:
+        from transformers import AutoConfig
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+
+    config = AutoConfig.from_pretrained(name, **config_kwargs)
+    model_type = getattr(config, "model_type", None)
+    match model_type:
+        case "llama":
+            return "llama"
+        case "gpt_neox":
+            return "neox"
+        case "gemma3":
+            return "gemma"
+        case _:
+            raise ValueError(f"Unsupported Hugging Face model type {model_type!r}.")
+
+
+def load_model_from_hf(
+    name: str,
+    architecture: HFArchitecture = "auto",
+    dtype: str = "float32",
+    **from_pretrained_kwargs,
+):
+    """Load a supported Hugging Face causal LM into a jaxml model and parameter tree."""
+    if architecture == "auto":
+        architecture = _infer_hf_architecture(name, **from_pretrained_kwargs)
+
+    match architecture:
+        case "llama":
+            return load_llama_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+        case "gpt_neox" | "neox":
+            return load_neox_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+        case "gemma3" | "gemma":
+            return load_gemma_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+        case _:
+            raise ValueError(f"Unsupported Hugging Face architecture {architecture!r}.")
+
+
+def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[LlamaModelWithHead, dict]:
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
     try:
@@ -55,14 +98,14 @@ def load_llama_from_hf(name: str, dtype: str = "float32") -> tuple[LlamaModelWit
 
     from jaxml.config import ModelConfig
 
-    _model = AutoModelForCausalLM.from_pretrained(name)
+    _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
     params = to_llama_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = LlamaModelWithHead(config)
     return model, params
 
 
-def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple[GPTNeoXModelWithHead, dict]:
+def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GPTNeoXModelWithHead, dict]:
     """Load Huggingface gpt-neox compatible models directly from either local path
     or the hf-hub identifier."""
     try:
@@ -72,14 +115,14 @@ def load_neox_from_hf(name: str, dtype: str = "float32") -> tuple[GPTNeoXModelWi
 
     from jaxml.config import ModelConfig
 
-    _model = AutoModelForCausalLM.from_pretrained(name)
+    _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
     params = to_neox_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = GPTNeoXModelWithHead(config)
     return model, params
 
 
-def load_gemma_from_hf(name: str, dtype: str = "float32") -> tuple[GemmaModelWithHead, dict]:
+def load_gemma_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GemmaModelWithHead, dict]:
     """Load Huggingface gemma3 compatible models directly from either local path
     or the hf-hub identifier."""
     try:
@@ -89,7 +132,7 @@ def load_gemma_from_hf(name: str, dtype: str = "float32") -> tuple[GemmaModelWit
 
     from jaxml.config import ModelConfig
 
-    _model = AutoModelForCausalLM.from_pretrained(name).language_model
+    _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs).language_model
     params = to_gemma_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = GemmaModelWithHead(config)
