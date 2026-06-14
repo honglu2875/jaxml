@@ -52,7 +52,8 @@ class KVCache(struct.PyTreeNode):
 
     @property
     def next_pos_id(self):
-        assert self.pos_id is not None
+        if self.pos_id is None:
+            raise ValueError("Cannot get next position ids before KV cache initialization.")
         return self.pos_id + 1
 
     @property

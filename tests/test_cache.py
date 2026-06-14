@@ -26,6 +26,11 @@ def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [1]]))
 
 
+def test_kv_cache_next_pos_id_rejects_uninitialized_cache():
+    with pytest.raises(ValueError, match="before KV cache initialization"):
+        _ = KVCache.init(4).next_pos_id
+
+
 def test_kv_cache_update_rejects_prompt_longer_than_capacity():
     k, v = _kv(seq_len=3)
 
