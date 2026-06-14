@@ -105,6 +105,8 @@ class KVCache(struct.PyTreeNode):
             raise ValueError(f"Decode cache updates must contain exactly one token, got sequence length {k.shape[1]}.")
         if k.shape[2:] != self.k.shape[2:]:
             raise ValueError(f"k/v trailing shape must match cached shape, got {k.shape[2:]} and {self.k.shape[2:]}.")
+        if not _contains_tracer(self.next_pos_id) and bool(jnp.any(self.next_pos_id >= self.max_seq_len)):
+            raise ValueError(f"Cannot decode past max_seq_len={self.max_seq_len}.")
         batch_idx = jnp.arange(k.shape[0])[:, None]
         full_idx = jnp.concatenate([batch_idx, self.next_pos_id], axis=1)
         new_k = self.k.at[tuple(full_idx.T)].set(k.squeeze(1))

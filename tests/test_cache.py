@@ -54,6 +54,15 @@ def test_kv_cache_update_rejects_invalid_decode_length():
         cache.update(k, v, mask=None)
 
 
+def test_kv_cache_update_rejects_decode_past_capacity():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(2).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
+    next_k, next_v = _kv(seq_len=1)
+
+    with pytest.raises(ValueError, match="max_seq_len=2"):
+        cache.update(next_k, next_v, mask=None)
+
+
 def test_kv_cache_rollback_rejects_past_beginning():
     k, v = _kv(seq_len=2)
     cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
