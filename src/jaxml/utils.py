@@ -17,6 +17,7 @@ import functools
 import hashlib
 import json
 import logging
+import os
 import pickle
 import time
 from pathlib import Path
@@ -29,6 +30,8 @@ import numpy as np
 import torch
 
 logger = logging.getLogger(__name__)
+
+JAXML_CACHE_DIR_ENV = "JAXML_CACHE_DIR"
 
 
 _str_to_np_dtype = {
@@ -215,7 +218,7 @@ def timeit(logger):
 def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     from jax.experimental.serialize_executable import serialize
 
-    path = Path(".jaxml") / f"{name}_{hash}"
+    path = compiled_fn_path(name, hash)
     path.mkdir(parents=True, exist_ok=True)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
@@ -228,8 +231,13 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     return len(aot_fn) + len(io_spec_bytes)
 
 
+def compiled_fn_path(name: str, hash: str = "0") -> Path:
+    return Path(os.environ.get(JAXML_CACHE_DIR_ENV, ".jaxml")) / f"{name}_{hash}"
+
+
 def compiled_fn_exist(name: str, hash: str = "0"):
-    return (Path(".jaxml") / f"{name}_{hash}").exists()
+    path = compiled_fn_path(name, hash)
+    return (path / "aot").is_file() and (path / "in_out_spec").is_file()
 
 
 @timeit(logger)
@@ -237,7 +245,7 @@ def compiled_fn_exist(name: str, hash: str = "0"):
 def load_compiled_fn(name: str, hash=0):
     from jax.experimental.serialize_executable import deserialize_and_load
 
-    path = Path(".jaxml") / f"{name}_{hash}"
+    path = compiled_fn_path(name, hash)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     if not fn_path.exists() or not spec_path.exists():
