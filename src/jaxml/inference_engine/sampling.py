@@ -1,5 +1,6 @@
 import functools
 import logging
+import operator
 
 import jax
 import jax.numpy as jnp
@@ -58,6 +59,16 @@ def _clip_value(name: str, value: int | float, min: int | float, max: int | floa
     return value
 
 
+def _normalize_top_k(top_k: int) -> int:
+    if isinstance(top_k, bool):
+        raise TypeError(f"top_k must be an integer, got {type(top_k)}.")
+    try:
+        top_k = operator.index(top_k)
+    except TypeError as e:
+        raise TypeError(f"top_k must be an integer, got {type(top_k)}.") from e
+    return _clip_value("top_k", top_k, 0, float("inf"))
+
+
 @struct.dataclass
 class SamplingParams:
     top_k: int
@@ -68,7 +79,7 @@ class SamplingParams:
 
 def normalize_sampling_params(top_k: int, top_p: float, min_p: float, temp: float) -> SamplingParams:
     return SamplingParams(
-        top_k=_clip_value("top_k", top_k, 0, float("inf")),
+        top_k=_normalize_top_k(top_k),
         top_p=_clip_value("top_p", top_p, 0.0, 1.0),
         min_p=_clip_value("min_p", min_p, 0.0, 1.0),
         temp=_clip_value("temp", temp, 0.0, float("inf")),

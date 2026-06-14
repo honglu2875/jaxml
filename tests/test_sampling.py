@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from jaxml.inference_engine.sampling import (
     SamplingMethod,
@@ -22,6 +23,12 @@ def test_normalize_sampling_params_clips_bounds():
     assert params.top_p == 1.0
     assert params.min_p == 0.0
     assert params.temp == 0.0
+
+
+@pytest.mark.parametrize("top_k", [True, 1.5])
+def test_normalize_sampling_params_rejects_non_integer_top_k(top_k):
+    with pytest.raises(TypeError, match="top_k must be an integer"):
+        normalize_sampling_params(top_k=top_k, top_p=1.0, min_p=0.0, temp=1.0)
 
 
 def test_top_k_filtering_keeps_top_tokens_per_batch_row():
