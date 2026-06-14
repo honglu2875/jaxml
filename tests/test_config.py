@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 
 from jaxml.config import ModelConfig
 
@@ -19,6 +20,41 @@ def test_model_config_defaults_attention_scale_from_head_dim():
     config = ModelConfig(**_valid_config_kwargs())
 
     assert config.attn_scale == 8**-0.5
+
+
+def test_model_config_normalizes_numpy_integer_fields():
+    config = ModelConfig(
+        **_valid_config_kwargs(
+            hidden_size=np.int64(48),
+            intermediate_ratio=(np.int64(3), np.int64(1)),
+            num_kv_heads=np.int64(3),
+            sliding_window=np.int64(32),
+            sliding_window_pattern=np.int64(2),
+        )
+    )
+
+    assert config.hidden_size == 48
+    assert config.intermediate_ratio == (3, 1)
+    assert config.num_kv_heads == 3
+    assert config.sliding_window == 32
+    assert config.sliding_window_pattern == 2
+
+
+@pytest.mark.parametrize(
+    "overrides,match",
+    [
+        ({"hidden_size": 48.0}, "hidden_size must be an integer"),
+        ({"head_dim": True}, "head_dim must be an integer"),
+        ({"intermediate_ratio": (8.0, 3)}, "intermediate_ratio numerator must be an integer"),
+        ({"intermediate_ratio": (8, False)}, "intermediate_ratio denominator must be an integer"),
+        ({"num_kv_heads": 3.0}, "num_kv_heads must be an integer"),
+        ({"sliding_window": 32.0}, "sliding_window must be an integer"),
+        ({"sliding_window_pattern": 2.0}, "sliding_window_pattern must be an integer"),
+    ],
+)
+def test_model_config_rejects_non_integer_counts(overrides, match):
+    with pytest.raises(TypeError, match=match):
+        ModelConfig(**_valid_config_kwargs(**overrides))
 
 
 @pytest.mark.parametrize(

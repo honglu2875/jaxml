@@ -1,8 +1,18 @@
 import math
+import operator
 from dataclasses import fields
 from typing import Optional
 
 from flax import struct
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
 @struct.dataclass
@@ -49,17 +59,25 @@ class ModelConfig:
             "max_position_embeddings",
             "vocab_size",
         ):
-            value = getattr(self, name)
+            value = _normalize_count(name, getattr(self, name))
+            object.__setattr__(self, name, value)
             if value <= 0:
                 raise ValueError(f"{name} must be positive, got {value}.")
 
-        if len(self.intermediate_ratio) != 2:
+        if not hasattr(self.intermediate_ratio, "__len__") or len(self.intermediate_ratio) != 2:
             raise ValueError(f"intermediate_ratio must contain numerator and denominator, got {self.intermediate_ratio}.")
-        if self.intermediate_ratio[0] <= 0 or self.intermediate_ratio[1] <= 0:
-            raise ValueError(f"intermediate_ratio values must be positive, got {self.intermediate_ratio}.")
+        intermediate_ratio = (
+            _normalize_count("intermediate_ratio numerator", self.intermediate_ratio[0]),
+            _normalize_count("intermediate_ratio denominator", self.intermediate_ratio[1]),
+        )
+        object.__setattr__(self, "intermediate_ratio", intermediate_ratio)
+        if intermediate_ratio[0] <= 0 or intermediate_ratio[1] <= 0:
+            raise ValueError(f"intermediate_ratio values must be positive, got {intermediate_ratio}.")
         if self.norm_eps <= 0:
             raise ValueError(f"norm_eps must be positive, got {self.norm_eps}.")
 
+        if self.num_kv_heads is not None:
+            object.__setattr__(self, "num_kv_heads", _normalize_count("num_kv_heads", self.num_kv_heads))
         if self.num_key_value_heads <= 0:
             raise ValueError(f"num_key_value_heads must be positive, got {self.num_key_value_heads}.")
         if self.num_heads % self.num_key_value_heads != 0:
@@ -68,8 +86,16 @@ class ModelConfig:
                 f"got {self.num_heads} and {self.num_key_value_heads}."
             )
 
+        if self.sliding_window is not None:
+            object.__setattr__(self, "sliding_window", _normalize_count("sliding_window", self.sliding_window))
         if self.sliding_window is not None and self.sliding_window <= 0:
             raise ValueError(f"sliding_window must be positive when set, got {self.sliding_window}.")
+        if self.sliding_window_pattern is not None:
+            object.__setattr__(
+                self,
+                "sliding_window_pattern",
+                _normalize_count("sliding_window_pattern", self.sliding_window_pattern),
+            )
         if self.sliding_window_pattern is not None and self.sliding_window_pattern <= 0:
             raise ValueError(f"sliding_window_pattern must be positive when set, got {self.sliding_window_pattern}.")
         if self.attn_scale is None:
