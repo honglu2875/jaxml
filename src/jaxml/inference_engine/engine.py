@@ -90,6 +90,8 @@ class Engine:
 
     @staticmethod
     def _platform_signature(tree: Any) -> str:
+        import jaxlib
+
         platforms = set()
         for leaf in jax.tree.leaves(tree):
             device = getattr(leaf, "device", None)
@@ -99,7 +101,7 @@ class Engine:
                 platforms.add(shard.device.platform)
         if not platforms:
             platforms.add(jax.default_backend())
-        return str((jax.default_backend(), tuple(sorted(platforms))))
+        return str((jax.__version__, jaxlib.__version__, jax.default_backend(), tuple(sorted(platforms))))
 
     @timeit(logger)
     def init_params(self, weights: Optional[FrozenDict] = None, use_tpu: bool = False, reinit_weight: bool = False):

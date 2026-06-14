@@ -65,9 +65,17 @@ def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin_factory):
             )
 
         print(decoder.config)
-        print(y.hidden_states - y2[0].numpy())
-        assert np.allclose(y.hidden_states, y2[0].numpy(), atol=1e-5)
-        assert np.allclose(y.attention_weight, y2[1].numpy(), atol=1e-5)
+        if isinstance(y2, tuple):
+            hf_hidden_states = y2[0]
+            hf_attention_weight = y2[1] if len(y2) > 1 else None
+        else:
+            hf_hidden_states = y2
+            hf_attention_weight = None
+
+        print(y.hidden_states - hf_hidden_states.numpy())
+        assert np.allclose(y.hidden_states, hf_hidden_states.numpy(), atol=1e-5)
+        if hf_attention_weight is not None:
+            assert np.allclose(y.attention_weight, hf_attention_weight.numpy(), atol=1e-5)
 
 
 def test_llama_model(llama_model, hf_llama_model):
