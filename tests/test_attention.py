@@ -18,8 +18,40 @@ import numpy as np
 import pytest
 import torch
 
+from jaxml.config import ModelConfig
 from jaxml.hf_utils import to_llama_jax_params, to_neox_jax_params
+from jaxml.nn.attention import Attention
 from jaxml.test_utils.torch_utils import DummyPosEmb
+
+
+def test_sliding_window_decode_masks_old_keys():
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 5, 1, 1), dtype=jnp.float32)
+    value_states = jnp.arange(5, dtype=jnp.float32).reshape(1, 5, 1, 1) * 10
+
+    output, weights = attn.apply(
+        {},
+        query_states,
+        key_states,
+        value_states,
+        sliding_window=2,
+        output_attentions=True,
+        method=Attention.mha,
+    )
+
+    assert np.allclose(output, np.array([[[[35.0]]]], dtype=np.float32))
+    assert np.allclose(weights, np.array([[[[0.0, 0.0, 0.0, 0.5, 0.5]]]], dtype=np.float32))
 
 
 @pytest.mark.parametrize(

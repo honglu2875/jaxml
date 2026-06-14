@@ -190,7 +190,7 @@ class Attention(Block):
                 x += jnp.tril(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=-sliding_window)
             else:
                 # decoding => simply mask out the range
-                x.at[:, :, :-sliding_window].set(float("-inf"))
+                x = x.at[:, :, :, :-sliding_window].set(float("-inf"))
 
         if attention_mask is not None:
             x += jnp.where(attention_mask[:, None, None, :], 0, float("-inf"))
