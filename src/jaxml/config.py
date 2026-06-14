@@ -41,8 +41,50 @@ class ModelConfig:
     use_parallel_residual: bool = struct.field(default=True, pytree_node=False)
 
     def __post_init__(self):
+        for name in (
+            "head_dim",
+            "hidden_size",
+            "num_heads",
+            "num_layers",
+            "max_position_embeddings",
+            "vocab_size",
+        ):
+            value = getattr(self, name)
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, got {value}.")
+
+        if len(self.intermediate_ratio) != 2:
+            raise ValueError(f"intermediate_ratio must contain numerator and denominator, got {self.intermediate_ratio}.")
+        if self.intermediate_ratio[0] <= 0 or self.intermediate_ratio[1] <= 0:
+            raise ValueError(f"intermediate_ratio values must be positive, got {self.intermediate_ratio}.")
+        if self.norm_eps <= 0:
+            raise ValueError(f"norm_eps must be positive, got {self.norm_eps}.")
+
+        if self.num_key_value_heads <= 0:
+            raise ValueError(f"num_key_value_heads must be positive, got {self.num_key_value_heads}.")
+        if self.num_heads % self.num_key_value_heads != 0:
+            raise ValueError(
+                "num_heads must be divisible by num_key_value_heads, "
+                f"got {self.num_heads} and {self.num_key_value_heads}."
+            )
+
+        if self.sliding_window is not None and self.sliding_window <= 0:
+            raise ValueError(f"sliding_window must be positive when set, got {self.sliding_window}.")
+        if self.sliding_window_pattern is not None and self.sliding_window_pattern <= 0:
+            raise ValueError(f"sliding_window_pattern must be positive when set, got {self.sliding_window_pattern}.")
+        if self.attn_scale is None:
+            object.__setattr__(self, "attn_scale", self.head_dim**-0.5)
+        elif self.attn_scale <= 0:
+            raise ValueError(f"attn_scale must be positive, got {self.attn_scale}.")
+
         if self.use_alibi and self.use_rope:
             raise ValueError("AliBi and RoPE cannot both be used.")
+        if self.rope_theta <= 0:
+            raise ValueError(f"rope_theta must be positive, got {self.rope_theta}.")
+        if self.rope_scale < 1.0:
+            raise ValueError(f"rope_scale must be greater than or equal to 1.0, got {self.rope_scale}.")
+        if not 0 < self.rotary_pct <= 1:
+            raise ValueError(f"rotary_pct must be in (0, 1], got {self.rotary_pct}.")
 
     def replace(self, **kwargs):
         args_dict = {k.name: getattr(self, k.name) for k in fields(self)} | kwargs

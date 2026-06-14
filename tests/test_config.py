@@ -3,6 +3,53 @@ import pytest
 from jaxml.config import ModelConfig
 
 
+def _valid_config_kwargs(**overrides):
+    return {
+        "hidden_size": 48,
+        "head_dim": 8,
+        "num_heads": 6,
+        "num_layers": 2,
+        "max_position_embeddings": 256,
+        "vocab_size": 1024,
+        "use_rope": False,
+    } | overrides
+
+
+def test_model_config_defaults_attention_scale_from_head_dim():
+    config = ModelConfig(**_valid_config_kwargs())
+
+    assert config.attn_scale == 8**-0.5
+
+
+@pytest.mark.parametrize(
+    "overrides,match",
+    [
+        ({"hidden_size": 0}, "hidden_size"),
+        ({"head_dim": 0}, "head_dim"),
+        ({"num_heads": 0}, "num_heads"),
+        ({"num_layers": 0}, "num_layers"),
+        ({"max_position_embeddings": 0}, "max_position_embeddings"),
+        ({"vocab_size": 0}, "vocab_size"),
+        ({"intermediate_ratio": (8, 0)}, "intermediate_ratio"),
+        ({"intermediate_ratio": (8, 3, 1)}, "intermediate_ratio"),
+        ({"norm_eps": 0.0}, "norm_eps"),
+        ({"num_kv_heads": 0}, "num_key_value_heads"),
+        ({"num_kv_heads": 4}, "divisible"),
+        ({"sliding_window": 0}, "sliding_window"),
+        ({"sliding_window_pattern": 0}, "sliding_window_pattern"),
+        ({"attn_scale": 0.0}, "attn_scale"),
+        ({"use_alibi": True, "use_rope": True}, "AliBi and RoPE"),
+        ({"rope_theta": 0.0}, "rope_theta"),
+        ({"rope_scale": 0.5}, "rope_scale"),
+        ({"rotary_pct": 0.0}, "rotary_pct"),
+        ({"rotary_pct": 1.5}, "rotary_pct"),
+    ],
+)
+def test_model_config_rejects_invalid_invariants(overrides, match):
+    with pytest.raises(ValueError, match=match):
+        ModelConfig(**_valid_config_kwargs(**overrides))
+
+
 def test_model_config_from_hf_accepts_supported_config_subclasses():
     from transformers import LlamaConfig
 
