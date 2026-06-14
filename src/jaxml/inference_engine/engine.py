@@ -38,6 +38,8 @@ class Engine:
         dtype: Any = jnp.float32,
         cache_stride: int = 256,
     ):
+        if cache_stride <= 0:
+            raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
         self.model = model
         assert config.tp_size * config.dp_size <= jax.device_count()
         self.config = config
@@ -233,6 +235,36 @@ class Engine:
 
         return out.logits, out.kv_caches
 
+    @staticmethod
+    def _prepare_generation_inputs(
+        prompt_tokens: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray],
+    ) -> tuple[jnp.ndarray, Optional[jnp.ndarray]]:
+        prompt_tokens = jnp.asarray(prompt_tokens)
+        if prompt_tokens.ndim == 1:
+            prompt_tokens = prompt_tokens[None]
+        elif prompt_tokens.ndim != 2:
+            raise ValueError(f"prompt_tokens must be a 1D or 2D array, got shape {prompt_tokens.shape}.")
+
+        if prompt_tokens.shape[1] == 0:
+            raise ValueError("prompt_tokens must contain at least one token.")
+
+        if attention_mask is None:
+            return prompt_tokens, None
+
+        attention_mask = jnp.asarray(attention_mask)
+        if attention_mask.ndim == 1:
+            attention_mask = attention_mask[None]
+        elif attention_mask.ndim != 2:
+            raise ValueError(f"attention_mask must be a 1D or 2D array, got shape {attention_mask.shape}.")
+
+        if attention_mask.shape != prompt_tokens.shape:
+            raise ValueError(
+                f"attention_mask shape must match prompt_tokens shape; got {attention_mask.shape} and {prompt_tokens.shape}."
+            )
+
+        return prompt_tokens, attention_mask
+
     def generate(
         self,
         prompt_tokens: jnp.ndarray,
@@ -246,6 +278,7 @@ class Engine:
         fuse_decoding: bool = False,
         include_prompt: bool = True,
     ):
+        prompt_tokens, attention_mask = self._prepare_generation_inputs(prompt_tokens, attention_mask)
         apply = self.wrapped_apply_fn
 
         from .._generate import generate

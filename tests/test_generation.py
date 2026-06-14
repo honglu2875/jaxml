@@ -54,3 +54,61 @@ def test_engine_generate_rejects_negative_max_new_tokens(llama_model_with_head):
 
         with pytest.raises(ValueError, match="max_new_tokens"):
             engine.generate(input_ids, max_new_tokens=-1)
+
+
+def test_engine_generate_accepts_unbatched_prompt_tokens(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.arange(4, dtype=jnp.int32)
+
+        output = engine.generate(input_ids, max_new_tokens=0, include_prompt=True)
+
+    assert output.shape == (1, 4)
+    assert np.array_equal(np.array(output[0]), np.array(input_ids))
+
+
+def test_engine_generate_accepts_unbatched_attention_mask(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.arange(4, dtype=jnp.int32)
+        attention_mask = jnp.ones((4,), dtype=bool)
+
+        output = engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0, include_prompt=True)
+
+    assert output.shape == (1, 4)
+
+
+@pytest.mark.parametrize(
+    "input_ids,match",
+    [
+        (jnp.ones((1, 2, 3), dtype=jnp.int32), "prompt_tokens must be a 1D or 2D array"),
+        (jnp.ones((1, 0), dtype=jnp.int32), "at least one token"),
+    ],
+)
+def test_engine_generate_rejects_invalid_prompt_tokens(llama_model_with_head, input_ids, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(ValueError, match=match):
+            engine.generate(input_ids, max_new_tokens=0)
+
+
+def test_engine_generate_rejects_mismatched_attention_mask(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((2, 4), dtype=jnp.int32)
+        attention_mask = jnp.ones((1, 4), dtype=bool)
+
+        with pytest.raises(ValueError, match="attention_mask shape must match"):
+            engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
+
+
+def test_engine_rejects_non_positive_cache_stride(llama_model_with_head):
+    model, params = llama_model_with_head
+
+    with pytest.raises(ValueError, match="cache_stride"):
+        Engine(model, InferenceConfig(), params, cache_stride=0)
