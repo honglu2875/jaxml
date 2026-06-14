@@ -60,8 +60,17 @@ class ModelConfig:
 
     @classmethod
     def from_hf(cls, config):
-        """Construct a ModelConfig from LlamaConfig or GPTNeoXConfig."""
+        """Construct a ModelConfig from a supported Hugging Face config."""
         from transformers import Gemma3TextConfig, GPTNeoXConfig, LlamaConfig
+
+        if isinstance(config, LlamaConfig):
+            config_type = "llama"
+        elif isinstance(config, GPTNeoXConfig):
+            config_type = "gpt_neox"
+        elif isinstance(config, Gemma3TextConfig):
+            config_type = "gemma3"
+        else:
+            raise ValueError(f"Unsupported config class {config.__class__}")
 
         factor = math.gcd(config.intermediate_size, config.hidden_size)
 
@@ -69,7 +78,7 @@ class ModelConfig:
         # hidden_size is guaranteed to exist in HF config
         hidden_size = config.hidden_size
         # head_dim is usually hidden_size // num_attention_heads, but it can specify a different number
-        head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+        head_dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
         num_heads = config.num_attention_heads
         num_layers = config.num_hidden_layers
         max_position_embeddings = config.max_position_embeddings
@@ -78,7 +87,7 @@ class ModelConfig:
         attn_scale = head_dim**-0.5
 
         # Case-by-case.
-        if type(config) is LlamaConfig:
+        if config_type == "llama":
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta
@@ -88,7 +97,7 @@ class ModelConfig:
             use_bias = False
             sliding_window = None
             sliding_window_pattern = None
-        elif type(config) is GPTNeoXConfig:
+        elif config_type == "gpt_neox":
             norm_eps = config.layer_norm_eps
             num_kv_heads = num_heads
             rope_theta = float(config.rotary_emb_base)
@@ -98,7 +107,7 @@ class ModelConfig:
             use_bias = True
             sliding_window = None
             sliding_window_pattern = None
-        elif type(config) is Gemma3TextConfig:
+        elif config_type == "gemma3":
             attn_scale = config.query_pre_attn_scalar**-0.5
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
@@ -109,8 +118,6 @@ class ModelConfig:
             use_bias = False
             sliding_window = config.sliding_window
             sliding_window_pattern = int(config.sliding_window_pattern)
-        else:
-            raise ValueError(f"Unsupported config class {config.__class__}")
 
         return cls(
             hidden_size=hidden_size,
