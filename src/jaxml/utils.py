@@ -267,7 +267,18 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     return len(aot_fn) + len(io_spec_bytes)
 
 
+def _validate_cache_key_part(part: str, label: str) -> str:
+    part = str(part)
+    if part in {"", ".", ".."}:
+        raise ValueError(f"AOT cache {label} must be a non-empty path segment, got {part!r}.")
+    if "/" in part or "\\" in part:
+        raise ValueError(f"AOT cache {label} must not contain path separators, got {part!r}.")
+    return part
+
+
 def compiled_fn_path(name: str, hash: str = "0", cache_dir: str | Path | None = None) -> Path:
+    name = _validate_cache_key_part(name, "name")
+    hash = _validate_cache_key_part(hash, "hash")
     cache_root = Path(cache_dir) if cache_dir is not None else Path(os.environ.get(JAXML_CACHE_DIR_ENV, ".jaxml"))
     return cache_root / f"{name}_{hash}"
 

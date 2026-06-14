@@ -1,6 +1,8 @@
 from pathlib import Path
 import pickle
 
+import pytest
+
 from jaxml.utils import (
     JAXML_CACHE_DIR_ENV,
     _hash,
@@ -26,6 +28,29 @@ def test_compiled_fn_path_uses_cache_dir_env(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
 
     assert compiled_fn_path("prefill", "abc") == tmp_path / "prefill_abc"
+
+
+def test_compiled_fn_path_accepts_integer_hash(tmp_path):
+    assert compiled_fn_path("prefill", 0, cache_dir=tmp_path) == tmp_path / "prefill_0"
+
+
+@pytest.mark.parametrize(
+    "name,hash",
+    [
+        ("", "abc"),
+        (".", "abc"),
+        ("..", "abc"),
+        ("../decode", "abc"),
+        ("nested/decode", "abc"),
+        ("nested\\decode", "abc"),
+        ("decode", ""),
+        ("decode", "../abc"),
+        ("decode", "nested\\abc"),
+    ],
+)
+def test_compiled_fn_path_rejects_unsafe_key_parts(tmp_path, name, hash):
+    with pytest.raises(ValueError, match="AOT cache"):
+        compiled_fn_path(name, hash, cache_dir=tmp_path)
 
 
 def test_compiled_fn_exist_requires_payload_files(monkeypatch, tmp_path):
