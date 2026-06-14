@@ -142,6 +142,12 @@ def _insert_state_leaf(tree: dict, path: list[str], value: Any, source_key: str)
     cursor[leaf] = value
 
 
+def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
+    if not isinstance(value, torch.Tensor):
+        raise TypeError(f"State value for key {source_key!r} must be a torch.Tensor, got {type(value)}.")
+    return value.numpy().astype(dtype)
+
+
 def torch_to_jax_states(
     input: torch.nn.Module | dict,
     dtype: str | torch.dtype = torch.float16,
@@ -207,9 +213,9 @@ def torch_to_jax_states(
 
         if split[-1] in _key_map:
             split[-1], func = _key_map[split[-1]]
-            val = func(v.numpy().astype(np_dtype))
+            val = func(_state_value_to_numpy(v, np_dtype, k))
         else:
-            val = v.numpy().astype(np_dtype)
+            val = _state_value_to_numpy(v, np_dtype, k)
 
         _insert_state_leaf(jax_states["params"], split, val, k)
 

@@ -79,6 +79,11 @@ def test_torch_to_jax_states_rejects_invalid_dtype_type():
         torch_to_jax_states({"weight": torch.ones(1)}, dtype=np.float32)
 
 
+def test_torch_to_jax_states_rejects_non_tensor_state_values():
+    with pytest.raises(TypeError, match="State value for key 'weight'"):
+        torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
+
+
 def test_torch_to_jax_states_normalizes_repeated_numeric_key_segments():
     params = torch_to_jax_states(
         {"encoder.0.block.1.weight": torch.ones((2, 3))},
