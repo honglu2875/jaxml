@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 @functools.partial(jax.jit, static_argnames=("top_k",))
 def top_k_filtering(rng, logits, top_k, *args):
+    top_k = min(top_k, logits.shape[-1])
     values, _ = jax.lax.top_k(logits, top_k)
     cutoff = values[..., -1:]
     return jnp.where(logits >= cutoff, logits, NEG_INF)
