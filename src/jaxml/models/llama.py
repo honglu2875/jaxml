@@ -70,9 +70,11 @@ class LlamaMLP(Block):
         )
 
     def __call__(self, x, **kwargs):
-        assert (
-            x.shape[-1] == self.hidden_size
-        ), f"Input to MLP layers have different dimensions than the hidden dimension. Got {x.shape[-1]}"
+        if x.shape[-1] != self.hidden_size:
+            raise ValueError(
+                "Input to MLP layers must match the model hidden dimension, "
+                f"got {x.shape[-1]} and expected {self.hidden_size}."
+            )
         x = with_sharding_constraint(x, ("batch", "length", "embed"))
         gate = self.act_fn(self.gate_proj(x))
         proj = self.up_proj(x)

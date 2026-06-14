@@ -18,7 +18,30 @@ import numpy as np
 import pytest
 import torch
 
+from jaxml.config import ModelConfig
+from jaxml.models.gemma3 import GemmaMLP
+from jaxml.models.gpt_neox import GPTNeoXMLP
+from jaxml.models.llama import LlamaMLP
 from jaxml.utils import torch_to_jax_states
+
+
+@pytest.mark.parametrize("mlp_cls", [LlamaMLP, GPTNeoXMLP, GemmaMLP])
+def test_mlp_rejects_hidden_size_mismatch(mlp_cls):
+    config = ModelConfig(
+        hidden_size=48,
+        head_dim=8,
+        num_heads=6,
+        num_layers=1,
+        intermediate_ratio=(2, 1),
+        max_position_embeddings=16,
+        vocab_size=128,
+        attn_scale=8**-0.5,
+    )
+    mlp = mlp_cls(config=config, dtype=jnp.float32)
+    x = jnp.ones((1, 2, 47), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="hidden dimension"):
+        mlp.init(jax.random.PRNGKey(0), x)
 
 
 @pytest.mark.parametrize("name", ["dense", "rms_norm", "layer_norm"])
