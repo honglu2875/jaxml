@@ -60,7 +60,11 @@ class Attention(Block):
             self.alibi_slope = None
 
         if self.fused_qkv:
-            assert self.num_heads == self.num_key_value_heads
+            if self.num_heads != self.num_key_value_heads:
+                raise ValueError(
+                    "fused_qkv requires num_heads to equal num_key_value_heads, "
+                    f"got {self.num_heads} and {self.num_key_value_heads}."
+                )
             self.qkv_proj = DenseGeneral(
                 features=(3, self.num_heads, self.head_dim),
                 axis=-1,

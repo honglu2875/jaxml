@@ -24,6 +24,25 @@ from jaxml.nn.attention import Attention
 from jaxml.test_utils.torch_utils import DummyPosEmb
 
 
+def test_fused_qkv_rejects_mismatched_kv_heads():
+    config = ModelConfig(
+        head_dim=4,
+        hidden_size=16,
+        num_heads=4,
+        num_kv_heads=2,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=4**-0.5,
+        use_rope=False,
+    )
+    attn = Attention(config, fused_qkv=True)
+    hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="fused_qkv"):
+        attn.init(jax.random.PRNGKey(0), hidden_states)
+
+
 def test_sliding_window_decode_masks_old_keys():
     config = ModelConfig(
         head_dim=1,
