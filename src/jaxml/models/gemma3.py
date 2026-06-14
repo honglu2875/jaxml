@@ -88,7 +88,8 @@ class GemmaRMSNorm(RMSNorm):
 
     def __call__(self, hidden_states):
         input_dtype = hidden_states.dtype
-        assert self.upcast, "Gemma3 always upcast."
+        if not self.upcast:
+            raise ValueError("GemmaRMSNorm requires upcast=True.")
 
         # TODO: potentially not optimal in shape/dtype yoga? XLA good enough?
         hidden_states = hidden_states.astype(jnp.float32)

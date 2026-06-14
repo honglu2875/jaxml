@@ -19,7 +19,7 @@ import pytest
 import torch
 
 from jaxml.config import ModelConfig
-from jaxml.models.gemma3 import GemmaMLP
+from jaxml.models.gemma3 import GemmaMLP, GemmaRMSNorm
 from jaxml.models.gpt_neox import GPTNeoXMLP
 from jaxml.models.llama import LlamaMLP
 from jaxml.utils import torch_to_jax_states
@@ -42,6 +42,14 @@ def test_mlp_rejects_hidden_size_mismatch(mlp_cls):
 
     with pytest.raises(ValueError, match="hidden dimension"):
         mlp.init(jax.random.PRNGKey(0), x)
+
+
+def test_gemma_rms_norm_rejects_disabled_upcast():
+    norm = GemmaRMSNorm(hidden_size=4, upcast=False)
+    x = jnp.ones((1, 2, 4), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="upcast=True"):
+        norm.init(jax.random.PRNGKey(0), x)
 
 
 @pytest.mark.parametrize("name", ["dense", "rms_norm", "layer_norm"])
