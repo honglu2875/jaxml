@@ -126,6 +126,22 @@ def _normalize_state_key(key: str) -> list[str]:
     return normalized
 
 
+def _insert_state_leaf(tree: dict, path: list[str], value: Any, source_key: str):
+    cursor = tree
+    for segment in path[:-1]:
+        existing = cursor.setdefault(segment, {})
+        if not isinstance(existing, dict):
+            destination = ".".join(path)
+            raise ValueError(f"State key {source_key!r} conflicts with existing leaf at destination {destination!r}.")
+        cursor = existing
+
+    leaf = path[-1]
+    if leaf in cursor:
+        destination = ".".join(path)
+        raise ValueError(f"Multiple state keys map to destination {destination!r}.")
+    cursor[leaf] = value
+
+
 def torch_to_jax_states(
     input: torch.nn.Module | dict,
     dtype: str | torch.dtype = torch.float16,
@@ -195,10 +211,7 @@ def torch_to_jax_states(
         else:
             val = v.numpy().astype(np_dtype)
 
-        _dict = jax_states["params"]
-        for i, l in enumerate(split):
-            _dict[l] = _dict.setdefault(l, {} if i < len(split) - 1 else val)
-            _dict = _dict[l]
+        _insert_state_leaf(jax_states["params"], split, val, k)
 
     return jax_states
 

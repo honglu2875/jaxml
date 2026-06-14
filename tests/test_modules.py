@@ -64,3 +64,23 @@ def test_torch_to_jax_states_normalizes_adjacent_numeric_key_segments():
     )
 
     assert params["params"]["stack_0_1"]["kernel"].shape == (3, 2)
+
+
+def test_torch_to_jax_states_rejects_duplicate_normalized_destinations():
+    state = {
+        "stack.0.weight": torch.ones((2, 3)),
+        "stack_0.weight": torch.ones((2, 3)),
+    }
+
+    with pytest.raises(ValueError, match="Multiple state keys map"):
+        torch_to_jax_states(state, dtype=torch.float32)
+
+
+def test_torch_to_jax_states_rejects_leaf_subtree_conflicts():
+    state = {
+        "stack.bias": torch.ones((2, 3)),
+        "stack.bias.extra": torch.ones((2, 3)),
+    }
+
+    with pytest.raises(ValueError, match="conflicts with existing leaf"):
+        torch_to_jax_states(state, dtype=torch.float32)
