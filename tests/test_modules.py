@@ -46,3 +46,21 @@ def test_torch_to_jax_states_rejects_unsupported_dtype(dtype):
 def test_torch_to_jax_states_rejects_invalid_dtype_type():
     with pytest.raises(TypeError, match="Expected dtype"):
         torch_to_jax_states({"weight": torch.ones(1)}, dtype=np.float32)
+
+
+def test_torch_to_jax_states_normalizes_repeated_numeric_key_segments():
+    params = torch_to_jax_states(
+        {"encoder.0.block.1.weight": torch.ones((2, 3))},
+        dtype=torch.float32,
+    )
+
+    assert params["params"]["encoder_0"]["block_1"]["kernel"].shape == (3, 2)
+
+
+def test_torch_to_jax_states_normalizes_adjacent_numeric_key_segments():
+    params = torch_to_jax_states(
+        {"stack.0.1.weight": torch.ones((2, 3))},
+        dtype=torch.float32,
+    )
+
+    assert params["params"]["stack_0_1"]["kernel"].shape == (3, 2)

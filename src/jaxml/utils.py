@@ -116,6 +116,16 @@ def get_default_pos_ids(mask):
     return pos_ids[:, None]
 
 
+def _normalize_state_key(key: str) -> list[str]:
+    normalized = []
+    for segment in key.split("."):
+        if segment.isdigit() and normalized:
+            normalized[-1] += "_" + segment
+        else:
+            normalized.append(segment)
+    return normalized
+
+
 def torch_to_jax_states(
     input: torch.nn.Module | dict,
     dtype: str | torch.dtype = torch.float16,
@@ -165,11 +175,7 @@ def torch_to_jax_states(
     }
 
     for k, v in states.items():
-        split = k.split(".")
-        for i, s in enumerate(split):
-            if s.isdigit():
-                split[i - 1] += "_" + s
-                split.pop(i)
+        split = _normalize_state_key(k)
 
         if len(split) >= 2 and split[-2] in _exclude_keys:
             _key_map = {}
