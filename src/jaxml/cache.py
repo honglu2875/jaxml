@@ -81,6 +81,8 @@ class KVCache(struct.PyTreeNode):
                 mask = jnp.ones(k.shape[:2], dtype=bool)
             if mask.shape != k.shape[:2]:
                 raise ValueError(f"mask shape must match k/v batch and sequence axes, got {mask.shape} and {k.shape[:2]}.")
+            if not bool(jnp.all(jnp.any(mask, axis=1))):
+                raise ValueError("mask must contain at least one valid token per batch row.")
             pos_id = get_default_pos_ids(mask)
             max_seq_len = self.max_seq_len
             k, v, mask = map(

@@ -33,6 +33,14 @@ def test_kv_cache_update_rejects_prompt_longer_than_capacity():
         KVCache.init(2).update(k, v, mask=jnp.ones((2, 3), dtype=bool))
 
 
+def test_kv_cache_update_rejects_initial_mask_without_valid_tokens():
+    k, v = _kv(seq_len=3)
+    mask = jnp.array([[True, False, False], [False, False, False]])
+
+    with pytest.raises(ValueError, match="at least one valid token"):
+        KVCache.init(4).update(k, v, mask=mask)
+
+
 def test_kv_cache_update_rejects_invalid_decode_length():
     k, v = _kv(seq_len=2)
     cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
