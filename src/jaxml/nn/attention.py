@@ -18,7 +18,6 @@
 # This file has been modified from its original version
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/attentions.py
 
-import math
 from typing import Any, Callable, Optional
 
 import jax
@@ -29,7 +28,6 @@ from flax import linen as nn
 
 from ..cache import KVCache
 from ..outputs import AttentionOutput
-from ..utils import get_default_pos_ids
 from .linear import DenseGeneral
 from .module import Block
 from .position import RotaryEmbedding

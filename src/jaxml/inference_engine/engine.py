@@ -160,8 +160,9 @@ class Engine:
                 out_shardings=logical_state_sharding,
             )
         else:
-            # Making linter happy
-            params_fn = lambda *_: FrozenDict({})
+            def params_fn(*_):
+                return FrozenDict({})
+
             logical_state_sharding = {"params": PartitionSpec()}
 
         # In case sharded==False, use _single_device_fn to move devices accordingly
@@ -264,7 +265,6 @@ class Engine:
         # Note: top_k value cannot be traced and need to be hashed as well.
         top_k = 0 if top_k < 0 else top_k
         prompt_len = prompt_tokens.shape[1]
-        total_len = prompt_len + max_new_tokens
 
         if max_new_tokens < 0:
             raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")

@@ -2,10 +2,10 @@ SHELL=/bin/bash
 LINT_PATHS=src/jaxml/ tests/
 
 pytest:
-	JAX_PLATFORM_NAME=cpu pytest -m "not tpu" tests/
+	JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
 
 pytest-cpu:
-	JAX_PLATFORM_NAME=cpu pytest -m "not tpu" tests/
+	JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
 
 pytest-tpu:
 	pytest -m "tpu" tests/

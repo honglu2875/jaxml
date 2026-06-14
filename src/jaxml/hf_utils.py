@@ -1,14 +1,11 @@
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from jaxml.models.gemma3 import GemmaModelWithHead
 from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 from jaxml.models.llama import LlamaModelWithHead
 
 from .utils import torch_to_jax_states
-
-if TYPE_CHECKING:
-    from transformers import GemmaForCausalLM, GPTNeoXForCausalLM, LlamaForCausalLM
 
 
 def to_llama_jax_params(model, dtype: str = "float16"):

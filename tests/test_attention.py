@@ -17,7 +17,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 import torch
-from jax.experimental.pallas.ops.tpu.flash_attention import BlockSizes, flash_attention
 
 from jaxml.hf_utils import to_llama_jax_params, to_neox_jax_params
 from jaxml.test_utils.torch_utils import DummyPosEmb

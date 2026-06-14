@@ -67,8 +67,11 @@ class KVCache(struct.PyTreeNode):
             assert self.v is None
             assert self.mask is None
             pos_id = get_default_pos_ids(mask)
-            l = self.max_seq_len
-            k, v, mask = map(self._pad, ((k, 0, l), (v, 0, l), (mask, False, l)))
+            max_seq_len = self.max_seq_len
+            k, v, mask = map(
+                self._pad,
+                ((k, 0, max_seq_len), (v, 0, max_seq_len), (mask, False, max_seq_len)),
+            )
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
 
         assert self.v is not None and self.mask is not None

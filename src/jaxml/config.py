@@ -29,10 +29,10 @@ class ModelConfig:
     use_alibi: bool = struct.field(default=False, pytree_node=False)
     use_rope: bool = struct.field(default=True, pytree_node=False)
 
-    ####### Only effective for ALiBi #######
+    # Only effective for ALiBi.
     upcast_alibi: bool = struct.field(default=True, pytree_node=False)
 
-    ####### Only effective for RoPE #######
+    # Only effective for RoPE.
     rope_theta: float = struct.field(default=10_000.0, pytree_node=False)
     rope_scale: float = struct.field(default=1.0, pytree_node=False)
     # Limit the percentage of heads to apply RoPE (NeoX style)
@@ -65,7 +65,7 @@ class ModelConfig:
 
         factor = math.gcd(config.intermediate_size, config.hidden_size)
 
-        ####### Shared params #######
+        # Shared params.
         # hidden_size is guaranteed to exist in HF config
         hidden_size = config.hidden_size
         # head_dim is usually hidden_size // num_attention_heads, but it can specify a different number
@@ -77,7 +77,7 @@ class ModelConfig:
         intermediate_ratio = (config.intermediate_size // factor, config.hidden_size // factor)
         attn_scale = head_dim**-0.5
 
-        ####### Case-by-case #######
+        # Case-by-case.
         if type(config) is LlamaConfig:
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
