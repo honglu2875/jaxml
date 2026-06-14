@@ -11,18 +11,9 @@ logger = logging.getLogger(__name__)
 
 @functools.partial(jax.jit, static_argnames=("top_k",))
 def top_k_filtering(rng, logits, top_k, *args):
-    # Remove all tokens with a probability less than the last token of the top-k
-    # Use jax.lax.top_k to get the top-k values and their indices
-    values, indices = jax.lax.top_k(logits, top_k)
-
-    # Create a mask where entries are True if their corresponding indices are in the top-k
-    mask = jnp.zeros_like(logits, dtype=bool)
-    mask = mask.at[indices].set(True)
-
-    # Apply the mask to the logits, replacing values that are not in the top-k with the filter_value
-    filtered_logits = jnp.where(mask, logits, NEG_INF)
-
-    return filtered_logits
+    values, _ = jax.lax.top_k(logits, top_k)
+    cutoff = values[..., -1:]
+    return jnp.where(logits >= cutoff, logits, NEG_INF)
 
 
 def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
@@ -33,18 +24,15 @@ def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
     # It is equivalent to top_p for most cases except the edge case when cutoff point has many
     #   tokens with the same logits. But the chance is arguably fairly small.
     cutoff_index = jnp.sum(cumulative_probs < top_p, axis=-1, keepdims=True)
-    cutoff_logit = jnp.take_along_axis(logits, cutoff_index, axis=-1)
+    cutoff_logit = jnp.take_along_axis(sorted_logits, cutoff_index, axis=-1)
     logits = jnp.where(logits < cutoff_logit, NEG_INF, logits)
     return logits
 
 
 def min_p_filtering(rng, logits, top_k, top_p, min_p, *args):
     mask = jax.nn.softmax(logits, axis=-1) >= min_p
-    return jax.lax.cond(
-        mask.sum() > 0,
-        lambda: jnp.where(mask, logits, NEG_INF),
-        lambda: logits,
-    )
+    has_allowed_token = jnp.any(mask, axis=-1, keepdims=True)
+    return jnp.where(has_allowed_token, jnp.where(mask, logits, NEG_INF), logits)
 
 
 def greedy_fn(rng, logits, *args):
