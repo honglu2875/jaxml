@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from jaxml.inference_engine.engine import Engine, InferenceConfig
+from jaxml.outputs import GenerationOutput
 
 
 @pytest.mark.parametrize(
@@ -54,6 +55,45 @@ def test_engine_generate_rejects_negative_max_new_tokens(llama_model_with_head):
 
         with pytest.raises(ValueError, match="max_new_tokens"):
             engine.generate(input_ids, max_new_tokens=-1)
+
+
+def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, call_hash, sampling_method
+        calls.append(kwargs)
+        return GenerationOutput(tokens=jnp.array([[1]], dtype=jnp.int32), kv_caches=kv_caches)
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        engine.generate(
+            jnp.ones((1, 4), dtype=jnp.int32),
+            max_new_tokens=1,
+            top_k=-3,
+            top_p=1.5,
+            min_p=-0.5,
+            temperature=-1.0,
+            include_prompt=False,
+        )
+
+    assert calls
+    assert calls[0]["top_k"] == 0
+    assert calls[0]["top_p"] == 1.0
+    assert calls[0]["min_p"] == 0.0
+    assert calls[0]["temperature"] == 0.0
 
 
 def test_engine_generate_accepts_unbatched_prompt_tokens(llama_model_with_head):

@@ -14,7 +14,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from jaxml.cache import KVCache
-from jaxml.inference_engine.sampling import SamplingMethod
+from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
 from jaxml.utils import _hash, timeit
 
@@ -299,6 +299,11 @@ class Engine:
 
         from .._generate import generate
 
+        sampling_params = normalize_sampling_params(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
+        top_k = sampling_params.top_k
+        top_p = sampling_params.top_p
+        min_p = sampling_params.min_p
+        temperature = sampling_params.temp
         sampling_method = SamplingMethod.from_values(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
         logger.info(
             "Given the parameters top_k=%.2f, top_p=%.2f, min_p=%.2f, temperature=%.2f, "
@@ -312,7 +317,6 @@ class Engine:
 
         # For every unique model call, cache the AOT-compiled function to disk
         # Note: top_k value cannot be traced and need to be hashed as well.
-        top_k = 0 if top_k < 0 else top_k
         prompt_len = prompt_tokens.shape[1]
 
         if max_new_tokens < 0:

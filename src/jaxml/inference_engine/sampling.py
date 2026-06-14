@@ -59,6 +59,23 @@ def _clip_value(name: str, value: int | float, min: int | float, max: int | floa
 
 
 @struct.dataclass
+class SamplingParams:
+    top_k: int
+    top_p: float
+    min_p: float
+    temp: float
+
+
+def normalize_sampling_params(top_k: int, top_p: float, min_p: float, temp: float) -> SamplingParams:
+    return SamplingParams(
+        top_k=_clip_value("top_k", top_k, 0, float("inf")),
+        top_p=_clip_value("top_p", top_p, 0.0, 1.0),
+        min_p=_clip_value("min_p", min_p, 0.0, 1.0),
+        temp=_clip_value("temp", temp, 0.0, float("inf")),
+    )
+
+
+@struct.dataclass
 class SamplingMethod:
     use_top_k: bool
     use_top_p: bool
@@ -67,15 +84,13 @@ class SamplingMethod:
 
     @classmethod
     def from_values(cls, top_k: int, top_p: float, min_p: float, temp: float):
-        top_k = _clip_value("top_k", top_k, 0, float("inf"))
-        min_p = _clip_value("min_p", min_p, 0.0, 1.0)
-        temp = _clip_value("temp", temp, 0.0, float("inf"))
+        params = normalize_sampling_params(top_k=top_k, top_p=top_p, min_p=min_p, temp=temp)
 
-        use_greedy = temp <= 0.0 or top_p <= 0.0 or top_k == 1
+        use_greedy = params.temp <= 0.0 or params.top_p <= 0.0 or params.top_k == 1
         # top_k = 0 is an indicator of skipping top_k
-        use_top_k = top_k > 0 and not use_greedy
-        use_top_p = top_p < 1.0 and not use_greedy
-        use_min_p = min_p > 0.0 and not use_greedy
+        use_top_k = params.top_k > 0 and not use_greedy
+        use_top_p = params.top_p < 1.0 and not use_greedy
+        use_min_p = params.min_p > 0.0 and not use_greedy
         return cls(use_top_k=use_top_k, use_top_p=use_top_p, use_min_p=use_min_p, use_greedy=use_greedy)
 
     def get_sampling_fn(self):

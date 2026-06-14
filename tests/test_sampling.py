@@ -2,11 +2,26 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxml.inference_engine.sampling import SamplingMethod, min_p_filtering, top_k_filtering, top_p_filtering
+from jaxml.inference_engine.sampling import (
+    SamplingMethod,
+    min_p_filtering,
+    normalize_sampling_params,
+    top_k_filtering,
+    top_p_filtering,
+)
 
 
 def _is_kept(filtered):
     return ~np.isneginf(np.array(filtered))
+
+
+def test_normalize_sampling_params_clips_bounds():
+    params = normalize_sampling_params(top_k=-3, top_p=1.5, min_p=-0.5, temp=-1.0)
+
+    assert params.top_k == 0
+    assert params.top_p == 1.0
+    assert params.min_p == 0.0
+    assert params.temp == 0.0
 
 
 def test_top_k_filtering_keeps_top_tokens_per_batch_row():
