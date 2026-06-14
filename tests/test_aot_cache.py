@@ -1,7 +1,15 @@
 from pathlib import Path
 import pickle
 
-from jaxml.utils import JAXML_CACHE_DIR_ENV, _hash, _load_compiled_fn_from_path, compiled_fn_exist, compiled_fn_path, load_compiled_fn
+from jaxml.utils import (
+    JAXML_CACHE_DIR_ENV,
+    _hash,
+    _load_compiled_fn_from_path,
+    compiled_fn_exist,
+    compiled_fn_path,
+    load_compiled_fn,
+    load_if_exists,
+)
 
 
 def test_compiled_fn_path_defaults_to_project_cache(monkeypatch):
@@ -61,3 +69,71 @@ def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tm
 
     assert first == (b"first-payload", "in-tree", "out-tree")
     assert second == (b"second-payload", "in-tree", "out-tree")
+
+
+class FakeJit:
+    def __init__(self, fn, compiled_fn):
+        self.fn = fn
+        self.compiled_fn = compiled_fn
+
+    def lower(self, *args, **kwargs):
+        return self
+
+    def compile(self):
+        return self.compiled_fn
+
+
+def test_load_if_exists_recompiles_when_cached_load_fails(monkeypatch):
+    compiled_calls = []
+
+    def compiled_fn(x):
+        compiled_calls.append(x)
+        return x + 1
+
+    monkeypatch.setattr("jaxml.utils.compiled_fn_exist", lambda name, hash: True)
+    monkeypatch.setattr("jaxml.utils.load_compiled_fn", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("bad cache")))
+    monkeypatch.setattr("jaxml.utils.save_compiled_fn", lambda *args, **kwargs: 1)
+    monkeypatch.setattr("jaxml.utils.jax.jit", lambda fn: FakeJit(fn, compiled_fn))
+
+    wrapped = load_if_exists("decode", "abc", log=False)(lambda x: x + 1)
+
+    assert wrapped(2) == 3
+    assert compiled_calls == [2]
+
+
+def test_load_if_exists_recompiles_when_cached_input_tree_is_stale(monkeypatch):
+    compiled_calls = []
+
+    def stale_fn(x):
+        raise TypeError("Function compiled with input pytree does not match the input pytree it was called with.")
+
+    def compiled_fn(x):
+        compiled_calls.append(x)
+        return x + 1
+
+    monkeypatch.setattr("jaxml.utils.compiled_fn_exist", lambda name, hash: True)
+    monkeypatch.setattr("jaxml.utils.load_compiled_fn", lambda *args, **kwargs: stale_fn)
+    monkeypatch.setattr("jaxml.utils.save_compiled_fn", lambda *args, **kwargs: 1)
+    monkeypatch.setattr("jaxml.utils.jax.jit", lambda fn: FakeJit(fn, compiled_fn))
+
+    wrapped = load_if_exists("prefill", "abc", log=False)(lambda x: x + 1)
+
+    assert wrapped(2) == 3
+    assert compiled_calls == [2]
+
+
+def test_load_if_exists_preserves_non_stale_type_errors(monkeypatch):
+    def broken_fn(x):
+        raise TypeError("model bug")
+
+    monkeypatch.setattr("jaxml.utils.compiled_fn_exist", lambda name, hash: True)
+    monkeypatch.setattr("jaxml.utils.load_compiled_fn", lambda *args, **kwargs: broken_fn)
+
+    wrapped = load_if_exists("prefill", "abc", log=False)(lambda x: x + 1)
+
+    try:
+        wrapped(2)
+    except TypeError as e:
+        assert str(e) == "model bug"
+    else:
+        raise AssertionError("Expected TypeError.")

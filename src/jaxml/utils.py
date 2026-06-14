@@ -304,23 +304,44 @@ def load_compiled_fn(name: str, hash=0):
     return _load_compiled_fn_from_path(str(compiled_fn_path(name, hash)))
 
 
+def _is_stale_compiled_fn_error(error: TypeError) -> bool:
+    return "Function compiled with input pytree does not match" in str(error)
+
+
 def load_if_exists(name: str, hash: str, log: bool = True):
     def _decorator(fn: Callable):
         @functools.wraps(fn)
         def _wrapped_fn(*args, **kwargs):
-            if compiled_fn_exist(name, hash):
-                _cfn = load_compiled_fn(name, hash, log=log)
-            else:
+            def _compile_and_cache():
                 lowered = jax.jit(fn).lower(*args, **kwargs)
                 with Timeit() as t:
-                    _cfn = lowered.compile()
+                    compiled_fn = lowered.compile()
                 if log:
                     logger.info(f"Compiled function '{name}' ({t} seconds).")
-                byte_count = save_compiled_fn(_cfn, name, hash=hash, log=log)
+                byte_count = save_compiled_fn(compiled_fn, name, hash=hash, log=log)
+                _load_compiled_fn_from_path.cache_clear()
                 if log:
                     logger.info(f"Cached AOT-compiled function '{name}' ({byte_count} bytes).")
+                return compiled_fn
 
-            return _cfn(*args, **kwargs)
+            if compiled_fn_exist(name, hash):
+                try:
+                    _cfn = load_compiled_fn(name, hash, log=log)
+                except Exception as e:
+                    if log:
+                        logger.warning("Failed to load cached AOT function '%s'; recompiling. Error: %s", name, e)
+                    _cfn = _compile_and_cache()
+            else:
+                _cfn = _compile_and_cache()
+
+            try:
+                return _cfn(*args, **kwargs)
+            except TypeError as e:
+                if not _is_stale_compiled_fn_error(e):
+                    raise
+                if log:
+                    logger.warning("Cached AOT function '%s' is stale for current inputs; recompiling.", name)
+                return _compile_and_cache()(*args, **kwargs)
 
         return _wrapped_fn
 
