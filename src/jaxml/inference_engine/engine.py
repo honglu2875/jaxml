@@ -20,6 +20,8 @@ from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
 
+GENERATION_AOT_CACHE_VERSION = "generate_v2"
+
 
 @struct.dataclass
 class InferenceConfig:
@@ -338,6 +340,7 @@ class Engine:
                 continue
 
             call_hash = _hash(
+                GENERATION_AOT_CACHE_VERSION,
                 str(self.model),
                 str(self.config),
                 params_signature,

@@ -127,7 +127,7 @@ def generate(
     else:
         # Note that top_k value cannot be traced due to the limit of jax.lax.top_k
         @load_if_exists(name="prefill", hash=call_hash)
-        def _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature):
+        def _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature):
             first_generated_logit, kv_caches = eval_fn(
                 params,
                 prompt_tokens,
@@ -140,7 +140,7 @@ def generate(
                 kv_caches,
             )
 
-        first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature)
+        first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature)
 
     decode_steps = max_new_tokens if skip_prefill else max_new_tokens - 1
     if decode_steps < 0:
