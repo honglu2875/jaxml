@@ -136,10 +136,16 @@ def test_load_model_from_hf_dispatches_architecture(monkeypatch):
     import jaxml.hf_utils as hf_utils
 
     monkeypatch.setattr(hf_utils, "load_llama_from_hf", lambda *args, **kwargs: ("llama", args, kwargs))
+    monkeypatch.setattr(hf_utils, "load_neox_from_hf", lambda *args, **kwargs: ("neox", args, kwargs))
+    monkeypatch.setattr(hf_utils, "load_gemma_from_hf", lambda *args, **kwargs: ("gemma", args, kwargs))
     monkeypatch.setattr(hf_utils, "_infer_hf_architecture", lambda *args, **kwargs: "llama")
 
     assert hf_utils.load_model_from_hf("model", dtype="float16")[0] == "llama"
     assert hf_utils.load_model_from_hf("model", architecture="llama", dtype="float16")[2]["dtype"] == "float16"
+    assert hf_utils.load_model_from_hf("model", architecture="GPT-NeoX")[0] == "neox"
+    assert hf_utils.load_model_from_hf("model", architecture="Gemma-3")[0] == "gemma"
 
     with pytest.raises(ValueError, match="Unsupported"):
         hf_utils.load_model_from_hf("model", architecture="unknown")
+    with pytest.raises(TypeError, match="architecture must be a string"):
+        hf_utils.load_model_from_hf("model", architecture=None)

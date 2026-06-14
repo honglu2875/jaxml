@@ -50,6 +50,21 @@ def to_neox_jax_params(model, dtype: str = "float16"):
 HFArchitecture = Literal["auto", "llama", "gpt_neox", "neox", "gemma3", "gemma"]
 
 
+def _normalize_hf_architecture(architecture: str) -> str:
+    if not isinstance(architecture, str):
+        raise TypeError(f"architecture must be a string, got {type(architecture)}.")
+    normalized = architecture.lower().replace("-", "_")
+    match normalized:
+        case "auto" | "llama" | "neox" | "gemma":
+            return normalized
+        case "gpt_neox":
+            return "neox"
+        case "gemma3" | "gemma_3":
+            return "gemma"
+        case _:
+            raise ValueError(f"Unsupported Hugging Face architecture {architecture!r}.")
+
+
 def _infer_hf_architecture(name: str, **config_kwargs) -> str:
     try:
         from transformers import AutoConfig
@@ -76,6 +91,7 @@ def load_model_from_hf(
     **from_pretrained_kwargs,
 ):
     """Load a supported Hugging Face causal LM into a jaxml model and parameter tree."""
+    architecture = _normalize_hf_architecture(architecture)
     if architecture == "auto":
         architecture = _infer_hf_architecture(name, **from_pretrained_kwargs)
 
