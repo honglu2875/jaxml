@@ -40,6 +40,15 @@ def test_top_k_filtering_caps_k_to_vocab_size():
     assert np.array_equal(_is_kept(filtered), np.array([[[True, True, True, True]]]))
 
 
+def test_top_k_filtering_is_noop_when_disabled():
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+
+    filtered = top_k_filtering(rng, logits, 0, 1.0, 0.0, 1.0)
+
+    assert np.array_equal(np.array(filtered), np.array(logits))
+
+
 def test_top_p_filtering_uses_sorted_cutoff_per_batch_row():
     rng = jax.random.PRNGKey(0)
     logits = jnp.array(
