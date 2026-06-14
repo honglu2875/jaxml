@@ -8,14 +8,21 @@ from jaxml.models.llama import LlamaModelWithHead
 from .utils import torch_to_jax_states
 
 
+def _config_head_dim(config):
+    head_dim = getattr(config, "head_dim", None)
+    if head_dim is not None:
+        return head_dim
+    return config.hidden_size // config.num_attention_heads
+
+
 def to_llama_jax_params(model, dtype: str = "float16"):
     llama_config = model.config
-    return torch_to_jax_states(model.state_dict(), head_dim=llama_config.head_dim, dtype=dtype)
+    return torch_to_jax_states(model.state_dict(), head_dim=_config_head_dim(llama_config), dtype=dtype)
 
 
 def to_gemma_jax_params(model, dtype: str = "bfloat16"):
     gemma_config = model.config
-    return torch_to_jax_states(model.state_dict(), head_dim=gemma_config.head_dim, dtype=dtype)
+    return torch_to_jax_states(model.state_dict(), head_dim=_config_head_dim(gemma_config), dtype=dtype)
 
 
 def to_neox_jax_params(model, dtype: str = "float16"):
@@ -39,7 +46,7 @@ def to_neox_jax_params(model, dtype: str = "float16"):
             name = re.sub(k, v, name)
         if name != key:
             state_dict[name] = state_dict.pop(key)
-    return torch_to_jax_states(state_dict, head_dim=neox_config.hidden_size // neox_config.num_attention_heads, dtype=dtype)
+    return torch_to_jax_states(state_dict, head_dim=_config_head_dim(neox_config), dtype=dtype)
 
 
 HFArchitecture = Literal["auto", "llama", "gpt_neox", "neox", "gemma3", "gemma"]
