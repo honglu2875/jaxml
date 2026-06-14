@@ -1,4 +1,5 @@
 from dataclasses import field
+import operator
 from typing import Any, Tuple
 
 import flax.linen as nn
@@ -6,6 +7,15 @@ import jax.numpy as jnp
 from jax import lax
 
 from .module import Module
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
 class Embed(Module):
@@ -41,10 +51,17 @@ class Embed(Module):
           Output which is embedded input data.  The output shape follows the input,
           with an additional `features` dimension appended.
         """
+        num_embeddings = _normalize_count("num_embeddings", self.num_embeddings)
+        features = _normalize_count("features", self.features)
+        if num_embeddings <= 0:
+            raise ValueError(f"num_embeddings must be positive, got {num_embeddings}.")
+        if features <= 0:
+            raise ValueError(f"features must be positive, got {features}.")
+
         embedding = self.param(
             "embedding",
             self.wrapped_kernel_init,
-            (self.num_embeddings, self.features),
+            (num_embeddings, features),
             self.dtype,
             0,
             1,
@@ -53,7 +70,7 @@ class Embed(Module):
         if not jnp.issubdtype(inputs.dtype, jnp.integer):
             raise ValueError("Input type must be an integer or unsigned integer.")
         if self.one_hot:
-            iota = lax.iota(jnp.int32, self.num_embeddings)
+            iota = lax.iota(jnp.int32, num_embeddings)
             one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
             output = jnp.dot(one_hot, jnp.asarray(embedding, self.dtype))
         else:

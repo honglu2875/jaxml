@@ -22,6 +22,7 @@ from jaxml.config import ModelConfig
 from jaxml.models.gemma3 import GemmaMLP, GemmaRMSNorm
 from jaxml.models.gpt_neox import GPTNeoXMLP
 from jaxml.models.llama import LlamaMLP
+from jaxml.nn.embedding import Embed
 from jaxml.nn.linear import DenseGeneral
 from jaxml.nn.norms import LayerNorm, RMSNorm
 from jaxml.utils import torch_to_jax_states
@@ -70,6 +71,36 @@ def test_norms_reject_scalar_inputs(norm_cls):
 
     with pytest.raises(ValueError, match="at least one dimension"):
         norm.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"num_embeddings": True, "features": 4}, TypeError, "num_embeddings must be an integer"),
+        ({"num_embeddings": 1.5, "features": 4}, TypeError, "num_embeddings must be an integer"),
+        ({"num_embeddings": 0, "features": 4}, ValueError, "num_embeddings must be positive"),
+        ({"num_embeddings": 8, "features": True}, TypeError, "features must be an integer"),
+        ({"num_embeddings": 8, "features": 1.5}, TypeError, "features must be an integer"),
+        ({"num_embeddings": 8, "features": 0}, ValueError, "features must be positive"),
+    ],
+)
+def test_embed_rejects_invalid_shape_parameters(kwargs, exception, match):
+    embed = Embed(**kwargs)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+
+    with pytest.raises(exception, match=match):
+        embed.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("one_hot", [False, True])
+def test_embed_accepts_numpy_integer_shape_parameters(one_hot):
+    embed = Embed(num_embeddings=np.int64(8), features=np.int64(4), one_hot=one_hot)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+
+    params = embed.init(jax.random.PRNGKey(0), x)
+    y = embed.apply(params, x)
+
+    assert y.shape == (2, 4)
 
 
 @pytest.mark.parametrize(
