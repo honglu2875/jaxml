@@ -12,10 +12,20 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import operator
 from typing import Any
 
 import jax.numpy as jnp
 from flax import linen as nn
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
 class RotaryEmbedding(nn.Module):
@@ -56,24 +66,30 @@ class RotaryEmbedding(nn.Module):
         return self.rotary_pct >= 1.0
 
     def setup(self):
+        dim = _normalize_count("dim", self.dim)
+        max_length = _normalize_count("max_length", self.max_length)
+        if dim <= 0:
+            raise ValueError(f"dim must be positive, got {dim}.")
+        if max_length <= 0:
+            raise ValueError(f"max_length must be positive, got {max_length}.")
         if self.rope_scale < 1.0:
             raise ValueError(
                 f"Although rope scale in theory can be < 1.0, it is more likely a mistake (potential confusion of "
                 f"whether dividing or multiplying it). I raise the error for awareness (got {self.rope_scale})."
             )
         if self.full_rotate:
-            self.rotary_dim = self.dim
+            self.rotary_dim = dim
         else:
-            self.rotary_dim = int(self.dim * self.rotary_pct)
+            self.rotary_dim = int(dim * self.rotary_pct)
         if self.rotary_dim <= 0:
             raise ValueError(
                 f"Rotary dimension cannot be less than or equal to 0. The `rotary_pct`({self.rotary_pct}) might be too "
-                f"small relative to the head dim ({self.dim})."
+                f"small relative to the head dim ({dim})."
             )
         elif self.rotary_dim % 2 == 1:
             raise ValueError(
                 f"Rotary dimension cannot be an odd number. Please adjust the `rotary_pct`({self.rotary_pct}) "
-                f"according to the head dim ({self.dim})."
+                f"according to the head dim ({dim})."
             )
 
         self.inv_freq = self.variable(
@@ -83,7 +99,7 @@ class RotaryEmbedding(nn.Module):
         )
 
         if not self.disable_cache:
-            emb = self.get_emb(self.max_length)
+            emb = self.get_emb(max_length)
             self.cos_cached = self.variable("cache", "cos_cached", lambda: jnp.cos(emb).astype(self.dtype))
             self.sin_cached = self.variable("cache", "sin_cached", lambda: jnp.sin(emb).astype(self.dtype))
 
@@ -99,12 +115,21 @@ class RotaryEmbedding(nn.Module):
         # x: [bs, seq_len, num_attention_heads, head_size]
         if seq_len is None:
             seq_len = x.shape[1]
+        seq_len = _normalize_count("seq_len", seq_len)
+        if seq_len <= 0:
+            raise ValueError(f"seq_len must be positive, got {seq_len}.")
 
         if self.disable_cache:
             # Skip updating caches and directly go for the result.
             emb = self.get_emb(seq_len)
             return jnp.cos(emb).astype(x.dtype), jnp.sin(emb).astype(x.dtype)
 
+        max_length = self.cos_cached.value.shape[0]
+        if seq_len > max_length:
+            raise ValueError(
+                f"Cached rotary embeddings only cover max_length={max_length}, got seq_len={seq_len}. "
+                "Set disable_cache=True to compute longer embeddings dynamically."
+            )
         return (
             self.cos_cached.value.astype(x.dtype),
             self.sin_cached.value.astype(x.dtype),

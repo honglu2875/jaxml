@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 import torch
 
+from jaxml.nn.position import RotaryEmbedding
+
 
 @pytest.mark.parametrize("model_type", ["llama", "neox"])
 def test_rope(rope_factory, model_type):
@@ -33,3 +35,51 @@ def test_rope(rope_factory, model_type):
 
         assert np.allclose(oq, oq2.numpy())
         assert np.allclose(ok, ok2.numpy())
+
+
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"dim": True, "max_length": 8}, TypeError, "dim must be an integer"),
+        ({"dim": 1.5, "max_length": 8}, TypeError, "dim must be an integer"),
+        ({"dim": 0, "max_length": 8}, ValueError, "dim must be positive"),
+        ({"dim": 4, "max_length": True}, TypeError, "max_length must be an integer"),
+        ({"dim": 4, "max_length": 1.5}, TypeError, "max_length must be an integer"),
+        ({"dim": 4, "max_length": 0}, ValueError, "max_length must be positive"),
+    ],
+)
+def test_rope_rejects_invalid_shape_parameters(kwargs, exception, match):
+    rope = RotaryEmbedding(**kwargs)
+    x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+
+    with pytest.raises(exception, match=match):
+        rope.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("seq_len", [True, 1.5])
+def test_rope_rejects_non_integer_seq_len(seq_len):
+    rope = RotaryEmbedding(dim=4, max_length=8)
+    x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="seq_len must be an integer"):
+        rope.init(jax.random.PRNGKey(0), x, seq_len=seq_len)
+
+
+def test_cached_rope_rejects_seq_len_beyond_max_length():
+    rope = RotaryEmbedding(dim=4, max_length=4)
+    x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+    params = rope.init(jax.random.PRNGKey(0), x, seq_len=2)
+
+    with pytest.raises(ValueError, match="max_length=4"):
+        rope.apply(params, x, seq_len=5)
+
+
+def test_uncached_rope_can_compute_beyond_max_length():
+    rope = RotaryEmbedding(dim=4, max_length=4, disable_cache=True)
+    x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+    params = rope.init(jax.random.PRNGKey(0), x, seq_len=2)
+
+    cos, sin = rope.apply(params, x, seq_len=5)
+
+    assert cos.shape == (5, 4)
+    assert sin.shape == (5, 4)
