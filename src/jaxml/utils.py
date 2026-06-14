@@ -92,7 +92,9 @@ class Timeit:
 def _hash(*args) -> str:
     m = hashlib.sha256()
     for s in args:
-        m.update(s.encode(encoding="utf-8"))
+        encoded = s.encode(encoding="utf-8")
+        m.update(len(encoded).to_bytes(8, byteorder="big"))
+        m.update(encoded)
     return m.hexdigest()
 
 

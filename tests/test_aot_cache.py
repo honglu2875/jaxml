@@ -1,13 +1,17 @@
 from pathlib import Path
 import pickle
 
-from jaxml.utils import JAXML_CACHE_DIR_ENV, _load_compiled_fn_from_path, compiled_fn_exist, compiled_fn_path, load_compiled_fn
+from jaxml.utils import JAXML_CACHE_DIR_ENV, _hash, _load_compiled_fn_from_path, compiled_fn_exist, compiled_fn_path, load_compiled_fn
 
 
 def test_compiled_fn_path_defaults_to_project_cache(monkeypatch):
     monkeypatch.delenv(JAXML_CACHE_DIR_ENV, raising=False)
 
     assert compiled_fn_path("decode", "abc") == Path(".jaxml") / "decode_abc"
+
+
+def test_hash_frames_arguments_to_avoid_concatenation_collisions():
+    assert _hash("ab", "c") != _hash("a", "bc")
 
 
 def test_compiled_fn_path_uses_cache_dir_env(monkeypatch, tmp_path):
