@@ -38,14 +38,12 @@ def to_neox_jax_params(model, dtype: str = "float16"):
         r"dense_h_to_4h(.*)": r"up_proj\1",
         r"dense_4h_to_h(.*)": r"down_proj\1",
     }
-    state_dict = model.state_dict()
-    keys = list(state_dict.keys())
-    for key in keys:
+    state_dict = {}
+    for key, value in model.state_dict().items():
         name = key
         for k, v in _sub.items():
             name = re.sub(k, v, name)
-        if name != key:
-            state_dict[name] = state_dict.pop(key)
+        state_dict[name] = value
     return torch_to_jax_states(state_dict, head_dim=_config_head_dim(neox_config), dtype=dtype)
 
 
