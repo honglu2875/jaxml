@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpu:
+    name: CPU tests
+    runs-on: ubuntu-latest
+    env:
+      JAX_PLATFORMS: cpu
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          version: "0.11.21"
+
+      - name: Verify lockfile
+        run: uv lock --locked
+
+      - name: Lint
+        run: uv run --frozen --extra dev make lint
+
+      - name: Test
+        run: uv run --frozen --extra dev make pytest-cpu
