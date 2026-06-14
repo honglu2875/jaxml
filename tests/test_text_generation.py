@@ -83,6 +83,18 @@ def test_generate_tokens_handles_batches_and_generation_overrides():
     assert tokenizer.encode_calls[0][2] == {"padding": "longest"}
 
 
+def test_generate_tokens_rejects_empty_prompt_batch():
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(ValueError, match="at least one prompt"):
+        pipeline.generate_tokens([])
+
+    assert tokenizer.encode_calls == []
+    assert engine.generate_calls == []
+
+
 def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     calls = {}
 
