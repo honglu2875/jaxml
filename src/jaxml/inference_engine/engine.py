@@ -276,6 +276,8 @@ class Engine:
             raise ValueError(
                 f"attention_mask shape must match prompt_tokens shape; got {attention_mask.shape} and {prompt_tokens.shape}."
             )
+        if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+            raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
         return prompt_tokens, attention_mask
 

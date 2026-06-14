@@ -107,6 +107,22 @@ def test_engine_generate_rejects_mismatched_attention_mask(llama_model_with_head
             engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
 
 
+@pytest.mark.parametrize(
+    "input_ids,attention_mask",
+    [
+        (jnp.ones((2, 4), dtype=jnp.int32), jnp.array([[True, False, False, False], [False, False, False, False]])),
+        (jnp.ones((4,), dtype=jnp.int32), jnp.zeros((4,), dtype=bool)),
+    ],
+)
+def test_engine_generate_rejects_attention_mask_without_valid_tokens(llama_model_with_head, input_ids, attention_mask):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(ValueError, match="at least one valid token"):
+            engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
+
+
 def test_engine_rejects_non_positive_cache_stride(llama_model_with_head):
     model, params = llama_model_with_head
 
