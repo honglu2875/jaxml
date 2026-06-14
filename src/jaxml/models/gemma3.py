@@ -222,6 +222,7 @@ class GemmaModel(Block):
                 # our convention is that negative ids (such as -100) is masked by default.
                 attention_mask = input_ids >= 0
 
+        input_ids = jnp.where(input_ids < 0, 0, input_ids)
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
         # So-called "scaled embedding" for Gemma3
         inputs_embeds *= self.hidden_size**0.5

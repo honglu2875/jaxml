@@ -204,6 +204,9 @@ class Attention(Block):
         if attention_mask is not None:
             x += jnp.where(attention_mask[:, None, None, :], 0, float("-inf"))
 
+        all_masked = jnp.all(jnp.isneginf(x), axis=-1, keepdims=True)
+        x = jnp.where(all_masked, 0, x)
+
         if softmax_fp32:
             attn_weight = jax.nn.softmax(x.astype(jnp.float32), axis=-1).astype(dtype)
         else:

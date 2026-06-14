@@ -164,6 +164,7 @@ class GPTNeoXModel(Block):
                 # our convention is that negative ids (such as -100) is masked by default.
                 attention_mask = input_ids >= 0
 
+        input_ids = jnp.where(input_ids < 0, 0, input_ids)
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
         hidden_states = with_sharding_constraint(inputs_embeds, ("batch", "length", "embed"))
 

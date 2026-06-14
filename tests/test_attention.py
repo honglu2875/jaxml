@@ -106,6 +106,39 @@ def test_sliding_window_decode_respects_padded_cache_mask():
     assert np.allclose(weights, np.array([[[[0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.0, 0.0]]]], dtype=np.float32))
 
 
+def test_attention_all_masked_rows_remain_finite():
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 2, 1, 1), dtype=jnp.float32)
+    value_states = jnp.array([[[[2.0]], [[4.0]]]], dtype=jnp.float32)
+    attention_mask = jnp.array([[False, False]])
+
+    output, weights = attn.apply(
+        {},
+        query_states,
+        key_states,
+        value_states,
+        attention_mask=attention_mask,
+        output_attentions=True,
+        method=Attention.mha,
+    )
+
+    assert np.all(np.isfinite(output))
+    assert np.all(np.isfinite(weights))
+    assert np.allclose(output, np.array([[[[3.0]]]], dtype=np.float32))
+    assert np.allclose(weights, np.array([[[[0.5, 0.5]]]], dtype=np.float32))
+
+
 @pytest.mark.parametrize(
     "model_type,with_rope",
     [

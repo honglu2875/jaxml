@@ -29,6 +29,20 @@ def test_neox_model(neox_model, hf_neox_model):
         assert all(np.allclose(a, b.numpy(), atol=1e-6) for a, b in zip(y.hidden_states, y2.hidden_states))
 
 
+def test_neox_model_sanitizes_default_masked_negative_token_ids(neox_model):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, init_param = neox_model
+        input_ids = jnp.array([[-100, 1, 2, 3], [4, -100, 5, 6]], dtype=jnp.int32)
+        attention_mask = input_ids >= 0
+        sanitized = jnp.where(attention_mask, input_ids, 0)
+
+        y = model.apply(init_param, input_ids)
+        y2 = model.apply(init_param, sanitized, attention_mask=attention_mask)
+
+    assert np.all(np.isfinite(np.array(y.last_hidden_state)))
+    assert np.allclose(y.last_hidden_state, y2.last_hidden_state, atol=1e-6)
+
+
 def test_neox_completion(neox_model_with_head, hf_neox_causal_model):
     bs, seq_len = 4, 10
     with jax.default_device(jax.devices("cpu")[0]):
