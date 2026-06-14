@@ -1,6 +1,6 @@
 # jaxml
 
-A relatively carefully written library in JAX to support my own research (and hopefully help otherstoo).
+A relatively carefully written library in JAX to support my own research (and hopefully help others too).
 
 I do not intend to make it a framework that satisfies every model type and everybody (unless it gets viral which is unlikely). But anybody is free to contribute (so far just myself though).
 
@@ -17,13 +17,12 @@ Within the definition of model architectures, it also uses the following
 
 # Support and features
 
-Currently support:
+Currently supported:
 - [x] Llama
 - [x] GPT-NeoX
 - [x] Gemma3
 
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)
-- [x] AOT-compile for prefilling function and decoding function, and cache them!
+- [x] AOT-compile prefill and decode functions, and cache them!
 - [ ] (pending a bug fix in JAX) Allow JAX-flash-attention (`jax.experimental.pallas.ops.flash_attention`)
-
