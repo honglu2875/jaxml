@@ -15,6 +15,18 @@ def test_kv_cache_init_rejects_non_positive_capacity():
         KVCache.init(0)
 
 
+@pytest.mark.parametrize("max_seq_len", [True, 1.5])
+def test_kv_cache_init_rejects_non_integer_capacity(max_seq_len):
+    with pytest.raises(TypeError, match="max_seq_len must be an integer"):
+        KVCache.init(max_seq_len)
+
+
+def test_kv_cache_init_accepts_numpy_integer_capacity():
+    cache = KVCache.init(np.int64(4))
+
+    assert cache.max_seq_len == 4
+
+
 def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     k, v = _kv(seq_len=2)
 
@@ -71,12 +83,33 @@ def test_kv_cache_rollback_rejects_past_beginning():
         cache.rollback(3)
 
 
+@pytest.mark.parametrize("n", [True, 1.5])
+def test_kv_cache_rollback_rejects_non_integer_count(n):
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
+
+    with pytest.raises(TypeError, match="n must be an integer"):
+        cache.rollback(n)
+
+
 def test_kv_cache_resize_rejects_truncating_cached_positions():
     k, v = _kv(seq_len=3)
     cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 3), dtype=bool))
 
     with pytest.raises(ValueError, match="below the highest cached position"):
         cache.resize(2)
+
+
+@pytest.mark.parametrize("new_size", [True, 1.5])
+def test_kv_cache_resize_rejects_non_integer_size(new_size):
+    with pytest.raises(TypeError, match="new_size must be an integer"):
+        KVCache.init(4).resize(new_size)
+
+
+def test_kv_cache_resize_accepts_numpy_integer_size():
+    cache = KVCache.init(4).resize(np.int64(8))
+
+    assert cache.max_seq_len == 8
 
 
 def test_kv_cache_resize_empty_cache_updates_capacity():

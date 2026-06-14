@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import operator
 from typing import Any, Optional
 
 import jax
@@ -24,6 +25,15 @@ from .utils import get_default_pos_ids
 
 def _contains_tracer(x: Any) -> bool:
     return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
 class KVCache(struct.PyTreeNode):
@@ -45,6 +55,7 @@ class KVCache(struct.PyTreeNode):
         mask: Optional[jnp.ndarray] = None,
         dtype: Any = jnp.float32,
     ):
+        max_seq_len = _normalize_count("max_seq_len", max_seq_len)
         if max_seq_len <= 0:
             raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
         return cls(
@@ -116,6 +127,7 @@ class KVCache(struct.PyTreeNode):
         return self.replace(k=new_k, v=new_v, mask=new_mask, pos_id=self.next_pos_id)
 
     def rollback(self, n: int):
+        n = _normalize_count("n", n)
         if n <= 0:
             raise ValueError("n must be greater than 0.")
         if self.k is None or self.v is None:
@@ -132,6 +144,7 @@ class KVCache(struct.PyTreeNode):
         return self.replace(k=new_k, v=new_v, mask=filter_mask, pos_id=prev_pos)
 
     def resize(self, new_size: int):
+        new_size = _normalize_count("new_size", new_size)
         if new_size <= 0:
             raise ValueError(f"new_size must be positive, got {new_size}.")
         if self.k is None:
