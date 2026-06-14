@@ -23,6 +23,7 @@ from jaxml.models.gemma3 import GemmaMLP, GemmaRMSNorm
 from jaxml.models.gpt_neox import GPTNeoXMLP
 from jaxml.models.llama import LlamaMLP
 from jaxml.nn.linear import DenseGeneral
+from jaxml.nn.norms import LayerNorm
 from jaxml.utils import torch_to_jax_states
 
 
@@ -86,6 +87,20 @@ def test_dense_general_accepts_numpy_integer_axis():
     y = dense.apply(params, x)
 
     assert y.shape == (1, 2, 4)
+
+
+def test_layer_norm_without_bias_matches_zero_bias_torch_layer_norm():
+    jax_norm = LayerNorm(hidden_size=4, use_bias=False, dtype=jnp.float32)
+    torch_norm = torch.nn.LayerNorm(4, eps=1e-6, elementwise_affine=True)
+    torch_norm.bias.data.zero_()
+    x = jnp.arange(24, dtype=jnp.float32).reshape(2, 3, 4)
+    params = {"params": {"weight": np.array(torch_norm.weight.detach().numpy(), dtype=np.float32)}}
+
+    y = jax_norm.apply(params, x)
+    with torch.no_grad():
+        y2 = torch_norm(torch.tensor(np.array(x))).numpy()
+
+    assert np.allclose(y, y2, atol=1e-6)
 
 
 @pytest.mark.parametrize("name", ["dense", "rms_norm", "layer_norm"])

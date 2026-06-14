@@ -85,5 +85,7 @@ class LayerNorm(nn.Module):
 
         mean = hidden_states.mean(-1, keepdims=True)
         var = hidden_states.var(-1, keepdims=True)
-        out = (hidden_states - mean) / jnp.sqrt(var + self.eps) * self.weight + self.bias
+        out = (hidden_states - mean) / jnp.sqrt(var + self.eps) * self.weight
+        if self.use_bias:
+            out += self.bias
         return out.astype(input_dtype)
