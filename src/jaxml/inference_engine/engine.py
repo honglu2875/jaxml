@@ -1,4 +1,5 @@
 import logging
+import operator
 import warnings
 from typing import Any, Optional
 
@@ -21,6 +22,15 @@ from jaxml.utils import _hash, timeit
 logger = logging.getLogger(__name__)
 
 GENERATION_AOT_CACHE_VERSION = "generate_v3"
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
 @struct.dataclass
@@ -46,6 +56,7 @@ class Engine:
         dtype: Any = jnp.float32,
         cache_stride: int = 256,
     ):
+        cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
             raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
         required_devices = config.tp_size * config.dp_size
@@ -296,6 +307,7 @@ class Engine:
         fuse_decoding: bool = False,
         include_prompt: bool = True,
     ):
+        max_new_tokens = _normalize_count("max_new_tokens", max_new_tokens)
         prompt_tokens, attention_mask = self._prepare_generation_inputs(prompt_tokens, attention_mask)
         apply = self.wrapped_apply_fn
 

@@ -62,6 +62,28 @@ def test_engine_generate_rejects_negative_max_new_tokens(llama_model_with_head):
             engine.generate(input_ids, max_new_tokens=-1)
 
 
+@pytest.mark.parametrize("max_new_tokens", [True, 1.5])
+def test_engine_generate_rejects_non_integer_max_new_tokens(llama_model_with_head, max_new_tokens):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+
+        with pytest.raises(TypeError, match="max_new_tokens must be an integer"):
+            engine.generate(input_ids, max_new_tokens=max_new_tokens)
+
+
+def test_engine_generate_accepts_numpy_integer_max_new_tokens(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+
+        output = engine.generate(input_ids, max_new_tokens=np.int64(0), include_prompt=False)
+
+    assert output.shape == (1, 0)
+
+
 def test_engine_init_params_rejects_non_dict_weights(llama_model_with_head):
     with jax.default_device(jax.devices("cpu")[0]):
         model, params = llama_model_with_head
@@ -207,6 +229,22 @@ def test_engine_rejects_non_positive_cache_stride(llama_model_with_head):
 
     with pytest.raises(ValueError, match="cache_stride"):
         Engine(model, InferenceConfig(), params, cache_stride=0)
+
+
+@pytest.mark.parametrize("cache_stride", [True, 1.5])
+def test_engine_rejects_non_integer_cache_stride(llama_model_with_head, cache_stride):
+    model, params = llama_model_with_head
+
+    with pytest.raises(TypeError, match="cache_stride must be an integer"):
+        Engine(model, InferenceConfig(), params, cache_stride=cache_stride)
+
+
+def test_engine_accepts_numpy_integer_cache_stride(llama_model_with_head):
+    model, params = llama_model_with_head
+
+    engine = Engine(model, InferenceConfig(), params, cache_stride=np.int64(8))
+
+    assert engine.cache_stride == 8
 
 
 @pytest.mark.parametrize(
