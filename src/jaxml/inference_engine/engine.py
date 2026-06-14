@@ -78,6 +78,16 @@ class Engine:
             )
         return jax.device_put(x, y)
 
+    @staticmethod
+    def _pytree_signature(tree: Any) -> str:
+        def _leaf_signature(x):
+            shape = getattr(x, "shape", None)
+            dtype = getattr(x, "dtype", None)
+            return (type(x).__module__, type(x).__qualname__, shape, str(dtype))
+
+        leaves = jax.tree.leaves(tree)
+        return str((jax.tree.structure(tree), tuple(_leaf_signature(x) for x in leaves)))
+
     @timeit(logger)
     def init_params(self, weights: Optional[FrozenDict] = None, use_tpu: bool = False, reinit_weight: bool = False):
         """
@@ -241,30 +251,46 @@ class Engine:
         prompt_len = prompt_tokens.shape[1]
         total_len = prompt_len + max_new_tokens
 
-        output_tokens = [prompt_tokens] if include_prompt else []
+        if max_new_tokens < 0:
+            raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
+        if max_new_tokens == 0:
+            if include_prompt:
+                return prompt_tokens
+            return jnp.empty((prompt_tokens.shape[0], 0), dtype=prompt_tokens.dtype)
+
+        output_tokens = []
+        next_input_tokens = prompt_tokens
+        generated_count = 0
         initial_buffer_len = (prompt_len // self.cache_stride + 1) * self.cache_stride
         kv_caches = self.init_cache(max_seq_len=initial_buffer_len)
-        for cache_len in range(initial_buffer_len, total_len + self.cache_stride, self.cache_stride):
-            # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of self.cache_stride
-            # `new_token_count` keeps track of the remaining tokens to fill
-            new_token_count = min(cache_len - prompt_len, self.cache_stride, self.cache_stride - cache_len + total_len)
+        cache_len = initial_buffer_len
+        params_signature = self._pytree_signature(self.params)
+        while generated_count < max_new_tokens:
+            # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of self.cache_stride.
+            # `new_token_count` is bounded by both the remaining request and the available cache capacity.
+            cache_capacity = cache_len - (prompt_len + generated_count)
+            new_token_count = min(max_new_tokens - generated_count, cache_capacity)
 
-            if cache_len > initial_buffer_len:
+            if new_token_count <= 0:
+                cache_len += self.cache_stride
                 kv_caches = tuple(c.resize(cache_len) for c in kv_caches)
+                continue
 
             call_hash = _hash(
                 str(self.model),
                 str(self.config),
-                str(prompt_tokens.shape),
+                params_signature,
+                str(next_input_tokens.shape),
                 str(sampling_method),
                 str(top_k),
                 str(cache_len),
+                str(new_token_count),
             )
 
             step_output: GenerationOutput = generate(
                 self.params,
                 apply,
-                prompt_tokens if not output_tokens else output_tokens[-1],
+                next_input_tokens,
                 attention_mask,
                 kv_caches,
                 call_hash,
@@ -277,9 +303,13 @@ class Engine:
                 temperature=temperature,
                 fuse_decoding=fuse_decoding,
                 include_prompt=False,
-                skip_prefill=(cache_len > initial_buffer_len),
+                skip_prefill=(generated_count > 0),
             )
             output_tokens.append(step_output.tokens)
             kv_caches = step_output.kv_caches
+            generated_count += step_output.tokens.shape[1]
+            next_input_tokens = step_output.tokens[:, -1:]
 
+        if include_prompt:
+            output_tokens.insert(0, prompt_tokens)
         return jnp.concatenate(output_tokens, axis=-1)

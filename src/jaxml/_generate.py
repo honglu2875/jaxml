@@ -142,6 +142,10 @@ def generate(
 
         first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, top_p, min_p, temperature)
 
+    decode_steps = max_new_tokens if skip_prefill else max_new_tokens - 1
+    if decode_steps < 0:
+        raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
+
     if fuse_decoding:
         loop_fn = functools.partial(_loop_fn, **loop_fn_params)
 
@@ -150,11 +154,14 @@ def generate(
             output = jax.lax.scan(
                 loop_fn,
                 (params, kv_caches, rng, first_generated_tok),
-                jnp.arange(max_new_tokens - 1),
+                jnp.arange(decode_steps),
             )
             return output[1].T, output[0][1]  # tokens, kv_caches
 
-        generated_toks, kv_caches = _decode(params, kv_caches, rng, first_generated_tok)
+        if decode_steps == 0:
+            generated_toks = jnp.empty((prompt_tokens.shape[0], 0), dtype=first_generated_tok.dtype)
+        else:
+            generated_toks, kv_caches = _decode(params, kv_caches, rng, first_generated_tok)
     else:
         # This could potentially turn into token-streaming
         loop_fn = functools.partial(_loop_fn_no_scan, **loop_fn_params)
@@ -162,11 +169,14 @@ def generate(
 
         new_tokens = []
         token = first_generated_tok
-        for _ in tqdm.trange(max_new_tokens if skip_prefill else max_new_tokens - 1):
+        for _ in tqdm.trange(decode_steps):
             rng, kv_caches, token = loop_fn(rng, kv_caches, token, params)
             new_tokens.append(token.squeeze(1).T)
 
-        generated_toks = jnp.stack(new_tokens, axis=-1)
+        if new_tokens:
+            generated_toks = jnp.stack(new_tokens, axis=-1)
+        else:
+            generated_toks = jnp.empty((prompt_tokens.shape[0], 0), dtype=first_generated_tok.dtype)
 
     if skip_prefill:
         tokens = generated_toks

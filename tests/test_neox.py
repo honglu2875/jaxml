@@ -42,10 +42,10 @@ def test_neox_completion(neox_model_with_head, hf_neox_causal_model):
         engine.init_params(use_tpu=False)
         y = engine.generate(x, max_new_tokens=10, temperature=0.0)
         with torch.no_grad():
-            y2 = hf_neox_causal_model.generate(
-                input_ids=torch.tensor(np.array(x)),
-                max_new_tokens=10,
-                do_sample=False,
-            )
+            y2 = torch.tensor(np.array(x))
+            for _ in range(10):
+                logits = hf_neox_causal_model(input_ids=y2).logits[:, -1]
+                next_tokens = logits.argmax(dim=-1, keepdim=True)
+                y2 = torch.cat((y2, next_tokens), dim=-1)
         print(y, y2)
         assert np.all(y == y2.numpy())
