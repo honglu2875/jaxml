@@ -20,7 +20,7 @@ from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
 
-GENERATION_AOT_CACHE_VERSION = "generate_v2"
+GENERATION_AOT_CACHE_VERSION = "generate_v3"
 
 
 @struct.dataclass

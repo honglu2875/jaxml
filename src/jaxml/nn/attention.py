@@ -192,8 +192,13 @@ class Attention(Block):
         if sliding_window is not None:
             if q_len != 1:
                 x += jnp.tril(jnp.full((q_len, k_len), float("-inf"), dtype=dtype), k=-sliding_window)
+            elif attention_mask is not None:
+                positions = jnp.arange(k_len)[None, :]
+                current_pos = jnp.max(jnp.where(attention_mask, positions, -1), axis=-1, keepdims=True)
+                window_mask = positions >= current_pos - sliding_window + 1
+                x += jnp.where(window_mask[:, None, None, :], 0, float("-inf"))
             else:
-                # decoding => simply mask out the range
+                # Decode with an unpadded cache: keep only the last window.
                 x = x.at[:, :, :, :-sliding_window].set(float("-inf"))
 
         if attention_mask is not None:

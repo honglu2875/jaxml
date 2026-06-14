@@ -15,10 +15,15 @@
 
 from typing import Any, Optional
 
+import jax
 import jax.numpy as jnp
 from flax import struct
 
 from .utils import get_default_pos_ids
+
+
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 class KVCache(struct.PyTreeNode):
@@ -82,7 +87,7 @@ class KVCache(struct.PyTreeNode):
                 mask = jnp.ones(k.shape[:2], dtype=bool)
             if mask.shape != k.shape[:2]:
                 raise ValueError(f"mask shape must match k/v batch and sequence axes, got {mask.shape} and {k.shape[:2]}.")
-            if not bool(jnp.all(jnp.any(mask, axis=1))):
+            if not _contains_tracer(mask) and not bool(jnp.all(jnp.any(mask, axis=1))):
                 raise ValueError("mask must contain at least one valid token per batch row.")
             pos_id = get_default_pos_ids(mask)
             max_seq_len = self.max_seq_len
