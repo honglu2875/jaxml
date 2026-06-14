@@ -2,7 +2,13 @@ SHELL=/bin/bash
 LINT_PATHS=src/jaxml/ tests/
 
 pytest:
-	pytest tests/
+	JAX_PLATFORM_NAME=cpu pytest -m "not tpu" tests/
+
+pytest-cpu:
+	JAX_PLATFORM_NAME=cpu pytest -m "not tpu" tests/
+
+pytest-tpu:
+	pytest -m "tpu" tests/
 
 lint:
 	flake8 ${LINT_PATHS} --count --select=E9,F63,F7,F82 --show-source --statistics

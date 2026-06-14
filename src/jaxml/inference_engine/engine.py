@@ -88,6 +88,19 @@ class Engine:
         leaves = jax.tree.leaves(tree)
         return str((jax.tree.structure(tree), tuple(_leaf_signature(x) for x in leaves)))
 
+    @staticmethod
+    def _platform_signature(tree: Any) -> str:
+        platforms = set()
+        for leaf in jax.tree.leaves(tree):
+            device = getattr(leaf, "device", None)
+            if device is not None:
+                platforms.add(getattr(device, "platform", str(device)))
+            for shard in getattr(leaf, "addressable_shards", ()):
+                platforms.add(shard.device.platform)
+        if not platforms:
+            platforms.add(jax.default_backend())
+        return str((jax.default_backend(), tuple(sorted(platforms))))
+
     @timeit(logger)
     def init_params(self, weights: Optional[FrozenDict] = None, use_tpu: bool = False, reinit_weight: bool = False):
         """
@@ -139,7 +152,7 @@ class Engine:
             params_fn = jax.jit(
                 self.model.init,
                 in_shardings=(
-                    self.mesh_sharding(PartitionSpec(None, None), mesh),
+                    self.mesh_sharding(PartitionSpec(), mesh),
                     input_sharding,
                 ),  # PRNG key and x
                 out_shardings=logical_state_sharding,
@@ -236,7 +249,7 @@ class Engine:
 
         sampling_method = SamplingMethod.from_values(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
         logger.info(
-            "Given the parameters top_k=%.2f, top_p=%.2f, min_p=%.2f, temperature=%.2f, " \
+            "Given the parameters top_k=%.2f, top_p=%.2f, min_p=%.2f, temperature=%.2f, "
             "the sampling method is determined as follows: %s.",
             top_k,
             top_p,
@@ -265,6 +278,7 @@ class Engine:
         kv_caches = self.init_cache(max_seq_len=initial_buffer_len)
         cache_len = initial_buffer_len
         params_signature = self._pytree_signature(self.params)
+        platform_signature = self._platform_signature((self.params, prompt_tokens))
         while generated_count < max_new_tokens:
             # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of self.cache_stride.
             # `new_token_count` is bounded by both the remaining request and the available cache capacity.
@@ -280,6 +294,7 @@ class Engine:
                 str(self.model),
                 str(self.config),
                 params_signature,
+                platform_signature,
                 str(next_input_tokens.shape),
                 str(sampling_method),
                 str(top_k),
