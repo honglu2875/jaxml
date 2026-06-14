@@ -22,6 +22,15 @@ def _init_with_ones(axis_name: str):
     return nn.with_logical_partitioning(lambda _, shape, dtype: jnp.ones(shape, dtype=dtype), (axis_name,))
 
 
+def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: int):
+    if hidden_states.ndim == 0:
+        raise ValueError(f"{module_name} input must have at least one dimension.")
+    if hidden_states.shape[-1] != hidden_size:
+        raise ValueError(
+            f"{module_name} hidden dimension mismatch: got {hidden_states.shape[-1]} and expected {hidden_size}."
+        )
+
+
 class RMSNorm(nn.Module):
     hidden_size: int
     eps: float = 1e-6
@@ -42,6 +51,7 @@ class RMSNorm(nn.Module):
         )
 
     def __call__(self, hidden_states):
+        _validate_hidden_states_shape("RMSNorm", hidden_states, self.hidden_size)
         input_dtype = hidden_states.dtype
         if self.upcast:
             hidden_states = hidden_states.astype(jnp.float32)
@@ -79,6 +89,7 @@ class LayerNorm(nn.Module):
             )
 
     def __call__(self, hidden_states):
+        _validate_hidden_states_shape("LayerNorm", hidden_states, self.hidden_size)
         input_dtype = hidden_states.dtype
         if self.upcast:
             hidden_states = hidden_states.astype(jnp.float32)

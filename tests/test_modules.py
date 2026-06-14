@@ -23,7 +23,7 @@ from jaxml.models.gemma3 import GemmaMLP, GemmaRMSNorm
 from jaxml.models.gpt_neox import GPTNeoXMLP
 from jaxml.models.llama import LlamaMLP
 from jaxml.nn.linear import DenseGeneral
-from jaxml.nn.norms import LayerNorm
+from jaxml.nn.norms import LayerNorm, RMSNorm
 from jaxml.utils import torch_to_jax_states
 
 
@@ -51,6 +51,24 @@ def test_gemma_rms_norm_rejects_disabled_upcast():
     x = jnp.ones((1, 2, 4), dtype=jnp.float32)
 
     with pytest.raises(ValueError, match="upcast=True"):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
+def test_norms_reject_hidden_size_mismatch(norm_cls):
+    norm = norm_cls(hidden_size=4)
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="hidden dimension mismatch"):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
+def test_norms_reject_scalar_inputs(norm_cls):
+    norm = norm_cls(hidden_size=4)
+    x = jnp.array(1.0, dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="at least one dimension"):
         norm.init(jax.random.PRNGKey(0), x)
 
 
