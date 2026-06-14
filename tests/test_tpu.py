@@ -22,7 +22,7 @@ def _tpu_devices():
 def test_tpu_backend_smoke():
     devices = _tpu_devices()
     x = jax.device_put(jnp.arange(8, dtype=jnp.float32), devices[0])
-    y = jax.jit(lambda z: (z * z).sum(), device=devices[0])(x)
+    y = jax.jit(lambda z: (z * z).sum())(x)
 
     assert y == 140.0
     assert y.device.platform == "tpu"
