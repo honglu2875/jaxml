@@ -231,8 +231,9 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     return len(aot_fn) + len(io_spec_bytes)
 
 
-def compiled_fn_path(name: str, hash: str = "0") -> Path:
-    return Path(os.environ.get(JAXML_CACHE_DIR_ENV, ".jaxml")) / f"{name}_{hash}"
+def compiled_fn_path(name: str, hash: str = "0", cache_dir: str | Path | None = None) -> Path:
+    cache_root = Path(cache_dir) if cache_dir is not None else Path(os.environ.get(JAXML_CACHE_DIR_ENV, ".jaxml"))
+    return cache_root / f"{name}_{hash}"
 
 
 def compiled_fn_exist(name: str, hash: str = "0"):
@@ -240,12 +241,11 @@ def compiled_fn_exist(name: str, hash: str = "0"):
     return (path / "aot").is_file() and (path / "in_out_spec").is_file()
 
 
-@timeit(logger)
 @functools.lru_cache()
-def load_compiled_fn(name: str, hash=0):
+def _load_compiled_fn_from_path(path: str):
     from jax.experimental.serialize_executable import deserialize_and_load
 
-    path = compiled_fn_path(name, hash)
+    path = Path(path)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     if not fn_path.exists() or not spec_path.exists():
@@ -261,6 +261,11 @@ def load_compiled_fn(name: str, hash=0):
         out_tree,
     )
     return compiled_fn
+
+
+@timeit(logger)
+def load_compiled_fn(name: str, hash=0):
+    return _load_compiled_fn_from_path(str(compiled_fn_path(name, hash)))
 
 
 def load_if_exists(name: str, hash: str, log: bool = True):
