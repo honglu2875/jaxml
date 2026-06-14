@@ -22,6 +22,7 @@ from jaxml.config import ModelConfig
 from jaxml.models.gemma3 import GemmaMLP, GemmaRMSNorm
 from jaxml.models.gpt_neox import GPTNeoXMLP
 from jaxml.models.llama import LlamaMLP
+from jaxml.nn.linear import DenseGeneral
 from jaxml.utils import torch_to_jax_states
 
 
@@ -50,6 +51,41 @@ def test_gemma_rms_norm_rejects_disabled_upcast():
 
     with pytest.raises(ValueError, match="upcast=True"):
         norm.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize(
+    "axis,exception,match",
+    [
+        ((-1, -1), ValueError, "unique"),
+        (3, ValueError, "out of bounds"),
+        (1.5, TypeError, "integers"),
+        (True, TypeError, "integers"),
+    ],
+)
+def test_dense_general_rejects_invalid_axes(axis, exception, match):
+    dense = DenseGeneral(
+        features=4,
+        axis=axis,
+        kernel_axes=("embed", "features"),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(exception, match=match):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_accepts_numpy_integer_axis():
+    dense = DenseGeneral(
+        features=4,
+        axis=np.int64(-1),
+        kernel_axes=("embed", "features"),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.shape == (1, 2, 4)
 
 
 @pytest.mark.parametrize("name", ["dense", "rms_norm", "layer_norm"])

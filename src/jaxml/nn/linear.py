@@ -20,6 +20,7 @@
 #
 
 from dataclasses import field
+import operator
 from typing import Any, Callable, Iterable, Tuple, Union
 
 import flax.linen as nn
@@ -32,7 +33,21 @@ from .module import Module
 
 def _normalize_axes(axes: Iterable[int], ndim: int) -> Tuple[int, ...]:
     # A tuple by convention. len(axes_tuple) then also gives the rank efficiently.
-    return tuple(ax if ax >= 0 else ndim + ax for ax in axes)
+    normalized = []
+    for ax in axes:
+        if isinstance(ax, bool):
+            raise TypeError(f"axis values must be integers, got {type(ax)}.")
+        try:
+            ax = operator.index(ax)
+        except TypeError as e:
+            raise TypeError(f"axis values must be integers, got {type(ax)}.") from e
+        ax = ax if ax >= 0 else ndim + ax
+        if ax < 0 or ax >= ndim:
+            raise ValueError(f"axis {ax} is out of bounds for input rank {ndim}.")
+        normalized.append(ax)
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"axis values must be unique, got {tuple(normalized)}.")
+    return tuple(normalized)
 
 
 def _canonicalize_tuple(x):
