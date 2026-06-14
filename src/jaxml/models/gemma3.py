@@ -120,7 +120,8 @@ class GemmaDecoder(Block):
         )
 
     def setup(self):
-        assert self.config.use_rope, "Gemma3 uses RoPE."
+        if not self.config.use_rope:
+            raise ValueError("Gemma3 decoder requires use_rope=True.")
         self.self_attn = AttentionWithRoPE(
             self.config,
             dtype=self.dtype,

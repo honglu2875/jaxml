@@ -4,9 +4,31 @@ import numpy as np
 import pytest
 import torch
 
+from jaxml.config import ModelConfig
 from jaxml.hf_utils import to_gemma_jax_params
 from jaxml.inference_engine.engine import Engine, InferenceConfig
+from jaxml.models.gemma3 import GemmaDecoder
 from jaxml.utils import torch_to_jax_states
+
+
+def test_gemma_decoder_rejects_disabled_rope():
+    config = ModelConfig(
+        hidden_size=64,
+        head_dim=8,
+        num_heads=4,
+        num_layers=1,
+        intermediate_ratio=(2, 1),
+        max_position_embeddings=16,
+        vocab_size=128,
+        num_kv_heads=2,
+        attn_scale=8**-0.5,
+        use_rope=False,
+    )
+    decoder = GemmaDecoder(config=config, dtype=jnp.float32)
+    hidden_states = jnp.ones((1, 2, config.hidden_size), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="use_rope=True"):
+        decoder.init(jax.random.PRNGKey(0), hidden_states)
 
 
 @pytest.mark.parametrize("sliding", (True, False))
