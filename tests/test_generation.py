@@ -57,6 +57,24 @@ def test_engine_generate_rejects_negative_max_new_tokens(llama_model_with_head):
             engine.generate(input_ids, max_new_tokens=-1)
 
 
+def test_engine_init_params_rejects_non_dict_weights(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(TypeError, match="weights must be a dict"):
+            engine.init_params(weights=("params", {}), use_tpu=False)
+
+
+def test_engine_init_params_rejects_weights_without_params(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(ValueError, match="'params'"):
+            engine.init_params(weights={"cache": {}}, use_tpu=False)
+
+
 def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_model_with_head):
     calls = []
 

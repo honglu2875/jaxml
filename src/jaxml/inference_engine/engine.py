@@ -193,9 +193,11 @@ class Engine:
                 # Init weights on CPU first
                 weights: FrozenVariableDict | dict = self.model.init(key, dummy_input)
 
-        # Can assume weight is not None from now, and the goal is only to shard it
-        assert isinstance(weights, dict), f"weights must be a dict, got {type(weights)}"
-        assert "params" in weights, f"The key params not found in 'weights'. Got {weights.keys()}"
+        # Can assume weights is not None from now, and the goal is only to shard it.
+        if not isinstance(weights, dict):
+            raise TypeError(f"weights must be a dict, got {type(weights)}.")
+        if "params" not in weights:
+            raise ValueError(f"The key 'params' was not found in weights. Got keys: {weights.keys()}.")
         if not is_single_device:
             params = FrozenDict(
                 {
