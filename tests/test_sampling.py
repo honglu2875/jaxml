@@ -71,6 +71,24 @@ def test_top_p_filtering_uses_sorted_cutoff_per_batch_row():
     )
 
 
+def test_top_p_filtering_is_noop_at_or_above_one():
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+
+    filtered = top_p_filtering(rng, logits, 0, 1.5, 0.0, 1.0)
+
+    assert np.array_equal(np.array(filtered), np.array(logits))
+
+
+def test_top_p_filtering_keeps_max_logits_at_zero():
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 5.0, 5.0, 2.0]]])
+
+    filtered = top_p_filtering(rng, logits, 0, 0.0, 0.0, 1.0)
+
+    assert np.array_equal(_is_kept(filtered), np.array([[[False, True, True, False]]]))
+
+
 def test_min_p_filtering_falls_back_per_batch_row_when_no_token_qualifies():
     rng = jax.random.PRNGKey(0)
     logits = jnp.array(

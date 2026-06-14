@@ -20,6 +20,12 @@ def top_k_filtering(rng, logits, top_k, *args):
 
 
 def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
+    if top_p >= 1.0:
+        return logits
+    if top_p <= 0.0:
+        max_logit = jnp.max(logits, axis=-1, keepdims=True)
+        return jnp.where(logits >= max_logit, logits, NEG_INF)
+
     sorted_logits = -jnp.sort(-logits, axis=-1)
     cumulative_probs = jnp.cumsum(jax.nn.softmax(sorted_logits, axis=-1), axis=-1)
 
