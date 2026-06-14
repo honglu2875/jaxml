@@ -40,6 +40,8 @@ class KVCache(struct.PyTreeNode):
         mask: Optional[jnp.ndarray] = None,
         dtype: Any = jnp.float32,
     ):
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
         return cls(
             k=k,
             v=v,
@@ -62,10 +64,23 @@ class KVCache(struct.PyTreeNode):
         shape = (x.shape[0], max_seq_len - x.shape[1]) + x.shape[2:]
         return jnp.concatenate([x, jnp.full(shape, value, dtype=x.dtype)], axis=1)
 
+    def _validate_kv_inputs(self, k: jnp.ndarray, v: jnp.ndarray):
+        if k.shape != v.shape:
+            raise ValueError(f"k and v must have the same shape, got {k.shape} and {v.shape}.")
+        if k.ndim < 2:
+            raise ValueError(f"k and v must have at least batch and sequence axes, got shape {k.shape}.")
+
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
+        self._validate_kv_inputs(k, v)
         if self.k is None:
-            assert self.v is None
-            assert self.mask is None
+            if self.v is not None or self.mask is not None:
+                raise ValueError("KVCache has partial state: k is empty but v or mask is populated.")
+            if k.shape[1] > self.max_seq_len:
+                raise ValueError(f"Cannot cache {k.shape[1]} tokens in max_seq_len={self.max_seq_len}.")
+            if mask is None:
+                mask = jnp.ones(k.shape[:2], dtype=bool)
+            if mask.shape != k.shape[:2]:
+                raise ValueError(f"mask shape must match k/v batch and sequence axes, got {mask.shape} and {k.shape[:2]}.")
             pos_id = get_default_pos_ids(mask)
             max_seq_len = self.max_seq_len
             k, v, mask = map(
@@ -74,13 +89,19 @@ class KVCache(struct.PyTreeNode):
             )
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
 
-        assert self.v is not None and self.mask is not None
-        assert k.shape[1] == v.shape[1] == 1
+        if self.v is None or self.mask is None or self.pos_id is None:
+            raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
+        if k.shape[0] != self.k.shape[0]:
+            raise ValueError(f"Batch size must match cached batch size, got {k.shape[0]} and {self.k.shape[0]}.")
+        if k.shape[1] != 1:
+            raise ValueError(f"Decode cache updates must contain exactly one token, got sequence length {k.shape[1]}.")
+        if k.shape[2:] != self.k.shape[2:]:
+            raise ValueError(f"k/v trailing shape must match cached shape, got {k.shape[2:]} and {self.k.shape[2:]}.")
         batch_idx = jnp.arange(k.shape[0])[:, None]
         full_idx = jnp.concatenate([batch_idx, self.next_pos_id], axis=1)
         new_k = self.k.at[tuple(full_idx.T)].set(k.squeeze(1))
         new_v = self.v.at[tuple(full_idx.T)].set(v.squeeze(1))
-        new_mask = self.mask.at[tuple(full_idx.T)].set(1)
+        new_mask = self.mask.at[tuple(full_idx.T)].set(True)
 
         return self.replace(k=new_k, v=new_v, mask=new_mask, pos_id=self.next_pos_id)
 
@@ -89,8 +110,11 @@ class KVCache(struct.PyTreeNode):
             raise ValueError("n must be greater than 0.")
         if self.k is None or self.v is None:
             return self
-        assert self.pos_id is not None
+        if self.pos_id is None:
+            raise ValueError("Cannot roll back a cache without position ids.")
         prev_pos = self.pos_id - n
+        if bool(jnp.any(prev_pos < 0)):
+            raise ValueError("Cannot roll back past the beginning of the KV cache.")
         filter_mask = jnp.arange(self.k.shape[1]) <= prev_pos
         new_k = jnp.where(filter_mask[..., None, None], self.k, 0)
         new_v = jnp.where(filter_mask[..., None, None], self.v, 0)
@@ -98,6 +122,14 @@ class KVCache(struct.PyTreeNode):
         return self.replace(k=new_k, v=new_v, mask=filter_mask, pos_id=prev_pos)
 
     def resize(self, new_size: int):
+        if new_size <= 0:
+            raise ValueError(f"new_size must be positive, got {new_size}.")
+        if self.k is None:
+            return self.replace(max_seq_len=new_size)
+        if self.v is None or self.mask is None or self.pos_id is None:
+            raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
+        if bool(jnp.any(self.pos_id >= new_size)):
+            raise ValueError("Cannot resize KV cache below the highest cached position.")
         if new_size > self.max_seq_len:
             new_k, new_v, new_mask = map(
                 self._pad,
@@ -105,7 +137,6 @@ class KVCache(struct.PyTreeNode):
             )
             return self.replace(k=new_k, v=new_v, mask=new_mask, max_seq_len=new_size)
         else:
-            assert self.k is not None and self.v is not None and self.mask is not None
             return self.replace(
                 k=self.k[:, :new_size],
                 v=self.v[:, :new_size],
