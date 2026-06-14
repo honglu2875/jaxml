@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import pytest
 
 from jaxml._generate import generate
 
@@ -60,3 +61,28 @@ def test_prefill_rng_is_dynamic_when_compiled_function_is_reused(monkeypatch):
     assert first.tokens.shape == (1, 1)
     assert second.tokens.shape == (1, 1)
     assert first.tokens[0, 0] != second.tokens[0, 0]
+
+
+@pytest.mark.parametrize(
+    "prompt_tokens,max_new_tokens,match",
+    [
+        (jnp.ones((1, 2, 3), dtype=jnp.int32), 1, "1D or 2D"),
+        (jnp.ones((1, 0), dtype=jnp.int32), 1, "at least one token"),
+        (jnp.ones((1, 1), dtype=jnp.int32), -1, "max_new_tokens"),
+    ],
+)
+def test_generate_rejects_invalid_inputs_before_prefill(prompt_tokens, max_new_tokens, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    with pytest.raises(ValueError, match=match):
+        generate(
+            {},
+            eval_fn,
+            prompt_tokens,
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-input",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=max_new_tokens,
+        )

@@ -109,6 +109,12 @@ def generate(
     prompt_tokens = jnp.array(prompt_tokens)
     if prompt_tokens.ndim == 1:
         prompt_tokens = prompt_tokens[None]
+    elif prompt_tokens.ndim != 2:
+        raise ValueError(f"prompt_tokens must be a 1D or 2D array, got shape {prompt_tokens.shape}.")
+    if prompt_tokens.shape[1] == 0:
+        raise ValueError("prompt_tokens must contain at least one token.")
+    if max_new_tokens < 0:
+        raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
 
     rng = jax.random.PRNGKey(seed)
 
@@ -143,8 +149,6 @@ def generate(
         first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature)
 
     decode_steps = max_new_tokens if skip_prefill else max_new_tokens - 1
-    if decode_steps < 0:
-        raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
 
     if fuse_decoding:
         loop_fn = functools.partial(_loop_fn, **loop_fn_params)
