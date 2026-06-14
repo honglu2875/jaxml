@@ -73,11 +73,11 @@ class Engine:
         return NamedSharding(mesh, pspec)
 
     def _shard_params(self, x: Any, y: PartitionSpec):
-        assert hasattr(y, "spec")
+        if not hasattr(y, "spec"):
+            raise TypeError(f"Expected sharding object with a spec attribute, got {type(y)}.")
         if x.ndim != len(y.spec):
-            assert (
-                x.ndim == 2 and len(y.spec) == 3
-            ), f"The shape of x ({x.shape}) and the sharding spec ({y.spec}) does not match"
+            if not (x.ndim == 2 and len(y.spec) == 3):
+                raise ValueError(f"The shape of x ({x.shape}) and the sharding spec ({y.spec}) does not match.")
             warnings.warn(
                 f"The parameter has 2 axis ({x.shape}) while the sharding spec ({y.spec}) has 3 axis. "
                 "Attempting to reshape into [:, :, head_dim], but please confirm that this is the intended behavior."

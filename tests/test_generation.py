@@ -7,6 +7,11 @@ from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.outputs import GenerationOutput
 
 
+class FakeSharding:
+    def __init__(self, spec):
+        self.spec = spec
+
+
 @pytest.mark.parametrize(
     "max_new_tokens,include_prompt,cache_stride,fuse_decoding,expected_length",
     [
@@ -73,6 +78,22 @@ def test_engine_init_params_rejects_weights_without_params(llama_model_with_head
 
         with pytest.raises(ValueError, match="'params'"):
             engine.init_params(weights={"cache": {}}, use_tpu=False)
+
+
+def test_engine_shard_params_rejects_object_without_spec(llama_model_with_head):
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(TypeError, match="spec attribute"):
+        engine._shard_params(jnp.ones((2, 3)), object())
+
+
+def test_engine_shard_params_rejects_incompatible_spec_rank(llama_model_with_head):
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(ValueError, match="does not match"):
+        engine._shard_params(jnp.ones((2, 3, 4)), FakeSharding((None, None)))
 
 
 def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_model_with_head):
