@@ -50,6 +50,21 @@ def _normalize_axes(axes: Iterable[int], ndim: int) -> Tuple[int, ...]:
     return tuple(normalized)
 
 
+def _normalize_shape_dims(name: str, values: Iterable[int]) -> Tuple[int, ...]:
+    normalized = []
+    for value in values:
+        if isinstance(value, bool):
+            raise TypeError(f"{name} values must be integers, got {type(value)}.")
+        try:
+            value = operator.index(value)
+        except TypeError as e:
+            raise TypeError(f"{name} values must be integers, got {type(value)}.") from e
+        if value <= 0:
+            raise ValueError(f"{name} values must be positive, got {value}.")
+        normalized.append(value)
+    return tuple(normalized)
+
+
 def _canonicalize_tuple(x):
     if isinstance(x, Iterable):
         return tuple(x)
@@ -101,7 +116,7 @@ class DenseGeneral(Module):
             dot_general = lax.dot_general
             return dot_general(inputs, kernel, ((axis, contract_ind), ((), ())), precision=self.precision)
 
-        features = _canonicalize_tuple(self.features)
+        features = _normalize_shape_dims("features", _canonicalize_tuple(self.features))
         axis = _canonicalize_tuple(self.axis)
 
         inputs = jnp.asarray(inputs, self.dtype)

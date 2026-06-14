@@ -138,6 +138,43 @@ def test_dense_general_accepts_numpy_integer_axis():
     assert y.shape == (1, 2, 4)
 
 
+@pytest.mark.parametrize(
+    "features,exception,match",
+    [
+        (True, TypeError, "features values must be integers"),
+        (1.5, TypeError, "features values must be integers"),
+        (0, ValueError, "features values must be positive"),
+        ((4, True), TypeError, "features values must be integers"),
+        ((4, 1.5), TypeError, "features values must be integers"),
+        ((4, 0), ValueError, "features values must be positive"),
+    ],
+)
+def test_dense_general_rejects_invalid_features(features, exception, match):
+    dense = DenseGeneral(
+        features=features,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(exception, match=match):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_accepts_numpy_integer_features():
+    dense = DenseGeneral(
+        features=(np.int64(4), np.int64(2)),
+        axis=-1,
+        kernel_axes=("embed", "features_a", "features_b"),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.shape == (1, 2, 4, 2)
+
+
 def test_layer_norm_without_bias_matches_zero_bias_torch_layer_norm():
     jax_norm = LayerNorm(hidden_size=4, use_bias=False, dtype=jnp.float32)
     torch_norm = torch.nn.LayerNorm(4, eps=1e-6, elementwise_affine=True)
