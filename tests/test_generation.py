@@ -112,3 +112,25 @@ def test_engine_rejects_non_positive_cache_stride(llama_model_with_head):
 
     with pytest.raises(ValueError, match="cache_stride"):
         Engine(model, InferenceConfig(), params, cache_stride=0)
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"tp_size": 0}, "tp_size"),
+        ({"tp_size": -1}, "tp_size"),
+        ({"dp_size": 0}, "dp_size"),
+        ({"dp_size": -1}, "dp_size"),
+    ],
+)
+def test_inference_config_rejects_non_positive_mesh_sizes(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        InferenceConfig(**kwargs)
+
+
+def test_engine_rejects_mesh_larger_than_available_devices(llama_model_with_head):
+    model, params = llama_model_with_head
+    config = InferenceConfig(tp_size=jax.device_count() + 1)
+
+    with pytest.raises(ValueError, match="requires .* devices"):
+        Engine(model, config, params)

@@ -26,6 +26,12 @@ class InferenceConfig:
     tp_size: int = 1
     dp_size: int = 1
 
+    def __post_init__(self):
+        if self.tp_size <= 0:
+            raise ValueError(f"tp_size must be positive, got {self.tp_size}.")
+        if self.dp_size <= 0:
+            raise ValueError(f"dp_size must be positive, got {self.dp_size}.")
+
 
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
@@ -40,8 +46,14 @@ class Engine:
     ):
         if cache_stride <= 0:
             raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
+        required_devices = config.tp_size * config.dp_size
+        available_devices = jax.device_count()
+        if required_devices > available_devices:
+            raise ValueError(
+                f"InferenceConfig requires {required_devices} devices "
+                f"(tp_size={config.tp_size}, dp_size={config.dp_size}), but only {available_devices} are available."
+            )
         self.model = model
-        assert config.tp_size * config.dp_size <= jax.device_count()
         self.config = config
         self.params = params
         self.dtype = dtype
