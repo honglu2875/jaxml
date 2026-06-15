@@ -343,6 +343,50 @@ def test_engine_prepare_input_rejects_batch_not_divisible_by_dp_size(monkeypatch
     assert calls == []
 
 
+def test_engine_prepare_input_rejects_empty_pytree_before_device_put(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_device_put(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("device_put should not be called for an empty input pytree.")
+
+    monkeypatch.setattr(jax, "device_put", fake_device_put)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(ValueError, match="at least one array leaf"):
+        engine.prepare_input({})
+
+    assert calls == []
+
+
+def test_engine_prepare_input_rejects_mismatched_leaf_batch_sizes_before_device_put(
+    monkeypatch,
+    llama_model_with_head,
+):
+    calls = []
+
+    def fake_device_put(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("device_put should not be called for mismatched batch sizes.")
+
+    monkeypatch.setattr(jax, "device_put", fake_device_put)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(ValueError, match="same batch size"):
+        engine.prepare_input(
+            {
+                "input_ids": np.ones((2, 3), dtype=np.int32),
+                "attention_mask": np.ones((1, 3), dtype=np.int32),
+            }
+        )
+
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     "inputs,exception,match",
     [

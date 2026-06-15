@@ -321,6 +321,13 @@ class Engine:
             return x
 
         inputs = jax.tree.map(_prepare_leaf, inputs)
+        leaves = jax.tree.leaves(inputs)
+        if not leaves:
+            raise ValueError("prepare_input inputs must contain at least one array leaf.")
+        batch_size = leaves[0].shape[0]
+        for leaf in leaves[1:]:
+            if leaf.shape[0] != batch_size:
+                raise ValueError(f"prepare_input leaves must share the same batch size, got {batch_size} and {leaf.shape[0]}.")
 
         mesh = self._create_configured_mesh()
         inputs = jax.device_put(inputs, self.mesh_sharding(PartitionSpec("data", None), mesh))
