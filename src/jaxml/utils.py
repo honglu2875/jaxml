@@ -374,6 +374,9 @@ def _is_stale_compiled_fn_error(error: TypeError) -> bool:
 
 
 def load_if_exists(name: str, hash: str, log: bool = True):
+    name = _validate_cache_key_part(name, "name")
+    hash = _validate_cache_key_part(hash, "hash")
+
     def _decorator(fn: Callable):
         @functools.wraps(fn)
         def _wrapped_fn(*args, **kwargs):

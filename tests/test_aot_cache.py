@@ -53,6 +53,11 @@ def test_compiled_fn_path_rejects_unsafe_key_parts(tmp_path, name, hash):
         compiled_fn_path(name, hash, cache_dir=tmp_path)
 
 
+def test_load_if_exists_rejects_unsafe_key_parts_before_wrapping():
+    with pytest.raises(ValueError, match="AOT cache"):
+        load_if_exists("../decode", "abc", log=False)
+
+
 def test_compiled_fn_exist_requires_payload_files(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     cache_entry = compiled_fn_path("decode", "abc")
