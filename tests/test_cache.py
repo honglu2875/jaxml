@@ -127,6 +127,18 @@ def test_kv_cache_update_rejects_float_initial_mask():
         KVCache.init(4).update(k, v, mask=mask)
 
 
+@pytest.mark.parametrize(
+    "k,v",
+    [
+        (jnp.ones((2, 1), dtype=jnp.float32), jnp.ones((2, 1), dtype=jnp.float32)),
+        (jnp.ones((2, 1, 2), dtype=jnp.float32), jnp.ones((2, 1, 2), dtype=jnp.float32)),
+    ],
+)
+def test_kv_cache_update_rejects_non_4d_key_values(k, v):
+    with pytest.raises(ValueError, match="4D arrays"):
+        KVCache.init(4).update(k, v, mask=None)
+
+
 def test_kv_cache_next_pos_id_rejects_uninitialized_cache():
     with pytest.raises(ValueError, match="before KV cache initialization"):
         _ = KVCache.init(4).next_pos_id

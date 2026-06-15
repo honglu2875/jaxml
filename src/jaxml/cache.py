@@ -99,8 +99,8 @@ class KVCache(struct.PyTreeNode):
     def _validate_kv_inputs(self, k: jnp.ndarray, v: jnp.ndarray):
         if k.shape != v.shape:
             raise ValueError(f"k and v must have the same shape, got {k.shape} and {v.shape}.")
-        if k.ndim < 2:
-            raise ValueError(f"k and v must have at least batch and sequence axes, got shape {k.shape}.")
+        if k.ndim != 4:
+            raise ValueError(f"k and v must be 4D arrays with batch, sequence, head, and head_dim axes, got shape {k.shape}.")
         if not jnp.issubdtype(k.dtype, jnp.floating):
             raise TypeError(f"k must contain floating point values, got dtype {k.dtype}.")
         if not jnp.issubdtype(v.dtype, jnp.floating):
