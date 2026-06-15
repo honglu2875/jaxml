@@ -385,15 +385,18 @@ def _load_compiled_fn_from_path(path: str):
     if not fn_path.exists() or not spec_path.exists():
         raise ValueError(f"Cannot find files from the folder {path}")
 
-    with fn_path.open("rb") as f:
-        aot_fn = f.read()
-    with spec_path.open("rb") as f:
-        in_tree, out_tree = pickle.load(f)
-    compiled_fn = deserialize_and_load(
-        aot_fn,
-        in_tree,
-        out_tree,
-    )
+    try:
+        with fn_path.open("rb") as f:
+            aot_fn = f.read()
+        with spec_path.open("rb") as f:
+            in_tree, out_tree = pickle.load(f)
+        compiled_fn = deserialize_and_load(
+            aot_fn,
+            in_tree,
+            out_tree,
+        )
+    except Exception as e:
+        raise ValueError(f"Failed to load AOT cache entry from {path}.") from e
     return compiled_fn
 
 

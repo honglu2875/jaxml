@@ -216,6 +216,41 @@ def test_load_compiled_fn_cache_key_resolves_relative_paths(monkeypatch, tmp_pat
     assert second == (b"second-payload", "in-tree", "out-tree")
 
 
+def test_load_compiled_fn_wraps_corrupt_spec_payload(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    _load_compiled_fn_from_path.cache_clear()
+    cache_entry = compiled_fn_path("decode", "abc")
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(b"compiled")
+    (cache_entry / "in_out_spec").write_bytes(b"not-a-pickle")
+
+    with pytest.raises(ValueError, match="Failed to load AOT cache entry") as exc_info:
+        load_compiled_fn("decode", "abc", log=False)
+
+    assert str(cache_entry.resolve()) in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, pickle.UnpicklingError)
+
+
+def test_load_compiled_fn_wraps_deserializer_failures(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(
+        "jax.experimental.serialize_executable.deserialize_and_load",
+        lambda payload, in_tree, out_tree: (_ for _ in ()).throw(RuntimeError("bad executable")),
+    )
+    _load_compiled_fn_from_path.cache_clear()
+    cache_entry = compiled_fn_path("decode", "abc")
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(b"compiled")
+    with (cache_entry / "in_out_spec").open("wb") as f:
+        pickle.dump(("in-tree", "out-tree"), f)
+
+    with pytest.raises(ValueError, match="Failed to load AOT cache entry") as exc_info:
+        load_compiled_fn("decode", "abc", log=False)
+
+    assert str(cache_entry.resolve()) in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+
 class FakeJit:
     def __init__(self, fn, compiled_fn):
         self.fn = fn
