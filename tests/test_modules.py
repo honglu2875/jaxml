@@ -237,6 +237,22 @@ def test_embed_accepts_traced_input_ids(one_hot):
     assert y.shape == (2, 4)
 
 
+@pytest.mark.parametrize("one_hot", [False, True])
+def test_embed_masks_out_of_range_traced_input_ids(one_hot):
+    embed = Embed(num_embeddings=8, features=4, one_hot=one_hot)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+    params = embed.init(jax.random.PRNGKey(0), x)
+
+    @jax.jit
+    def apply(inputs):
+        return embed.apply(params, inputs)
+
+    y = apply(jnp.array([0, -1, 8], dtype=jnp.int32))
+
+    assert np.allclose(y[0], embed.apply(params, jnp.array([0], dtype=jnp.int32))[0])
+    assert np.array_equal(np.array(y[1:]), np.zeros((2, 4), dtype=np.float32))
+
+
 @pytest.mark.parametrize(
     "axis,exception,match",
     [

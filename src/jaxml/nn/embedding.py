@@ -92,7 +92,9 @@ class Embed(Module):
 
         if not jnp.issubdtype(inputs.dtype, jnp.integer):
             raise ValueError("Input type must be an integer or unsigned integer.")
-        if not _contains_tracer(inputs):
+        inputs_are_traced = _contains_tracer(inputs)
+        valid_inputs = (inputs >= 0) & (inputs < num_embeddings)
+        if not inputs_are_traced:
             if bool(jnp.any(inputs < 0)):
                 raise ValueError("Input token ids must be non-negative.")
             if bool(jnp.any(inputs >= num_embeddings)):
@@ -102,5 +104,8 @@ class Embed(Module):
             one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=dtype)
             output = jnp.dot(one_hot, jnp.asarray(embedding, dtype))
         else:
-            output = jnp.asarray(embedding, dtype)[inputs]
+            safe_inputs = jnp.where(valid_inputs, inputs, 0)
+            output = jnp.asarray(embedding, dtype)[safe_inputs]
+            if inputs_are_traced:
+                output = jnp.where(valid_inputs[..., None], output, 0)
         return output
