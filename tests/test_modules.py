@@ -327,6 +327,25 @@ def test_dense_general_rejects_non_floating_inputs():
         dense.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize(
+    "x",
+    [
+        jnp.ones((0, 2, 3), dtype=jnp.float32),
+        jnp.ones((1, 0, 3), dtype=jnp.float32),
+        jnp.ones((1, 2, 0), dtype=jnp.float32),
+    ],
+)
+def test_dense_general_rejects_empty_input_axes(x):
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+    )
+
+    with pytest.raises(ValueError, match="empty axes"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
 def test_dense_general_rejects_non_boolean_with_logical_partitioning():
     dense = DenseGeneral(
         features=4,

@@ -139,6 +139,8 @@ class DenseGeneral(Module):
         inputs = jnp.asarray(inputs)
         if not jnp.issubdtype(inputs.dtype, jnp.floating):
             raise TypeError(f"DenseGeneral inputs must contain floating point values, got dtype {inputs.dtype}.")
+        if inputs.size == 0:
+            raise ValueError(f"DenseGeneral inputs must not contain empty axes, got shape {inputs.shape}.")
         inputs = inputs.astype(dtype)
         axis = _normalize_axes(axis, inputs.ndim)
         use_bias = _normalize_bool("use_bias", self.use_bias)
