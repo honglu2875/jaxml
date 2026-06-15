@@ -23,6 +23,19 @@ def test_slice_last_n_logits_hidden_states_rejects_non_floating_hidden_states():
 
 
 @pytest.mark.parametrize(
+    "hidden_states",
+    [
+        jnp.ones((0, 4, 8), dtype=jnp.float32),
+        jnp.ones((1, 0, 8), dtype=jnp.float32),
+        jnp.ones((1, 4, 0), dtype=jnp.float32),
+    ],
+)
+def test_slice_last_n_logits_hidden_states_rejects_empty_axes(hidden_states):
+    with pytest.raises(ValueError, match="empty axes"):
+        slice_last_n_logits_hidden_states(hidden_states, keep_last_n_logits=1)
+
+
+@pytest.mark.parametrize(
     "fixture_name",
     ["llama_model_with_head", "neox_model_with_head", "gemma_model_with_head"],
 )
