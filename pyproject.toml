@@ -13,7 +13,7 @@ version = "0.0.0"
 dependencies = [
     "jax==0.8.3",
     "jaxlib==0.8.3",
-    "flax==0.10.7",
+    "flax==0.12.6",
     "jax-tqdm==0.4.0",
 ]
 
