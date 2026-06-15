@@ -53,6 +53,8 @@ class GenerationConfig:
         top_k = _normalize_count("top_k", self.top_k)
         if max_new_tokens < 0:
             raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
+        if top_k < 0:
+            raise ValueError(f"top_k must be non-negative, got {top_k}.")
 
         object.__setattr__(self, "seed", seed)
         object.__setattr__(self, "max_new_tokens", max_new_tokens)
