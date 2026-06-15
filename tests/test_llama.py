@@ -64,7 +64,6 @@ def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin_factory):
                 output_attentions=True,
             )
 
-        print(decoder.config)
         if isinstance(y2, tuple):
             hf_hidden_states = y2[0]
             hf_attention_weight = y2[1] if len(y2) > 1 else None
@@ -72,7 +71,6 @@ def test_llama_decoder(llama_decoder, hf_llama_decoder, cos_sin_factory):
             hf_hidden_states = y2
             hf_attention_weight = None
 
-        print(y.hidden_states - hf_hidden_states.numpy())
         assert np.allclose(y.hidden_states, hf_hidden_states.numpy(), atol=1e-5)
         if hf_attention_weight is not None:
             assert np.allclose(y.attention_weight, hf_attention_weight.numpy(), atol=1e-5)
@@ -93,7 +91,6 @@ def test_llama_model(llama_model, hf_llama_model):
                 output_hidden_states=True,
             )
 
-        print(y.last_hidden_state - y2.last_hidden_state.numpy())
         assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=1e-5)
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.attention_weights, y2.attentions))
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.hidden_states, y2.hidden_states))
@@ -131,7 +128,6 @@ def test_llama_completion(llama_model_with_head, hf_llama_causal_model):
                 logits = hf_llama_causal_model(input_ids=y2).logits[:, -1]
                 next_tokens = logits.argmax(dim=-1, keepdim=True)
                 y2 = torch.cat((y2, next_tokens), dim=-1)
-        print(y, y2)
         assert np.all(y == y2.numpy())
 
 

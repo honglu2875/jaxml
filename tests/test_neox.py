@@ -84,5 +84,4 @@ def test_neox_completion(neox_model_with_head, hf_neox_causal_model):
                 logits = hf_neox_causal_model(input_ids=y2).logits[:, -1]
                 next_tokens = logits.argmax(dim=-1, keepdim=True)
                 y2 = torch.cat((y2, next_tokens), dim=-1)
-        print(y, y2)
         assert np.all(y == y2.numpy())

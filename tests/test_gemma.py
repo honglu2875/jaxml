@@ -65,7 +65,6 @@ def test_gemma_decoder(gemma_decoder, hf_gemma_decoder, hf_gemma_decoder_global,
                 cache_position=torch.arange(seq_len)[None],
             )
 
-        print(np.abs(y.hidden_states - y2[0].numpy()).max())
         assert np.allclose(y.hidden_states, y2[0].numpy(), atol=1e-5)
         assert np.allclose(y.attention_weight, y2[1].numpy(), atol=1e-5)
 
@@ -86,9 +85,6 @@ def test_gemma_model(gemma_model, hf_gemma_model):
             )
         assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=1e-5)
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.attention_weights, y2.attentions))
-        print("attention weight diffs:", [np.abs(a - b.numpy()).max() for a, b in zip(y.attention_weights, y2.attentions)])
-        # last layer appears to have a bump in error... strange
-        print("hidden state diffs:", [np.abs(a - b.numpy()).max() for a, b in zip(y.hidden_states, y2.hidden_states)])
         assert all(np.allclose(a, b.numpy(), atol=1e-5) for a, b in zip(y.hidden_states, y2.hidden_states))
 
 
@@ -124,5 +120,4 @@ def test_gemma_completion(gemma_model_with_head, hf_gemma_causal_model):
                 logits = hf_gemma_causal_model(input_ids=y2).logits[:, -1]
                 next_tokens = logits.argmax(dim=-1, keepdim=True)
                 y2 = torch.cat((y2, next_tokens), dim=-1)
-        print(y, y2)
         assert np.all(y == y2.numpy())
