@@ -11,16 +11,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 version = "0.0.0"
 dependencies = [
-    "jax==0.8.3",
-    "jaxlib==0.8.3",
-    "flax==0.12.6",
+    "jax==0.10.1",
+    "jaxlib==0.10.1",
+    "flax==0.12.7",
     "jax-tqdm==0.4.0",
 ]
 
 [project.optional-dependencies]
 tpu = [
-    "jax==0.8.3",
-    "jaxlib==0.8.3",
+    "jax==0.10.1",
+    "jaxlib==0.10.1",
     "libtpu==0.0.41",
 ]
 dev = [
