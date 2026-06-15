@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -341,7 +342,7 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
         "some/model",
         architecture="llama",
         model_dtype="bfloat16",
-        engine_dtype="engine-dtype",
+        engine_dtype="float32",
         inference_config=inference_config,
         use_tpu=np.bool_(True),
         cache_stride=128,
@@ -351,7 +352,7 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
 
     assert pipeline.tokenizer is tokenizer
     assert calls["load_model"] == ("some/model", "llama", "bfloat16", {"trust_remote_code": True})
-    assert calls["engine_init"] == ("model", inference_config, {"params": "params"}, "engine-dtype", 128)
+    assert calls["engine_init"] == ("model", inference_config, {"params": "params"}, jnp.dtype("float32"), 128)
     assert calls["use_tpu"] is True
 
 
@@ -386,6 +387,41 @@ def test_from_hf_rejects_invalid_name_before_tokenizer_or_model_loading(monkeypa
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"architecture": None}, TypeError, "architecture must be a string"),
+        ({"architecture": "unknown"}, ValueError, "Unsupported Hugging Face architecture"),
+        ({"model_dtype": np.float32}, TypeError, "Expected dtype"),
+        ({"model_dtype": "bad"}, ValueError, "Unsupported dtype"),
+        ({"engine_dtype": None}, TypeError, "engine_dtype must be a valid JAX dtype"),
+        ({"engine_dtype": "not-a-dtype"}, TypeError, "engine_dtype must be a valid JAX dtype"),
+    ],
+)
+def test_from_hf_rejects_invalid_model_selectors_before_tokenizer_or_model_loading(monkeypatch, kwargs, exception, match):
+    calls = []
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append(("tokenizer", args, kwargs))
+            raise AssertionError("AutoTokenizer.from_pretrained should not be called for invalid model selectors.")
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append(("model", args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid model selectors.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoTokenizer", FakeAutoTokenizer)
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(exception, match=match):
+        TextGenerationPipeline.from_hf("some/model", **kwargs)
+
+    assert calls == []
+
+
 def test_from_hf_normalizes_pathlike_name_for_tokenizer_and_model_loader(monkeypatch):
     calls = {}
 
@@ -414,15 +450,16 @@ def test_from_hf_normalizes_pathlike_name_for_tokenizer_and_model_loader(monkeyp
 
     pipeline = TextGenerationPipeline.from_hf(
         Path("local-model"),
-        architecture="llama",
+        architecture="GPT-NeoX",
         tokenizer_kwargs={"local_files_only": True},
         model_kwargs={"trust_remote_code": True},
     )
 
     assert isinstance(pipeline.tokenizer, DummyTokenizer)
     assert calls["tokenizer"] == ("local-model", {"local_files_only": True})
-    assert calls["load_model"] == ("local-model", "llama", "float32", {"trust_remote_code": True})
+    assert calls["load_model"] == ("local-model", "neox", "float32", {"trust_remote_code": True})
     assert calls["engine_init"][0] == "model"
+    assert calls["engine_init"][3] == jnp.dtype("float32")
     assert calls["use_tpu"] is False
 
 

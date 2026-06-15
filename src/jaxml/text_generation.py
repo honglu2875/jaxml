@@ -10,8 +10,14 @@ from typing import Any, Optional, Sequence
 import jax.numpy as jnp
 import numpy as np
 
-from jaxml.hf_utils import HFArchitecture, _normalize_hf_model_name, load_model_from_hf
-from jaxml.inference_engine.engine import Engine, InferenceConfig
+from jaxml.hf_utils import (
+    HFArchitecture,
+    _normalize_hf_architecture,
+    _normalize_hf_model_name,
+    _validate_hf_dtype,
+    load_model_from_hf,
+)
+from jaxml.inference_engine.engine import Engine, InferenceConfig, _normalize_dtype
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -143,6 +149,9 @@ class TextGenerationPipeline:
     ):
         """Build a text-generation pipeline from a supported Hugging Face checkpoint."""
         name = _normalize_hf_model_name(name)
+        architecture = _normalize_hf_architecture(architecture)
+        model_dtype = _validate_hf_dtype(model_dtype)
+        engine_dtype = _normalize_dtype("engine_dtype", engine_dtype)
         use_tpu = _normalize_bool("use_tpu", use_tpu)
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
