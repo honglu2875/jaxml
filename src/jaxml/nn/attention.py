@@ -140,6 +140,20 @@ def _validate_hidden_states(hidden_states: jnp.ndarray) -> jnp.ndarray:
     return hidden_states
 
 
+def _validate_cos_sin(cos_sin):
+    if cos_sin is None:
+        raise ValueError("AttentionWithRoPE requires cos_sin.")
+    if isinstance(cos_sin, (jnp.ndarray, np.ndarray)):
+        raise TypeError("cos_sin must be a pair of cosine and sine arrays, not a single array.")
+    try:
+        cos, sin = cos_sin
+    except TypeError as e:
+        raise TypeError(f"cos_sin must be a pair of cosine and sine arrays, got {type(cos_sin)}.") from e
+    except ValueError as e:
+        raise ValueError("cos_sin must contain exactly two arrays: cosine and sine.") from e
+    return cos, sin
+
+
 class Attention(Block):
     """
     Flax base model of attention.
@@ -473,8 +487,7 @@ class AttentionWithRoPE(Attention):
         hidden_states = _validate_hidden_states(hidden_states)
         output_attentions = _normalize_bool("output_attentions", output_attentions)
         use_flash = _normalize_bool("use_flash", use_flash)
-        if cos_sin is None:
-            raise ValueError("AttentionWithRoPE requires cos_sin.")
+        cos, sin = _validate_cos_sin(cos_sin)
         query_states, key_states, value_states = self.qkv(hidden_states)
 
         if attention_mask is None:
@@ -486,7 +499,6 @@ class AttentionWithRoPE(Attention):
             else:
                 position_ids = jnp.repeat(jnp.arange(key_states.shape[1])[None], key_states.shape[0], axis=0)
 
-        cos, sin = cos_sin
         query_states, key_states = RotaryEmbedding.apply_rotary_pos_emb(
             query_states,
             key_states,

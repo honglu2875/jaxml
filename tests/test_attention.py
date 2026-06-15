@@ -505,6 +505,44 @@ def test_attention_with_rope_requires_cos_sin():
 
 
 @pytest.mark.parametrize(
+    "cos_sin,exception,match",
+    [
+        ((), ValueError, "exactly two arrays"),
+        ((jnp.ones((2, 2), dtype=jnp.float32),), ValueError, "exactly two arrays"),
+        (
+            (
+                jnp.ones((2, 2), dtype=jnp.float32),
+                jnp.zeros((2, 2), dtype=jnp.float32),
+                jnp.ones((2, 2), dtype=jnp.float32),
+            ),
+            ValueError,
+            "exactly two arrays",
+        ),
+        (jnp.ones((2, 2), dtype=jnp.float32), TypeError, "not a single array"),
+        (np.ones((2, 2), dtype=np.float32), TypeError, "not a single array"),
+        (object(), TypeError, "cos_sin must be a pair"),
+    ],
+)
+def test_attention_with_rope_rejects_invalid_cos_sin_pair(cos_sin, exception, match):
+    config = ModelConfig(
+        head_dim=2,
+        hidden_size=2,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=2**-0.5,
+        use_rope=True,
+    )
+    attn = AttentionWithRoPE(config)
+    hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    params = attn.init(jax.random.PRNGKey(0), hidden_states, cos_sin=_identity_cos_sin(config, hidden_states.shape[1]))
+
+    with pytest.raises(exception, match=match):
+        attn.apply(params, hidden_states, cos_sin=cos_sin)
+
+
+@pytest.mark.parametrize(
     "attention_mask,exception,match",
     [
         (jnp.ones((1, 2), dtype=bool), ValueError, "attention_mask shape must match"),
