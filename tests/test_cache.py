@@ -164,6 +164,41 @@ def test_kv_cache_update_rejects_decode_past_capacity():
         cache.update(next_k, next_v, mask=None)
 
 
+def test_kv_cache_update_rejects_decode_mask():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
+    next_k, next_v = _kv(seq_len=1)
+
+    with pytest.raises(ValueError, match="Decode cache mask shape must match"):
+        cache.update(next_k, next_v, mask=jnp.ones((2, 1), dtype=bool))
+
+
+def test_kv_cache_update_rejects_stale_decode_mask():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.array([[True, True], [True, False]]))
+    next_k, next_v = _kv(seq_len=1, value=3.0)
+    stale_mask = jnp.ones((2, 4), dtype=bool)
+
+    with pytest.raises(ValueError, match="must match current cached mask state"):
+        cache.update(next_k, next_v, mask=stale_mask)
+
+
+@pytest.mark.parametrize("mask_arg", ["none", "cached"])
+def test_kv_cache_update_decode_extends_cached_mask(mask_arg):
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.array([[True, True], [True, False]]))
+    next_k, next_v = _kv(seq_len=1, value=3.0)
+    mask = None if mask_arg == "none" else cache.mask
+
+    cache = cache.update(next_k, next_v, mask=mask)
+
+    assert np.array_equal(
+        np.array(cache.mask),
+        np.array([[True, True, True, False], [True, True, False, False]]),
+    )
+    assert np.array_equal(np.array(cache.pos_id), np.array([[2], [1]]))
+
+
 def test_kv_cache_rollback_rejects_past_beginning():
     k, v = _kv(seq_len=2)
     cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))

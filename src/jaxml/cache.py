@@ -136,6 +136,17 @@ class KVCache(struct.PyTreeNode):
 
         if self.v is None or self.mask is None or self.pos_id is None:
             raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
+        if mask is not None:
+            mask = jnp.asarray(mask)
+            if mask.shape != self.mask.shape:
+                raise ValueError(
+                    f"Decode cache mask shape must match cached mask shape, got {mask.shape} and {self.mask.shape}."
+                )
+            if not (jnp.issubdtype(mask.dtype, jnp.bool_) or jnp.issubdtype(mask.dtype, jnp.integer)):
+                raise TypeError(f"Decode cache mask must be boolean or integer, got dtype {mask.dtype}.")
+            mask = mask.astype(bool)
+            if not _contains_tracer((mask, self.mask)) and not bool(jnp.array_equal(mask, self.mask)):
+                raise ValueError("Decode cache mask must match current cached mask state.")
         if k.shape[0] != self.k.shape[0]:
             raise ValueError(f"Batch size must match cached batch size, got {k.shape[0]} and {self.k.shape[0]}.")
         if k.shape[1] != 1:
