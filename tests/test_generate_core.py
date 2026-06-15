@@ -550,7 +550,8 @@ def test_generate_returns_rng_for_decoding_continuation(monkeypatch):
     "rng,exception,match",
     [
         (jnp.ones((1, 2), dtype=jnp.uint32), ValueError, "shape"),
-        (jnp.ones((2,), dtype=jnp.float32), TypeError, "integer key data"),
+        (jnp.ones((2,), dtype=jnp.int32), TypeError, "uint32 key data"),
+        (jnp.ones((2,), dtype=jnp.float32), TypeError, "uint32 key data"),
     ],
 )
 def test_generate_rejects_invalid_rng_before_prefill(rng, exception, match):

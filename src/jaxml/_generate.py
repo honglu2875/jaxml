@@ -213,8 +213,8 @@ def generate(
         rng = jnp.asarray(rng)
         if rng.shape != (2,):
             raise ValueError(f"rng must be a PRNG key with shape (2,), got shape {rng.shape}.")
-        if not jnp.issubdtype(rng.dtype, jnp.integer):
-            raise TypeError(f"rng must contain integer key data, got dtype {rng.dtype}.")
+        if rng.dtype != jnp.uint32:
+            raise TypeError(f"rng must contain uint32 key data, got dtype {rng.dtype}.")
 
     prompt_tokens = jnp.array(prompt_tokens)
     if prompt_tokens.ndim == 1:

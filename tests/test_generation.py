@@ -532,10 +532,19 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
             lambda kwargs, kv_caches: GenerationOutput(
                 tokens=jnp.ones((1, 1), dtype=jnp.int32),
                 kv_caches=kv_caches,
+                rng=jnp.ones((2,), dtype=jnp.int32),
+            ),
+            TypeError,
+            "uint32 key data",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=kv_caches,
                 rng=jnp.ones((2,), dtype=jnp.float32),
             ),
             TypeError,
-            "integer key data",
+            "uint32 key data",
         ),
         (
             lambda kwargs, kv_caches: GenerationOutput(
