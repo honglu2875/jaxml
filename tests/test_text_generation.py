@@ -57,7 +57,7 @@ def test_generation_config_rejects_negative_max_new_tokens():
 
 
 @pytest.mark.parametrize("field_name", ["top_p", "min_p", "temperature"])
-@pytest.mark.parametrize("value", [True, "1.0"])
+@pytest.mark.parametrize("value", [True, np.bool_(True), "1.0"])
 def test_generation_config_rejects_non_real_sampling_fields(field_name, value):
     with pytest.raises(TypeError, match=f"{field_name} must be a real number"):
         GenerationConfig(**{field_name: value})

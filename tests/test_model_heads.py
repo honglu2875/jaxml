@@ -34,6 +34,7 @@ def test_model_heads_keep_last_n_logits_shape(request, fixture_name, keep_last_n
     "keep_last_n_logits,exception,match",
     [
         (True, TypeError, "keep_last_n_logits must be an integer"),
+        (np.bool_(True), TypeError, "keep_last_n_logits must be an integer"),
         (1.5, TypeError, "keep_last_n_logits must be an integer"),
         (-1, ValueError, "keep_last_n_logits must be non-negative"),
     ],

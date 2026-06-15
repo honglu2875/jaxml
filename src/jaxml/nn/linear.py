@@ -35,7 +35,7 @@ def _normalize_axes(axes: Iterable[int], ndim: int) -> Tuple[int, ...]:
     # A tuple by convention. len(axes_tuple) then also gives the rank efficiently.
     normalized = []
     for ax in axes:
-        if isinstance(ax, bool):
+        if isinstance(ax, (bool, np.bool_)):
             raise TypeError(f"axis values must be integers, got {type(ax)}.")
         try:
             ax = operator.index(ax)
@@ -53,7 +53,7 @@ def _normalize_axes(axes: Iterable[int], ndim: int) -> Tuple[int, ...]:
 def _normalize_shape_dims(name: str, values: Iterable[int]) -> Tuple[int, ...]:
     normalized = []
     for value in values:
-        if isinstance(value, bool):
+        if isinstance(value, (bool, np.bool_)):
             raise TypeError(f"{name} values must be integers, got {type(value)}.")
         try:
             value = operator.index(value)

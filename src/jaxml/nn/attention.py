@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 # from jax.experimental.pallas.ops.tpu.flash_attention import flash_attention
 from flax import linen as nn
@@ -37,7 +38,7 @@ from .position import RotaryEmbedding
 def _normalize_optional_count(name: str, value: int | None) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer when set, got {type(value)}.")
     try:
         value = operator.index(value)

@@ -20,7 +20,7 @@ def _normalize_count(name: str, value: int) -> int:
 
 
 def _normalize_float(name: str, value: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
         raise TypeError(f"{name} must be a real number, got {type(value)}.")
     return float(value)
 

@@ -25,14 +25,14 @@ def test_normalize_sampling_params_clips_bounds():
     assert params.temp == 0.0
 
 
-@pytest.mark.parametrize("top_k", [True, 1.5])
+@pytest.mark.parametrize("top_k", [True, np.bool_(True), 1.5])
 def test_normalize_sampling_params_rejects_non_integer_top_k(top_k):
     with pytest.raises(TypeError, match="top_k must be an integer"):
         normalize_sampling_params(top_k=top_k, top_p=1.0, min_p=0.0, temp=1.0)
 
 
 @pytest.mark.parametrize("name", ["top_p", "min_p", "temp"])
-@pytest.mark.parametrize("value", [True, "1.0"])
+@pytest.mark.parametrize("value", [True, np.bool_(True), "1.0"])
 def test_normalize_sampling_params_rejects_non_real_values(name, value):
     kwargs = {"top_k": 0, "top_p": 1.0, "min_p": 0.0, "temp": 1.0}
     kwargs[name] = value

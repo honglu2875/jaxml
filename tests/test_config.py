@@ -45,11 +45,16 @@ def test_model_config_normalizes_numpy_integer_fields():
     [
         ({"hidden_size": 48.0}, "hidden_size must be an integer"),
         ({"head_dim": True}, "head_dim must be an integer"),
+        ({"head_dim": np.bool_(True)}, "head_dim must be an integer"),
         ({"intermediate_ratio": (8.0, 3)}, "intermediate_ratio numerator must be an integer"),
         ({"intermediate_ratio": (8, False)}, "intermediate_ratio denominator must be an integer"),
+        ({"intermediate_ratio": (8, np.bool_(False))}, "intermediate_ratio denominator must be an integer"),
         ({"num_kv_heads": 3.0}, "num_kv_heads must be an integer"),
+        ({"num_kv_heads": np.bool_(True)}, "num_kv_heads must be an integer"),
         ({"sliding_window": 32.0}, "sliding_window must be an integer"),
+        ({"sliding_window": np.bool_(True)}, "sliding_window must be an integer"),
         ({"sliding_window_pattern": 2.0}, "sliding_window_pattern must be an integer"),
+        ({"sliding_window_pattern": np.bool_(True)}, "sliding_window_pattern must be an integer"),
     ],
 )
 def test_model_config_rejects_non_integer_counts(overrides, match):

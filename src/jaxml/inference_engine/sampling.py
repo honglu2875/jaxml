@@ -6,6 +6,7 @@ import operator
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 
 NEG_INF = float("-inf")
@@ -62,7 +63,7 @@ def _clip_value(name: str, value: int | float, min: int | float, max: int | floa
 
 
 def _normalize_top_k(top_k: int) -> int:
-    if isinstance(top_k, bool):
+    if isinstance(top_k, (bool, np.bool_)):
         raise TypeError(f"top_k must be an integer, got {type(top_k)}.")
     try:
         top_k = operator.index(top_k)
@@ -72,7 +73,7 @@ def _normalize_top_k(top_k: int) -> int:
 
 
 def _normalize_real(name: str, value: float) -> float:
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
         raise TypeError(f"{name} must be a real number, got {type(value)}.")
     value = float(value)
     if not math.isfinite(value):

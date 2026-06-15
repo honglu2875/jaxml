@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax import struct
 
 from .utils import get_default_pos_ids
@@ -28,7 +29,7 @@ def _contains_tracer(x: Any) -> bool:
 
 
 def _normalize_count(name: str, value: int) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
     try:
         return operator.index(value)

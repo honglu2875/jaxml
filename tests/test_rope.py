@@ -41,9 +41,11 @@ def test_rope(rope_factory, model_type):
     "kwargs,exception,match",
     [
         ({"dim": True, "max_length": 8}, TypeError, "dim must be an integer"),
+        ({"dim": np.bool_(True), "max_length": 8}, TypeError, "dim must be an integer"),
         ({"dim": 1.5, "max_length": 8}, TypeError, "dim must be an integer"),
         ({"dim": 0, "max_length": 8}, ValueError, "dim must be positive"),
         ({"dim": 4, "max_length": True}, TypeError, "max_length must be an integer"),
+        ({"dim": 4, "max_length": np.bool_(True)}, TypeError, "max_length must be an integer"),
         ({"dim": 4, "max_length": 1.5}, TypeError, "max_length must be an integer"),
         ({"dim": 4, "max_length": 0}, ValueError, "max_length must be positive"),
     ],
@@ -56,7 +58,7 @@ def test_rope_rejects_invalid_shape_parameters(kwargs, exception, match):
         rope.init(jax.random.PRNGKey(0), x)
 
 
-@pytest.mark.parametrize("seq_len", [True, 1.5])
+@pytest.mark.parametrize("seq_len", [True, np.bool_(True), 1.5])
 def test_rope_rejects_non_integer_seq_len(seq_len):
     rope = RotaryEmbedding(dim=4, max_length=8)
     x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)

@@ -4,13 +4,14 @@ from typing import Any, Tuple
 
 import flax.linen as nn
 import jax.numpy as jnp
+import numpy as np
 from jax import lax
 
 from .module import Module
 
 
 def _normalize_count(name: str, value: int) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
     try:
         return operator.index(value)

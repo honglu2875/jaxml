@@ -218,6 +218,7 @@ def test_attention_mha_rejects_invalid_attention_mask(attention_mask, exception,
     "sliding_window,exception,match",
     [
         (True, TypeError, "sliding_window must be an integer"),
+        (np.bool_(True), TypeError, "sliding_window must be an integer"),
         (1.5, TypeError, "sliding_window must be an integer"),
         (0, ValueError, "sliding_window must be positive"),
     ],

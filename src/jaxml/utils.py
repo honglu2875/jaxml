@@ -152,7 +152,7 @@ def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
 def _normalize_optional_head_dim(head_dim: int | None) -> int | None:
     if head_dim is None:
         return None
-    if isinstance(head_dim, bool):
+    if isinstance(head_dim, (bool, np.bool_)):
         raise TypeError(f"head_dim must be an integer when set, got {type(head_dim)}.")
     try:
         head_dim = operator.index(head_dim)

@@ -77,9 +77,11 @@ def test_norms_reject_scalar_inputs(norm_cls):
     "kwargs,exception,match",
     [
         ({"num_embeddings": True, "features": 4}, TypeError, "num_embeddings must be an integer"),
+        ({"num_embeddings": np.bool_(True), "features": 4}, TypeError, "num_embeddings must be an integer"),
         ({"num_embeddings": 1.5, "features": 4}, TypeError, "num_embeddings must be an integer"),
         ({"num_embeddings": 0, "features": 4}, ValueError, "num_embeddings must be positive"),
         ({"num_embeddings": 8, "features": True}, TypeError, "features must be an integer"),
+        ({"num_embeddings": 8, "features": np.bool_(True)}, TypeError, "features must be an integer"),
         ({"num_embeddings": 8, "features": 1.5}, TypeError, "features must be an integer"),
         ({"num_embeddings": 8, "features": 0}, ValueError, "features must be positive"),
     ],
@@ -110,6 +112,7 @@ def test_embed_accepts_numpy_integer_shape_parameters(one_hot):
         (3, ValueError, "out of bounds"),
         (1.5, TypeError, "integers"),
         (True, TypeError, "integers"),
+        (np.bool_(True), TypeError, "integers"),
     ],
 )
 def test_dense_general_rejects_invalid_axes(axis, exception, match):
@@ -142,9 +145,11 @@ def test_dense_general_accepts_numpy_integer_axis():
     "features,exception,match",
     [
         (True, TypeError, "features values must be integers"),
+        (np.bool_(True), TypeError, "features values must be integers"),
         (1.5, TypeError, "features values must be integers"),
         (0, ValueError, "features values must be positive"),
         ((4, True), TypeError, "features values must be integers"),
+        ((4, np.bool_(True)), TypeError, "features values must be integers"),
         ((4, 1.5), TypeError, "features values must be integers"),
         ((4, 0), ValueError, "features values must be positive"),
     ],
@@ -216,7 +221,7 @@ def test_torch_to_jax_states_rejects_invalid_dtype_type():
         torch_to_jax_states({"weight": torch.ones(1)}, dtype=np.float32)
 
 
-@pytest.mark.parametrize("head_dim", [True, 1.5])
+@pytest.mark.parametrize("head_dim", [True, np.bool_(True), 1.5])
 def test_torch_to_jax_states_rejects_non_integer_head_dim(head_dim):
     with pytest.raises(TypeError, match="head_dim must be an integer"):
         torch_to_jax_states({"weight": torch.ones(1)}, dtype=torch.float32, head_dim=head_dim)
