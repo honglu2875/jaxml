@@ -15,6 +15,7 @@
 import operator
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import linen as nn
@@ -27,6 +28,10 @@ def _normalize_count(name: str, value: int) -> int:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+
+
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 class RotaryEmbedding(nn.Module):
@@ -63,6 +68,8 @@ class RotaryEmbedding(nn.Module):
             raise ValueError(f"cos and sin must be 2D arrays, got shapes {cos.shape} and {sin.shape}.")
         if cos.shape != sin.shape:
             raise ValueError(f"cos and sin must have the same shape, got {cos.shape} and {sin.shape}.")
+        if cos.shape[0] <= 0:
+            raise ValueError("cos and sin must contain at least one position.")
         if cos.shape[-1] <= 0 or cos.shape[-1] % 2:
             raise ValueError(f"rotary dimension must be positive and even, got {cos.shape[-1]}.")
         if cos.shape[-1] > q.shape[-1]:
@@ -76,6 +83,11 @@ class RotaryEmbedding(nn.Module):
             )
         if not jnp.issubdtype(position_ids.dtype, jnp.integer):
             raise TypeError(f"position_ids must contain integer positions, got dtype {position_ids.dtype}.")
+        if not _contains_tracer(position_ids):
+            if bool(jnp.any(position_ids < 0)):
+                raise ValueError("position_ids must contain non-negative positions.")
+            if bool(jnp.any(position_ids >= cos.shape[0])):
+                raise ValueError(f"position_ids must be within rotary table length {cos.shape[0]}.")
 
         # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
         rotary_dim = cos.shape[-1]

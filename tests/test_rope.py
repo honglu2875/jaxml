@@ -95,11 +95,14 @@ def test_uncached_rope_can_compute_beyond_max_length():
         ({"q": jnp.ones((1, 3, 1, 4)), "k": jnp.ones((1, 2, 1, 4))}, ValueError, "matching batch, sequence"),
         ({"cos": jnp.ones((4,)), "sin": jnp.ones((4, 4))}, ValueError, "cos and sin must be 2D"),
         ({"cos": jnp.ones((4, 4)), "sin": jnp.ones((5, 4))}, ValueError, "same shape"),
+        ({"cos": jnp.ones((0, 4)), "sin": jnp.ones((0, 4))}, ValueError, "at least one position"),
         ({"cos": jnp.ones((4, 3)), "sin": jnp.ones((4, 3))}, ValueError, "positive and even"),
         ({"cos": jnp.ones((4, 6)), "sin": jnp.ones((4, 6))}, ValueError, "cannot exceed"),
         ({"position_ids": jnp.arange(2)}, ValueError, "position_ids must be a 2D array"),
         ({"position_ids": jnp.arange(3, dtype=jnp.int32)[None]}, ValueError, "position_ids shape must be broadcastable"),
         ({"position_ids": jnp.arange(2, dtype=jnp.float32)[None]}, TypeError, "integer positions"),
+        ({"position_ids": jnp.array([[-1, 0]], dtype=jnp.int32)}, ValueError, "non-negative positions"),
+        ({"position_ids": jnp.array([[0, 4]], dtype=jnp.int32)}, ValueError, "within rotary table length"),
     ],
 )
 def test_apply_rotary_pos_emb_rejects_invalid_inputs(kwargs, exception, match):
@@ -123,6 +126,22 @@ def test_apply_rotary_pos_emb_allows_grouped_query_head_counts():
     position_ids = jnp.arange(2, dtype=jnp.int32)[None]
 
     q_out, k_out = RotaryEmbedding.apply_rotary_pos_emb(q, k, cos, sin, position_ids)
+
+    assert q_out.shape == q.shape
+    assert k_out.shape == k.shape
+
+
+def test_apply_rotary_pos_emb_accepts_traced_position_ids():
+    q = jnp.ones((1, 2, 2, 4), dtype=jnp.float32)
+    k = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+    cos = jnp.ones((4, 4), dtype=jnp.float32)
+    sin = jnp.zeros((4, 4), dtype=jnp.float32)
+
+    @jax.jit
+    def apply(position_ids):
+        return RotaryEmbedding.apply_rotary_pos_emb(q, k, cos, sin, position_ids)
+
+    q_out, k_out = apply(jnp.arange(2, dtype=jnp.int32)[None])
 
     assert q_out.shape == q.shape
     assert k_out.shape == k.shape
