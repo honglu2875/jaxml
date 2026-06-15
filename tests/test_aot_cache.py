@@ -11,6 +11,7 @@ from jaxml.utils import (
     compiled_fn_path,
     load_compiled_fn,
     load_if_exists,
+    save_compiled_fn,
 )
 
 
@@ -72,6 +73,24 @@ def test_compiled_fn_exist_requires_payload_files(monkeypatch, tmp_path):
 
     (cache_entry / "in_out_spec").write_bytes(b"spec")
     assert compiled_fn_exist("decode", "abc")
+
+
+def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"new-aot", "in-tree", "out-tree"))
+    cache_entry = compiled_fn_path("decode", "abc")
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(b"old-aot")
+    with (cache_entry / "in_out_spec").open("wb") as f:
+        pickle.dump(("old-in", "old-out"), f)
+
+    byte_count = save_compiled_fn(object(), "decode", "abc", log=False)
+
+    assert byte_count == len(b"new-aot") + len(pickle.dumps(("in-tree", "out-tree")))
+    assert (cache_entry / "aot").read_bytes() == b"new-aot"
+    with (cache_entry / "in_out_spec").open("rb") as f:
+        assert pickle.load(f) == ("in-tree", "out-tree")
+    assert not list(cache_entry.glob("*.tmp"))
 
 
 def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tmp_path):

@@ -89,6 +89,17 @@ class Timeit:
     __repr__ = __str__
 
 
+def _write_bytes_atomically(path: Path, data: bytes):
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with tmp_path.open("wb") as f:
+            f.write(data)
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
 @functools.lru_cache()
 def _hash(*args) -> str:
     m = hashlib.sha256()
@@ -313,11 +324,9 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     aot_fn, in_tree, out_tree = serialize(fn)
-    with fn_path.open("wb") as f:
-        f.write(aot_fn)
-    with spec_path.open("wb") as f:
-        io_spec_bytes = pickle.dumps((in_tree, out_tree))
-        f.write(io_spec_bytes)
+    _write_bytes_atomically(fn_path, aot_fn)
+    io_spec_bytes = pickle.dumps((in_tree, out_tree))
+    _write_bytes_atomically(spec_path, io_spec_bytes)
     return len(aot_fn) + len(io_spec_bytes)
 
 
