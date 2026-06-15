@@ -28,6 +28,15 @@ class RecordingSamplingMethod:
         return sample_fn
 
 
+class MissingGetSamplingFn:
+    pass
+
+
+class NonCallableSamplingFn:
+    def get_sampling_fn(self):
+        return None
+
+
 def test_prefill_rng_is_dynamic_when_compiled_function_is_reused(monkeypatch):
     cached_fns = {}
 
@@ -116,6 +125,44 @@ def test_generate_rejects_non_integer_prompt_tokens_before_prefill():
             kv_caches=(),
             call_hash="invalid-input",
             sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )
+
+
+def test_generate_rejects_non_callable_eval_fn_before_prefill():
+    with pytest.raises(TypeError, match="eval_fn must be callable"):
+        generate(
+            {},
+            eval_fn=None,
+            prompt_tokens=jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-eval-fn",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "sampling_method,match",
+    [
+        (MissingGetSamplingFn(), "callable get_sampling_fn"),
+        (NonCallableSamplingFn(), "must return a callable"),
+    ],
+)
+def test_generate_rejects_invalid_sampling_method_before_prefill(sampling_method, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid sampling methods.")
+
+    with pytest.raises(TypeError, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-sampling-method",
+            sampling_method=sampling_method,
             max_new_tokens=1,
         )
 

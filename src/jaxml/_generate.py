@@ -46,6 +46,22 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_callable(name: str, value):
+    if not callable(value):
+        raise TypeError(f"{name} must be callable, got {type(value)}.")
+    return value
+
+
+def _get_sampling_fn(sampling_method: SamplingMethod):
+    get_sampling_fn = getattr(sampling_method, "get_sampling_fn", None)
+    if not callable(get_sampling_fn):
+        raise TypeError("sampling_method must provide a callable get_sampling_fn method.")
+    sample_fn = get_sampling_fn()
+    if not callable(sample_fn):
+        raise TypeError(f"sampling_method.get_sampling_fn() must return a callable, got {type(sample_fn)}.")
+    return sample_fn
+
+
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
 def _pad_to(x, length, axis=0):
     pad_shape = x.shape[:axis] + (length - x.shape[axis],) + x.shape[axis + 1 :]
@@ -178,7 +194,8 @@ def generate(
             tokens = jnp.empty((prompt_tokens.shape[0], 0), dtype=prompt_tokens.dtype)
         return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=rng)
 
-    sample_fn = sampling_method.get_sampling_fn()
+    eval_fn = _normalize_callable("eval_fn", eval_fn)
+    sample_fn = _get_sampling_fn(sampling_method)
     loop_fn_params = dict(
         sample_fn=sample_fn,
         eval_fn=eval_fn,
