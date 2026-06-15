@@ -241,7 +241,10 @@ class ModelConfig:
             sliding_window = None
             sliding_window_pattern = None
         elif config_type == "gemma3":
-            attn_scale = config.query_pre_attn_scalar**-0.5
+            query_pre_attn_scalar = _normalize_float("query_pre_attn_scalar", config.query_pre_attn_scalar)
+            if query_pre_attn_scalar <= 0:
+                raise ValueError(f"query_pre_attn_scalar must be positive, got {query_pre_attn_scalar}.")
+            attn_scale = query_pre_attn_scalar**-0.5
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta

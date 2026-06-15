@@ -402,6 +402,40 @@ def test_model_config_from_hf_rejects_boolean_gemma_sliding_window_pattern():
         ModelConfig.from_hf(hf_config)
 
 
+@pytest.mark.parametrize(
+    "query_pre_attn_scalar,exception,match",
+    [
+        (True, TypeError, "query_pre_attn_scalar must be a real number"),
+        (float("nan"), ValueError, "query_pre_attn_scalar must be finite"),
+        (0.0, ValueError, "query_pre_attn_scalar must be positive"),
+        (-1.0, ValueError, "query_pre_attn_scalar must be positive"),
+    ],
+)
+def test_model_config_from_hf_rejects_invalid_gemma_query_pre_attn_scalar(
+    query_pre_attn_scalar,
+    exception,
+    match,
+):
+    from transformers import Gemma3TextConfig
+
+    hf_config = Gemma3TextConfig(
+        hidden_size=64,
+        head_dim=8,
+        intermediate_size=144,
+        num_hidden_layers=4,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+        sliding_window=32,
+        sliding_window_pattern=2,
+    )
+    hf_config.query_pre_attn_scalar = query_pre_attn_scalar
+
+    with pytest.raises(exception, match=match):
+        ModelConfig.from_hf(hf_config)
+
+
 def test_model_config_from_hf_rejects_unsupported_config():
     from transformers import MistralConfig
 
