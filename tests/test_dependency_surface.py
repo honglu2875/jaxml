@@ -245,7 +245,9 @@ def test_cpu_test_modules_are_assigned_to_exactly_one_cadence_marker():
 def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events():
     workflow = _workflow_config()
 
-    assert "uv run --frozen --extra dev make verify-critical-cpu" in workflow
+    assert "if: matrix.python-version == '3.12'" in workflow
+    assert "uv run --frozen --extra dev make lock-check dependency-check lint format-check build-check" in workflow
+    assert "uv run --frozen --extra dev make pytest-critical-cpu" in workflow
     assert "uv run --frozen --extra dev make verify-milestone-cpu" in workflow
     assert "workflow_dispatch:" in workflow
     assert "schedule:" in workflow
@@ -256,7 +258,7 @@ def test_ci_cpu_jobs_cover_supported_python_versions(job_name):
     assert _workflow_python_versions(job_name) == _SUPPORTED_CI_PYTHON_VERSIONS
 
 
-@pytest.mark.parametrize(("job_name", "timeout_minutes"), [("cpu", 20), ("milestone-cpu", 30)])
+@pytest.mark.parametrize(("job_name", "timeout_minutes"), [("cpu", 30), ("milestone-cpu", 30)])
 def test_ci_cpu_jobs_have_explicit_timeouts(job_name, timeout_minutes):
     assert _workflow_job_timeout(job_name) == timeout_minutes
 

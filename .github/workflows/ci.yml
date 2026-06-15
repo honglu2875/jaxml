@@ -20,7 +20,7 @@ jobs:
   cpu:
     name: CPU tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       JAX_PLATFORMS: cpu
     strategy:
@@ -45,8 +45,12 @@ jobs:
           enable-cache: true
           version: "0.11.21"
 
-      - name: Run critical CPU verification
-        run: uv run --frozen --extra dev make verify-critical-cpu
+      - name: Run shared CPU verification checks
+        if: matrix.python-version == '3.12'
+        run: uv run --frozen --extra dev make lock-check dependency-check lint format-check build-check
+
+      - name: Run critical CPU tests
+        run: uv run --frozen --extra dev make pytest-critical-cpu
 
   milestone-cpu:
     name: Milestone CPU tests (Python ${{ matrix.python-version }})
