@@ -228,6 +228,31 @@ def test_from_hf_rejects_non_boolean_use_tpu_before_loading(monkeypatch):
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "cache_stride,exception,match",
+    [
+        (True, TypeError, "cache_stride must be an integer"),
+        (np.bool_(True), TypeError, "cache_stride must be an integer"),
+        (1.5, TypeError, "cache_stride must be an integer"),
+        (0, ValueError, "cache_stride must be positive"),
+        (-1, ValueError, "cache_stride must be positive"),
+    ],
+)
+def test_from_hf_rejects_invalid_cache_stride_before_loading(monkeypatch, cache_stride, exception, match):
+    calls = []
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid cache_stride.")
+
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(exception, match=match):
+        TextGenerationPipeline.from_hf("some/model", tokenizer=DummyTokenizer(), cache_stride=cache_stride)
+
+    assert calls == []
+
+
 def test_load_model_from_hf_dispatches_architecture(monkeypatch):
     import jaxml.hf_utils as hf_utils
 

@@ -87,6 +87,9 @@ class TextGenerationPipeline:
     ):
         """Build a text-generation pipeline from a supported Hugging Face checkpoint."""
         use_tpu = _normalize_bool("use_tpu", use_tpu)
+        cache_stride = _normalize_count("cache_stride", cache_stride)
+        if cache_stride <= 0:
+            raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
         if tokenizer is None:
             try:
                 from transformers import AutoTokenizer
