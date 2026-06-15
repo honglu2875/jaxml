@@ -156,7 +156,8 @@ class Engine:
         reinit_weight = _normalize_bool("reinit_weight", reinit_weight)
         tp_size = self.config.tp_size
         dp_size = self.config.dp_size
-        weights = weights or self.params
+        if weights is None:
+            weights = self.params
         # whether: use 1 single TPU or CPU
         is_single_device = (tp_size * dp_size == 1) or not use_tpu
 

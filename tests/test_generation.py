@@ -143,6 +143,15 @@ def test_engine_init_params_rejects_weights_without_params(llama_model_with_head
             engine.init_params(weights={"cache": {}}, use_tpu=False)
 
 
+def test_engine_init_params_rejects_empty_weights_mapping(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(ValueError, match="'params'"):
+            engine.init_params(weights={}, use_tpu=False)
+
+
 @pytest.mark.parametrize(
     "kwargs,match",
     [
