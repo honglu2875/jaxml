@@ -66,6 +66,18 @@ def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [1]]))
 
 
+@pytest.mark.parametrize(
+    "k,v,match",
+    [
+        (_kv(seq_len=1)[0].astype(jnp.int32), _kv(seq_len=1)[1], "k must contain floating point"),
+        (_kv(seq_len=1)[0], _kv(seq_len=1)[1].astype(jnp.int32), "v must contain floating point"),
+    ],
+)
+def test_kv_cache_update_rejects_non_floating_values(k, v, match):
+    with pytest.raises(TypeError, match=match):
+        KVCache.init(4).update(k, v, mask=None)
+
+
 def test_kv_cache_update_canonicalizes_integer_initial_mask():
     k, v = _kv(seq_len=3)
     mask = jnp.array([[1, 1, 0], [1, 0, 0]], dtype=jnp.int32)

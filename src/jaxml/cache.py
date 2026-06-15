@@ -91,6 +91,10 @@ class KVCache(struct.PyTreeNode):
             raise ValueError(f"k and v must have the same shape, got {k.shape} and {v.shape}.")
         if k.ndim < 2:
             raise ValueError(f"k and v must have at least batch and sequence axes, got shape {k.shape}.")
+        if not jnp.issubdtype(k.dtype, jnp.floating):
+            raise TypeError(f"k must contain floating point values, got dtype {k.dtype}.")
+        if not jnp.issubdtype(v.dtype, jnp.floating):
+            raise TypeError(f"v must contain floating point values, got dtype {v.dtype}.")
 
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
         k = jnp.asarray(k)
