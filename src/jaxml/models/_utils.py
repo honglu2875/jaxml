@@ -92,20 +92,6 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
     if input_ids.shape[1] == 0:
         raise ValueError("input_ids must contain at least one token.")
 
-    if attention_mask is not None:
-        attention_mask = jnp.asarray(attention_mask)
-        if attention_mask.ndim != 2:
-            raise ValueError(f"attention_mask must be a 2D array, got shape {attention_mask.shape}.")
-        if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
-            raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
-        if attention_mask.shape != input_ids.shape:
-            raise ValueError(
-                f"attention_mask shape must match input_ids shape; got {attention_mask.shape} and {input_ids.shape}."
-            )
-        attention_mask = attention_mask.astype(bool)
-        if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
-            raise ValueError("attention_mask must contain at least one valid token per batch row.")
-
     if kv_caches is not None:
         try:
             kv_caches = tuple(kv_caches)
@@ -118,6 +104,36 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
                 raise TypeError(f"kv_caches entries must be KVCache instances or None, got {type(kv_cache)} at index {idx}.")
             if kv_cache is not None:
                 kv_cache.validate_state()
+
+    expected_mask_shape = input_ids.shape
+    if kv_caches is not None:
+        populated_mask_shapes = tuple(
+            kv_cache.mask.shape for kv_cache in kv_caches if kv_cache is not None and kv_cache.mask is not None
+        )
+        if populated_mask_shapes:
+            expected_mask_shape = populated_mask_shapes[0]
+            if any(mask_shape != expected_mask_shape for mask_shape in populated_mask_shapes):
+                raise ValueError("kv_caches populated entries must share attention mask shape.")
+            if expected_mask_shape[0] != input_ids.shape[0]:
+                raise ValueError(
+                    "kv_caches populated entries must share input_ids batch size; "
+                    f"got {expected_mask_shape[0]} and {input_ids.shape[0]}."
+                )
+
+    if attention_mask is not None:
+        attention_mask = jnp.asarray(attention_mask)
+        if attention_mask.ndim != 2:
+            raise ValueError(f"attention_mask must be a 2D array, got shape {attention_mask.shape}.")
+        if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
+            raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
+        if attention_mask.shape != expected_mask_shape:
+            raise ValueError(
+                "attention_mask shape must match input_ids shape or populated KV cache mask shape; "
+                f"got {attention_mask.shape} and expected {expected_mask_shape}."
+            )
+        attention_mask = attention_mask.astype(bool)
+        if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+            raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
     return input_ids, attention_mask, kv_caches
 

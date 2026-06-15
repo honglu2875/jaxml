@@ -66,6 +66,44 @@ def test_prepare_model_inputs_validates_kv_cache_state():
         prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, (cache,), num_layers=1)
 
 
+def test_prepare_model_inputs_accepts_populated_cache_attention_mask_shape():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    input_ids, attention_mask, kv_caches = prepare_model_inputs(
+        jnp.ones((1, 1), dtype=jnp.int32),
+        cache.mask,
+        (cache,),
+        num_layers=1,
+    )
+
+    assert input_ids.shape == (1, 1)
+    assert attention_mask.shape == (1, 4)
+    assert kv_caches == (cache,)
+
+
+def test_prepare_model_inputs_rejects_token_attention_mask_for_populated_cache():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    with pytest.raises(ValueError, match="populated KV cache mask shape"):
+        prepare_model_inputs(
+            jnp.ones((1, 1), dtype=jnp.int32),
+            jnp.ones((1, 1), dtype=bool),
+            (cache,),
+            num_layers=1,
+        )
+
+
+def test_prepare_model_inputs_rejects_inconsistent_populated_cache_mask_shapes():
+    k, v = _kv(seq_len=2)
+    short_cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+    long_cache = KVCache.init(5).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    with pytest.raises(ValueError, match="share attention mask shape"):
+        prepare_model_inputs(jnp.ones((1, 1), dtype=jnp.int32), None, (short_cache, long_cache), num_layers=2)
+
+
 def test_prepare_model_inputs_rejects_invalid_populated_kv_cache_state():
     cache = KVCache(
         k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
@@ -338,6 +376,47 @@ def test_models_accept_empty_kv_cache_entries_without_attention_mask(request, fi
 
     assert output.last_hidden_state.shape[:2] == input_ids.shape
     assert output.kv_caches == kv_caches
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_accept_populated_cache_attention_mask_shape(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        prompt_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+        kv_caches = tuple(KVCache.init(model.config.max_position_embeddings) for _ in range(model.num_layers))
+        prefill = model.apply(params, prompt_ids, kv_caches=kv_caches, use_cache=True)
+        input_ids = jnp.array([[2]], dtype=jnp.int32)
+        attention_mask = prefill.kv_caches[0].mask
+
+        output = model.apply(
+            params,
+            input_ids,
+            attention_mask=attention_mask,
+            kv_caches=prefill.kv_caches,
+            use_cache=True,
+        )
+
+    assert output.last_hidden_state.shape[:2] == input_ids.shape
+    assert output.kv_caches is not None
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_token_attention_mask_for_populated_cache(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        prompt_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+        kv_caches = tuple(KVCache.init(model.config.max_position_embeddings) for _ in range(model.num_layers))
+        prefill = model.apply(params, prompt_ids, kv_caches=kv_caches, use_cache=True)
+        input_ids = jnp.array([[2]], dtype=jnp.int32)
+
+        with pytest.raises(ValueError, match="populated KV cache mask shape"):
+            model.apply(
+                params,
+                input_ids,
+                attention_mask=jnp.ones(input_ids.shape, dtype=bool),
+                kv_caches=prefill.kv_caches,
+                use_cache=True,
+            )
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
