@@ -40,6 +40,11 @@ def normalize_model_output_flags(
 
 
 def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_logits: int) -> jnp.ndarray:
+    hidden_states = jnp.asarray(hidden_states)
+    if hidden_states.ndim != 3:
+        raise ValueError(f"hidden_states must be a 3D array, got shape {hidden_states.shape}.")
+    if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
+        raise TypeError(f"hidden_states must contain floating point values, got dtype {hidden_states.dtype}.")
     keep_last_n_logits = _normalize_count("keep_last_n_logits", keep_last_n_logits)
     if keep_last_n_logits < 0:
         raise ValueError(f"keep_last_n_logits must be non-negative, got {keep_last_n_logits}.")

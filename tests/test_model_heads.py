@@ -3,6 +3,22 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from jaxml.models._utils import slice_last_n_logits_hidden_states
+
+
+def test_slice_last_n_logits_hidden_states_rejects_invalid_rank():
+    hidden_states = jnp.ones((1, 4), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="3D array"):
+        slice_last_n_logits_hidden_states(hidden_states, keep_last_n_logits=1)
+
+
+def test_slice_last_n_logits_hidden_states_rejects_non_floating_hidden_states():
+    hidden_states = jnp.ones((1, 4, 8), dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="floating point"):
+        slice_last_n_logits_hidden_states(hidden_states, keep_last_n_logits=1)
+
 
 @pytest.mark.parametrize(
     "fixture_name",
