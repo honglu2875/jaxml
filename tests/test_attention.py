@@ -240,6 +240,78 @@ def test_attention_mha_canonicalizes_integer_attention_mask():
     assert np.allclose(weights, expected_weights)
 
 
+def test_attention_repeat_kv_repeats_grouped_key_values():
+    config = ModelConfig(
+        head_dim=2,
+        hidden_size=4,
+        num_heads=2,
+        num_kv_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=2**-0.5,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    key_states = jnp.array([[[[1.0, 2.0]], [[3.0, 4.0]]]], dtype=jnp.float32)
+    value_states = key_states + 10
+
+    keys, values = attn.apply({}, key_states, value_states, method=Attention.repeat_kv)
+
+    assert keys.shape == (1, 2, 2, 2)
+    assert values.shape == (1, 2, 2, 2)
+    assert np.allclose(keys[:, :, 0], key_states[:, :, 0])
+    assert np.allclose(keys[:, :, 1], key_states[:, :, 0])
+    assert np.allclose(values[:, :, 0], value_states[:, :, 0])
+    assert np.allclose(values[:, :, 1], value_states[:, :, 0])
+
+
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"key_states": jnp.zeros((1, 2, 1), dtype=jnp.float32)}, ValueError, "key_states must be a 4D array"),
+        ({"value_states": jnp.zeros((1, 2, 1, 2), dtype=jnp.int32)}, TypeError, "value_states must contain floating"),
+        ({"value_states": jnp.zeros((1, 3, 1, 2), dtype=jnp.float32)}, ValueError, "key_states and value_states"),
+        (
+            {
+                "key_states": jnp.zeros((1, 2, 2, 2), dtype=jnp.float32),
+                "value_states": jnp.zeros((1, 2, 2, 2), dtype=jnp.float32),
+            },
+            ValueError,
+            "num_key_value_heads",
+        ),
+        (
+            {
+                "key_states": jnp.zeros((1, 2, 1, 3), dtype=jnp.float32),
+                "value_states": jnp.zeros((1, 2, 1, 3), dtype=jnp.float32),
+            },
+            ValueError,
+            "config.head_dim",
+        ),
+    ],
+)
+def test_attention_repeat_kv_rejects_invalid_states(kwargs, exception, match):
+    config = ModelConfig(
+        head_dim=2,
+        hidden_size=4,
+        num_heads=2,
+        num_kv_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=2**-0.5,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    defaults = {
+        "key_states": jnp.zeros((1, 2, 1, 2), dtype=jnp.float32),
+        "value_states": jnp.zeros((1, 2, 1, 2), dtype=jnp.float32),
+    }
+
+    with pytest.raises(exception, match=match):
+        attn.apply({}, **(defaults | kwargs), method=Attention.repeat_kv)
+
+
 @pytest.mark.parametrize(
     "kwargs,exception,match",
     [

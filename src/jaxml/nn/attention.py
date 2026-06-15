@@ -82,6 +82,34 @@ def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarra
         )
 
 
+def _validate_key_value_states(
+    key_states: jnp.ndarray,
+    value_states: jnp.ndarray,
+    *,
+    num_key_value_heads: int,
+    head_dim: int,
+):
+    for name, states in (("key_states", key_states), ("value_states", value_states)):
+        if states.ndim != 4:
+            raise ValueError(f"{name} must be a 4D array, got shape {states.shape}.")
+        if not jnp.issubdtype(states.dtype, jnp.floating):
+            raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
+
+    if key_states.shape != value_states.shape:
+        raise ValueError(
+            f"key_states and value_states must have the same shape, got {key_states.shape} and {value_states.shape}."
+        )
+    if key_states.shape[2] != num_key_value_heads:
+        raise ValueError(
+            "key_states and value_states must match config.num_key_value_heads, "
+            f"got {key_states.shape[2]} and expected {num_key_value_heads}."
+        )
+    if key_states.shape[-1] != head_dim:
+        raise ValueError(
+            "key_states and value_states must match config.head_dim, " f"got {key_states.shape[-1]} and expected {head_dim}."
+        )
+
+
 def _validate_alibi_slope(alibi_slope, num_heads: int):
     if alibi_slope is None:
         return None
@@ -220,6 +248,14 @@ class Attention(Block):
         return kv_cache.k, kv_cache.v, kv_cache.mask, kv_cache
 
     def repeat_kv(self, key_states: jnp.ndarray, value_states: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        key_states = jnp.asarray(key_states)
+        value_states = jnp.asarray(value_states)
+        _validate_key_value_states(
+            key_states,
+            value_states,
+            num_key_value_heads=self.config.num_key_value_heads,
+            head_dim=self.config.head_dim,
+        )
         batch, seq_len, num_key_value_heads, head_dim = key_states.shape
         n_rep = self.config.num_heads // self.config.num_key_value_heads
 
