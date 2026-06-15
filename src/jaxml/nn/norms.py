@@ -27,6 +27,10 @@ def _init_with_ones(axis_name: str):
     return nn.with_logical_partitioning(lambda _, shape, dtype: jnp.ones(shape, dtype=dtype), (axis_name,))
 
 
+def _init_with_zeros(axis_name: str):
+    return nn.with_logical_partitioning(lambda _, shape, dtype: jnp.zeros(shape, dtype=dtype), (axis_name,))
+
+
 def _normalize_count(name: str, value: int) -> int:
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
@@ -141,7 +145,7 @@ class LayerNorm(nn.Module):
         if use_bias:
             self.bias = param_with_axes(
                 "bias",
-                _init_with_ones(self.axis_name),
+                _init_with_zeros(self.axis_name),
                 (hidden_size,),
                 dtype,
                 axes=(self.axis_name,),
