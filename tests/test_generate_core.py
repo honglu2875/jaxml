@@ -163,6 +163,35 @@ def test_generate_accepts_numpy_scalar_control_arguments():
     assert output.tokens.shape == (1, 1)
 
 
+@pytest.mark.parametrize(
+    "include_prompt,expected_tokens",
+    [
+        (False, np.empty((1, 0), dtype=np.int32)),
+        (True, np.array([[3, 4]], dtype=np.int32)),
+    ],
+)
+def test_generate_zero_new_tokens_returns_without_prefill(include_prompt, expected_tokens):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called when max_new_tokens is zero.")
+
+    rng = jnp.array([0, 9], dtype=jnp.uint32)
+    output = generate(
+        {},
+        eval_fn,
+        jnp.array([[3, 4]], dtype=jnp.int32),
+        attention_mask=jnp.array([[1, 1]], dtype=jnp.int32),
+        kv_caches=(),
+        call_hash="zero-new-tokens",
+        sampling_method=RngSamplingMethod(),
+        rng=rng,
+        max_new_tokens=0,
+        include_prompt=include_prompt,
+    )
+
+    assert np.array_equal(np.array(output.tokens), expected_tokens)
+    assert np.array_equal(np.array(output.rng), np.array(rng))
+
+
 def test_generate_returns_rng_for_decoding_continuation(monkeypatch):
     def fake_load_if_exists(name, hash, log=True):
         del name, hash, log

@@ -166,6 +166,13 @@ def generate(
         if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
+    if max_new_tokens == 0:
+        if include_prompt:
+            tokens = prompt_tokens
+        else:
+            tokens = jnp.empty((prompt_tokens.shape[0], 0), dtype=prompt_tokens.dtype)
+        return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=rng)
+
     sample_fn = sampling_method.get_sampling_fn()
     loop_fn_params = dict(
         sample_fn=sample_fn,
