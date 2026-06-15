@@ -400,7 +400,12 @@ def load_compiled_fn(name: str, hash=0):
 
 
 def _is_stale_compiled_fn_error(error: TypeError) -> bool:
-    return "Function compiled with input pytree does not match" in str(error)
+    message = str(error)
+    stale_error_fragments = (
+        "Function compiled with input pytree does not match",
+        "Argument types differ from the types for which this computation was compiled",
+    )
+    return any(fragment in message for fragment in stale_error_fragments)
 
 
 def load_if_exists(name: str, hash: str, log: bool = True):

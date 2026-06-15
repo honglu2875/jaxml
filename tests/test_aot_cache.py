@@ -195,6 +195,30 @@ def test_load_if_exists_recompiles_when_cached_input_tree_is_stale(monkeypatch):
     assert compiled_calls == [2]
 
 
+def test_load_if_exists_recompiles_when_cached_argument_signature_is_stale(monkeypatch):
+    compiled_calls = []
+
+    def stale_fn(x):
+        raise TypeError(
+            "Argument types differ from the types for which this computation was compiled. "
+            "The mismatches are: Argument 'x' compiled with float32[2] and called with float32[3]."
+        )
+
+    def compiled_fn(x):
+        compiled_calls.append(x)
+        return x + 1
+
+    monkeypatch.setattr("jaxml.utils.compiled_fn_exist", lambda name, hash: True)
+    monkeypatch.setattr("jaxml.utils.load_compiled_fn", lambda *args, **kwargs: stale_fn)
+    monkeypatch.setattr("jaxml.utils.save_compiled_fn", lambda *args, **kwargs: 1)
+    monkeypatch.setattr("jaxml.utils.jax.jit", lambda fn: FakeJit(fn, compiled_fn))
+
+    wrapped = load_if_exists("prefill", "abc", log=False)(lambda x: x + 1)
+
+    assert wrapped(2) == 3
+    assert compiled_calls == [2]
+
+
 def test_load_if_exists_preserves_non_stale_type_errors(monkeypatch):
     def broken_fn(x):
         raise TypeError("model bug")
