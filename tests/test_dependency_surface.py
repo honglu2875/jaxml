@@ -37,6 +37,13 @@ def _exact_direct_pins():
         yield pytest.param(name, version, id=name)
 
 
+def _project_runtime_requirements():
+    pyproject = _project_config()
+    yield from pyproject["project"]["dependencies"]
+    for requirements in pyproject["project"]["optional-dependencies"].values():
+        yield from requirements
+
+
 def _requirement_entry(requirement: str, marker: str | None = None):
     for operator in _SPECIFIER_OPERATORS:
         if operator not in requirement:
@@ -87,6 +94,12 @@ def test_lock_metadata_matches_project_dependencies():
     }
 
     assert actual == expected
+
+
+def test_project_runtime_requirements_are_exactly_pinned():
+    unpinned = [requirement for requirement in _project_runtime_requirements() if "==" not in requirement]
+
+    assert unpinned == []
 
 
 def test_tpu_extra_keeps_jax_runtime_pins_aligned_with_base_dependencies():
