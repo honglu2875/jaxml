@@ -5,6 +5,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from ..cache import KVCache
+
 
 def _normalize_count(name: str, value: int) -> int:
     if isinstance(value, (bool, np.bool_)):
@@ -67,7 +69,15 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
         if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
-    if kv_caches is not None and len(kv_caches) != num_layers:
-        raise ValueError(f"kv_caches must contain one cache per layer, got {len(kv_caches)} and expected {num_layers}.")
+    if kv_caches is not None:
+        try:
+            kv_caches = tuple(kv_caches)
+        except TypeError as e:
+            raise TypeError("kv_caches must be a sequence containing one cache per layer.") from e
+        if len(kv_caches) != num_layers:
+            raise ValueError(f"kv_caches must contain one cache per layer, got {len(kv_caches)} and expected {num_layers}.")
+        for idx, kv_cache in enumerate(kv_caches):
+            if kv_cache is not None and not isinstance(kv_cache, KVCache):
+                raise TypeError(f"kv_caches entries must be KVCache instances or None, got {type(kv_cache)} at index {idx}.")
 
     return input_ids, attention_mask, kv_caches

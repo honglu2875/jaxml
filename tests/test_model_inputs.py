@@ -3,6 +3,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from jaxml.cache import KVCache
+
 
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
 
@@ -77,6 +79,27 @@ def test_models_reject_wrong_number_of_kv_caches(request, fixture_name):
 
         with pytest.raises(ValueError, match="one cache per layer"):
             model.apply(params, input_ids, kv_caches=(), use_cache=True)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_non_sequence_kv_caches(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        with pytest.raises(TypeError, match="kv_caches must be a sequence"):
+            model.apply(params, input_ids, kv_caches=KVCache.init(4), use_cache=True)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_invalid_kv_cache_entries(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+        kv_caches = (None,) * (model.num_layers - 1) + (object(),)
+
+        with pytest.raises(TypeError, match="KVCache instances or None"):
+            model.apply(params, input_ids, kv_caches=kv_caches, use_cache=True)
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
