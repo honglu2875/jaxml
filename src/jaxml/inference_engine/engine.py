@@ -22,7 +22,7 @@ from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
 
-GENERATION_AOT_CACHE_VERSION = "generate_v4"
+GENERATION_AOT_CACHE_VERSION = "generate_v5"
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -485,13 +485,15 @@ class Engine:
                 kv_caches = tuple(c.resize(cache_len) for c in kv_caches)
                 continue
 
+            step_attention_mask = attention_mask if generated_count == 0 else None
+            input_signature = self._pytree_signature((next_input_tokens, step_attention_mask))
             call_hash = _hash(
                 GENERATION_AOT_CACHE_VERSION,
                 str(self.model),
                 str(self.config),
                 params_signature,
                 platform_signature,
-                str(next_input_tokens.shape),
+                input_signature,
                 str(sampling_method),
                 str(top_k),
                 str(cache_len),
@@ -502,7 +504,7 @@ class Engine:
                 self.params,
                 apply,
                 next_input_tokens,
-                attention_mask if generated_count == 0 else None,
+                step_attention_mask,
                 kv_caches,
                 call_hash,
                 sampling_method,
