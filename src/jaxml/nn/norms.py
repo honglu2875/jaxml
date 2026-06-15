@@ -66,6 +66,8 @@ def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: 
         raise ValueError(f"{module_name} input must have at least one dimension.")
     if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
         raise TypeError(f"{module_name} input must contain floating point values, got dtype {hidden_states.dtype}.")
+    if hidden_states.size == 0:
+        raise ValueError(f"{module_name} input must not contain empty axes, got shape {hidden_states.shape}.")
     if hidden_states.shape[-1] != hidden_size:
         raise ValueError(f"{module_name} hidden dimension mismatch: got {hidden_states.shape[-1]} and expected {hidden_size}.")
     return hidden_states
