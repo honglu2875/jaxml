@@ -45,7 +45,7 @@ class DummyEngine:
 
 
 @pytest.mark.parametrize("field_name", ["seed", "max_new_tokens", "top_k"])
-@pytest.mark.parametrize("value", [True, 1.5])
+@pytest.mark.parametrize("value", [True, np.bool_(True), 1.5])
 def test_generation_config_rejects_non_integer_count_fields(field_name, value):
     with pytest.raises(TypeError, match=f"{field_name} must be an integer"):
         GenerationConfig(**{field_name: value})
@@ -168,7 +168,7 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
         model_dtype="bfloat16",
         engine_dtype="engine-dtype",
         inference_config=inference_config,
-        use_tpu=True,
+        use_tpu=np.bool_(True),
         cache_stride=128,
         tokenizer=tokenizer,
         model_kwargs={"trust_remote_code": True},
@@ -178,6 +178,21 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     assert calls["load_model"] == ("some/model", "llama", "bfloat16", {"trust_remote_code": True})
     assert calls["engine_init"] == ("model", inference_config, {"params": "params"}, "engine-dtype", 128)
     assert calls["use_tpu"] is True
+
+
+def test_from_hf_rejects_non_boolean_use_tpu_before_loading(monkeypatch):
+    calls = []
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid use_tpu.")
+
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(TypeError, match="use_tpu must be a boolean"):
+        TextGenerationPipeline.from_hf("some/model", tokenizer=DummyTokenizer(), use_tpu=1)
+
+    assert calls == []
 
 
 def test_load_model_from_hf_dispatches_architecture(monkeypatch):

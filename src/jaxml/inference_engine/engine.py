@@ -152,6 +152,8 @@ class Engine:
         Returns:
             a tree of properly sharded parameters
         """
+        use_tpu = _normalize_bool("use_tpu", use_tpu)
+        reinit_weight = _normalize_bool("reinit_weight", reinit_weight)
         tp_size = self.config.tp_size
         dp_size = self.config.dp_size
         weights = weights or self.params

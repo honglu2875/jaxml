@@ -143,6 +143,32 @@ def test_engine_init_params_rejects_weights_without_params(llama_model_with_head
             engine.init_params(weights={"cache": {}}, use_tpu=False)
 
 
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"use_tpu": 1}, "use_tpu must be a boolean"),
+        ({"reinit_weight": 1}, "reinit_weight must be a boolean"),
+    ],
+)
+def test_engine_init_params_rejects_non_boolean_control_flags(llama_model_with_head, kwargs, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(TypeError, match=match):
+            engine.init_params(**kwargs)
+
+
+def test_engine_init_params_accepts_numpy_boolean_control_flags(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        engine.init_params(use_tpu=np.bool_(False), reinit_weight=np.bool_(False))
+
+    assert "params" in engine.params
+
+
 def test_engine_shard_params_rejects_object_without_spec(llama_model_with_head):
     model, params = llama_model_with_head
     engine = Engine(model, InferenceConfig(), params)

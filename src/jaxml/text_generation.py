@@ -11,7 +11,7 @@ from jaxml.inference_engine.engine import Engine, InferenceConfig
 
 
 def _normalize_count(name: str, value: int) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
     try:
         return operator.index(value)
@@ -81,6 +81,7 @@ class TextGenerationPipeline:
         model_kwargs: Optional[dict[str, Any]] = None,
     ):
         """Build a text-generation pipeline from a supported Hugging Face checkpoint."""
+        use_tpu = _normalize_bool("use_tpu", use_tpu)
         if tokenizer is None:
             try:
                 from transformers import AutoTokenizer
