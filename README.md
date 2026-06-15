@@ -46,3 +46,19 @@ print(text)
 ```
 
 The lower-level engine still accepts token arrays directly through `jaxml.inference_engine.Engine`.
+
+# Development
+
+CPU validation is the default and is what GitHub CI runs:
+
+```bash
+uv run --frozen --extra dev make verify-cpu
+```
+
+TPU validation is intentionally split out because it requires a visible TPU runtime and `libtpu`:
+
+```bash
+uv run --frozen --extra dev --extra tpu make verify-tpu
+```
+
+The TPU tests are marked with `pytest.mark.tpu` and are excluded from the CPU suite.

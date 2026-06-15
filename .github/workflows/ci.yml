@@ -43,8 +43,5 @@ jobs:
       - name: Verify lockfile
         run: uv lock --locked
 
-      - name: Lint
-        run: uv run --frozen --extra dev make lint
-
-      - name: Test
-        run: uv run --frozen --extra dev make pytest-cpu
+      - name: Verify CPU
+        run: uv run --frozen --extra dev make verify-cpu
