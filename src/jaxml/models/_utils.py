@@ -54,6 +54,10 @@ def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_lo
 
 
 def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
+    num_layers = _normalize_count("num_layers", num_layers)
+    if num_layers <= 0:
+        raise ValueError(f"num_layers must be positive, got {num_layers}.")
+
     input_ids = jnp.asarray(input_ids)
     if input_ids.ndim != 2:
         raise ValueError(f"input_ids must be a 2D array, got shape {input_ids.shape}.")

@@ -4,8 +4,34 @@ import numpy as np
 import pytest
 
 from jaxml.cache import KVCache
+from jaxml.models._utils import prepare_model_inputs
 
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
+
+
+def test_prepare_model_inputs_accepts_numpy_integer_num_layers():
+    input_ids, attention_mask, kv_caches = prepare_model_inputs(
+        jnp.ones((1, 2), dtype=jnp.int32),
+        None,
+        (None,),
+        num_layers=np.int64(1),
+    )
+
+    assert input_ids.shape == (1, 2)
+    assert attention_mask is None
+    assert kv_caches == (None,)
+
+
+@pytest.mark.parametrize("num_layers", [True, np.bool_(True), 1.5])
+def test_prepare_model_inputs_rejects_non_integer_num_layers(num_layers):
+    with pytest.raises(TypeError, match="num_layers must be an integer"):
+        prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, None, num_layers=num_layers)
+
+
+@pytest.mark.parametrize("num_layers", [0, -1])
+def test_prepare_model_inputs_rejects_non_positive_num_layers(num_layers):
+    with pytest.raises(ValueError, match="num_layers must be positive"):
+        prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, None, num_layers=num_layers)
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
