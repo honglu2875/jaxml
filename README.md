@@ -49,7 +49,19 @@ The lower-level engine still accepts token arrays directly through `jaxml.infere
 
 # Development
 
-CPU validation is the default and is what GitHub CI runs:
+Tests are split by cadence:
+
+- `critical`: required CPU push gate for broad API, generation, cache, and dependency-surface coverage.
+- `milestone`: full CPU suite for model internals, conversion utilities, and broader regression coverage.
+- `tpu`: TPU-only checks for the local TPU runtime and JAX/libtpu setup.
+
+Run the push gate before every commit or push:
+
+```bash
+uv run --frozen --extra dev make verify-critical-cpu
+```
+
+Run the full CPU milestone suite before larger review points:
 
 ```bash
 uv run --frozen --extra dev make verify-cpu
@@ -61,4 +73,4 @@ TPU validation is intentionally split out because it requires a visible TPU runt
 uv run --frozen --extra dev --extra tpu make verify-tpu
 ```
 
-The TPU tests are marked with `pytest.mark.tpu` and are excluded from the CPU suite.
+GitHub CI runs the critical CPU gate on pushes and pull requests. The full milestone CPU suite runs on the weekly scheduled workflow and manual dispatch. TPU tests are excluded from CPU suites and remain a local/manual gate.
