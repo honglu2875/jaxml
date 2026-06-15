@@ -297,6 +297,50 @@ def test_generate_text_rejects_invalid_generation_config_before_tokenizing():
     assert engine.generate_calls == []
 
 
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"max_new_tokens": True}, TypeError, "max_new_tokens must be an integer"),
+        ({"max_new_tokens": -1}, ValueError, "max_new_tokens must be non-negative"),
+        ({"top_k": -1}, ValueError, "top_k must be non-negative"),
+        ({"include_prompt": 1}, TypeError, "include_prompt must be a boolean"),
+        ({"unknown_option": 1}, TypeError, "unexpected keyword argument"),
+    ],
+)
+def test_generate_tokens_rejects_invalid_generation_overrides_before_tokenizing(kwargs, exception, match):
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(exception, match=match):
+        pipeline.generate_tokens("hello", **kwargs)
+
+    assert tokenizer.encode_calls == []
+    assert engine.generate_calls == []
+
+
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"seed": True}, TypeError, "seed must be an integer"),
+        ({"temperature": np.nan}, ValueError, "temperature must be finite"),
+        ({"fuse_decoding": 1}, TypeError, "fuse_decoding must be a boolean"),
+        ({"unknown_option": 1}, TypeError, "unexpected keyword argument"),
+    ],
+)
+def test_generate_text_rejects_invalid_generation_overrides_before_tokenizing(kwargs, exception, match):
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(exception, match=match):
+        pipeline.generate_text("hello", **kwargs)
+
+    assert tokenizer.encode_calls == []
+    assert tokenizer.decode_calls == []
+    assert engine.generate_calls == []
+
+
 def test_generate_tokens_rejects_non_mapping_tokenize_kwargs_before_tokenizing():
     tokenizer = DummyTokenizer()
     engine = DummyEngine()

@@ -90,6 +90,34 @@ def _normalize_generation_config(generation_config: Optional[GenerationConfig]) 
     return generation_config
 
 
+def _normalize_generation_options(
+    generation_config: Optional[GenerationConfig],
+    generation_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    config = _normalize_generation_config(generation_config)
+    values = {
+        "seed": config.seed,
+        "max_new_tokens": config.max_new_tokens,
+        "top_k": config.top_k,
+        "top_p": config.top_p,
+        "min_p": config.min_p,
+        "temperature": config.temperature,
+        "fuse_decoding": config.fuse_decoding,
+        "include_prompt": config.include_prompt,
+    } | generation_kwargs
+    config = GenerationConfig(**values)
+    return {
+        "seed": config.seed,
+        "max_new_tokens": config.max_new_tokens,
+        "top_k": config.top_k,
+        "top_p": config.top_p,
+        "min_p": config.min_p,
+        "temperature": config.temperature,
+        "fuse_decoding": config.fuse_decoding,
+        "include_prompt": config.include_prompt,
+    }
+
+
 def _normalize_tokenizer_arrays(input_ids, attention_mask):
     input_ids = jnp.asarray(input_ids)
     if input_ids.ndim != 2:
@@ -241,12 +269,11 @@ class TextGenerationPipeline:
         tokenize_kwargs: Optional[dict[str, Any]] = None,
         **generation_kwargs,
     ) -> np.ndarray:
-        generation_config = _normalize_generation_config(generation_config)
+        generation_kwargs = _normalize_generation_options(generation_config, generation_kwargs)
         _, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
         return self._generate_tokens_from_arrays(
             input_ids,
             attention_mask,
-            generation_config=generation_config,
             **generation_kwargs,
         )
 
@@ -257,17 +284,7 @@ class TextGenerationPipeline:
         generation_config: Optional[GenerationConfig] = None,
         **generation_kwargs,
     ) -> np.ndarray:
-        config = _normalize_generation_config(generation_config)
-        kwargs = {
-            "seed": config.seed,
-            "max_new_tokens": config.max_new_tokens,
-            "top_k": config.top_k,
-            "top_p": config.top_p,
-            "min_p": config.min_p,
-            "temperature": config.temperature,
-            "fuse_decoding": config.fuse_decoding,
-            "include_prompt": config.include_prompt,
-        } | generation_kwargs
+        kwargs = _normalize_generation_options(generation_config, generation_kwargs)
         tokens = _normalize_generated_tokens(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
         if tokens.shape[0] != input_ids.shape[0]:
             raise ValueError(
@@ -284,13 +301,12 @@ class TextGenerationPipeline:
         decode_kwargs: Optional[dict[str, Any]] = None,
         **generation_kwargs,
     ) -> str | list[str]:
-        generation_config = _normalize_generation_config(generation_config)
+        generation_kwargs = _normalize_generation_options(generation_config, generation_kwargs)
         decode_kwargs = _normalize_optional_kwargs("decode_kwargs", decode_kwargs)
         is_single_prompt, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
         tokens = self._generate_tokens_from_arrays(
             input_ids,
             attention_mask,
-            generation_config=generation_config,
             **generation_kwargs,
         )
         decoded = _normalize_decoded_text(
