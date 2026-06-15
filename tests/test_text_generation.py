@@ -408,6 +408,61 @@ def test_generate_tokens_rejects_invalid_tokenizer_arrays_before_generation(enco
 
 
 @pytest.mark.parametrize(
+    "input_ids,attention_mask,exception,match",
+    [
+        (np.ones((2,), dtype=np.int32), None, ValueError, "input_ids must be a 2D array"),
+        (np.ones((1, 2), dtype=np.float32), None, TypeError, "integer token ids"),
+        (np.ones((1, 0), dtype=np.int32), None, ValueError, "at least one token"),
+        (np.ones((1, 2), dtype=np.int32), np.ones((2,), dtype=np.int32), ValueError, "attention_mask must be a 2D array"),
+        (
+            np.ones((1, 2), dtype=np.int32),
+            np.ones((1, 2), dtype=np.float32),
+            TypeError,
+            "attention_mask must be boolean or integer",
+        ),
+        (np.ones((1, 2), dtype=np.int32), np.ones((1, 3), dtype=np.int32), ValueError, "attention_mask shape must match"),
+        (
+            np.ones((1, 2), dtype=np.int32),
+            np.zeros((1, 2), dtype=np.int32),
+            ValueError,
+            "at least one valid token",
+        ),
+    ],
+)
+def test_generate_tokens_from_arrays_rejects_invalid_arrays_before_engine(
+    input_ids,
+    attention_mask,
+    exception,
+    match,
+):
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=DummyTokenizer())
+
+    with pytest.raises(exception, match=match):
+        pipeline._generate_tokens_from_arrays(
+            input_ids,
+            attention_mask,
+            generation_config=GenerationConfig(max_new_tokens=1),
+        )
+
+    assert engine.generate_calls == []
+
+
+def test_generate_tokens_from_arrays_canonicalizes_integer_attention_mask():
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=DummyTokenizer())
+
+    tokens = pipeline._generate_tokens_from_arrays(
+        np.array([[1, 2]], dtype=np.int32),
+        np.array([[1, 0]], dtype=np.int32),
+        generation_config=GenerationConfig(max_new_tokens=1, include_prompt=False),
+    )
+
+    assert tokens.shape == (1, 1)
+    assert np.array_equal(engine.generate_calls[0][1], np.array([[True, False]]))
+
+
+@pytest.mark.parametrize(
     "engine_output,exception,match",
     [
         (np.ones((3,), dtype=np.int32), ValueError, "2D token array"),

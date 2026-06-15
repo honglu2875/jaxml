@@ -286,6 +286,7 @@ class TextGenerationPipeline:
         **generation_kwargs,
     ) -> np.ndarray:
         kwargs = _normalize_generation_options(generation_config, generation_kwargs)
+        input_ids, attention_mask = _normalize_tokenizer_arrays(input_ids, attention_mask)
         tokens = _normalize_generated_tokens(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
         if tokens.shape[0] != input_ids.shape[0]:
             raise ValueError(
