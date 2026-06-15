@@ -112,7 +112,9 @@ class RotaryEmbedding(nn.Module):
             )
         if not jnp.issubdtype(position_ids.dtype, jnp.integer):
             raise TypeError(f"position_ids must contain integer positions, got dtype {position_ids.dtype}.")
-        if not _contains_tracer(position_ids):
+        position_ids_are_traced = _contains_tracer(position_ids)
+        valid_position_ids = (position_ids >= 0) & (position_ids < cos.shape[0])
+        if not position_ids_are_traced:
             if bool(jnp.any(position_ids < 0)):
                 raise ValueError("position_ids must contain non-negative positions.")
             if bool(jnp.any(position_ids >= cos.shape[0])):
@@ -120,8 +122,9 @@ class RotaryEmbedding(nn.Module):
 
         # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
         rotary_dim = cos.shape[-1]
-        cos = jnp.expand_dims(jnp.take(cos, position_ids, axis=0), axis=2)
-        sin = jnp.expand_dims(jnp.take(sin, position_ids, axis=0), axis=2)
+        safe_position_ids = jnp.where(valid_position_ids, position_ids, 0)
+        cos = jnp.expand_dims(jnp.take(cos, safe_position_ids, axis=0), axis=2)
+        sin = jnp.expand_dims(jnp.take(sin, safe_position_ids, axis=0), axis=2)
         qr, kr = q[..., :rotary_dim], k[..., :rotary_dim]
         q_embed = (qr * cos) + (RotaryEmbedding.rotate_half(qr) * sin)
         k_embed = (kr * cos) + (RotaryEmbedding.rotate_half(kr) * sin)
@@ -130,6 +133,9 @@ class RotaryEmbedding(nn.Module):
                 lambda x: jnp.concatenate([x[0], x[1][..., rotary_dim:]], axis=-1),
                 ((q_embed, q), (k_embed, k)),
             )
+        if position_ids_are_traced:
+            q_embed = jnp.where(valid_position_ids[:, :, None, None], q_embed, 0)
+            k_embed = jnp.where(valid_position_ids[:, :, None, None], k_embed, 0)
         return q_embed, k_embed
 
     @property

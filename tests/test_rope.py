@@ -196,3 +196,24 @@ def test_apply_rotary_pos_emb_accepts_traced_position_ids():
 
     assert q_out.shape == q.shape
     assert k_out.shape == k.shape
+
+
+def test_apply_rotary_pos_emb_masks_out_of_range_traced_position_ids():
+    q = jnp.ones((1, 3, 2, 4), dtype=jnp.float32)
+    k = jnp.ones((1, 3, 1, 4), dtype=jnp.float32)
+    cos = jnp.arange(16, dtype=jnp.float32).reshape(4, 4)
+    sin = jnp.zeros((4, 4), dtype=jnp.float32)
+
+    @jax.jit
+    def apply(position_ids):
+        return RotaryEmbedding.apply_rotary_pos_emb(q, k, cos, sin, position_ids)
+
+    q_out, k_out = apply(jnp.array([[0, -1, 4]], dtype=jnp.int32))
+
+    assert np.all(np.isfinite(np.array(q_out)))
+    assert np.all(np.isfinite(np.array(k_out)))
+    assert np.allclose(
+        q_out[:, 0], RotaryEmbedding.apply_rotary_pos_emb(q[:, :1], k[:, :1], cos, sin, jnp.array([[0]]))[0][:, 0]
+    )
+    assert np.array_equal(np.array(q_out[:, 1:]), np.zeros((1, 2, 2, 4), dtype=np.float32))
+    assert np.array_equal(np.array(k_out[:, 1:]), np.zeros((1, 2, 1, 4), dtype=np.float32))
