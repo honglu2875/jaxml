@@ -5,6 +5,7 @@ import pytest
 from flax import struct
 from flax.core import FrozenDict
 
+from jaxml.cache import KVCache
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.outputs import GenerationOutput
 
@@ -66,6 +67,11 @@ def _prefill_fake_caches(kv_caches, batch_size=1):
     return tuple(
         cache if cache.k is not None else cache.update(k, k, mask=jnp.ones((batch_size, 1), dtype=bool)) for cache in kv_caches
     )
+
+
+def _populated_cache_like(cache, batch_size):
+    k = jnp.ones((batch_size, 1, 1, 2), dtype=cache.dtype)
+    return KVCache.init(cache.max_seq_len, k=k, v=k, mask=jnp.ones((batch_size, 1), dtype=bool), dtype=cache.dtype)
 
 
 @pytest.mark.parametrize(
@@ -879,6 +885,15 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
             ),
             ValueError,
             "Invalid internal generation KV cache",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=(_populated_cache_like(kv_caches[0], batch_size=2), *kv_caches[1:]),
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "KV cache batch size",
         ),
     ],
 )

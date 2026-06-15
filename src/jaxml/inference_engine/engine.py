@@ -464,6 +464,11 @@ class Engine:
                 kv_cache.validate_state()
             except (TypeError, ValueError) as e:
                 raise type(e)(f"Invalid internal generation KV cache at index {idx}: {e}") from e
+            if kv_cache.k is not None and kv_cache.k.shape[0] != batch_size:
+                raise ValueError(
+                    "Internal generation KV cache batch size must match generated token batch size; "
+                    f"got {kv_cache.k.shape[0]} and {batch_size} at index {idx}."
+                )
 
         return tokens, kv_caches, rng
 
