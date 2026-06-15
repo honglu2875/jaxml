@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from flax import struct
+from flax.core import FrozenDict
 
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.outputs import GenerationOutput
@@ -153,7 +154,7 @@ def test_engine_init_params_rejects_non_dict_weights(llama_model_with_head):
         model, params = llama_model_with_head
         engine = Engine(model, InferenceConfig(), params)
 
-        with pytest.raises(TypeError, match="weights must be a dict"):
+        with pytest.raises(TypeError, match="weights must be a mapping"):
             engine.init_params(weights=("params", {}), use_tpu=False)
 
 
@@ -164,6 +165,26 @@ def test_engine_init_params_rejects_weights_without_params(llama_model_with_head
 
         with pytest.raises(ValueError, match="'params'"):
             engine.init_params(weights={"cache": {}}, use_tpu=False)
+
+
+def test_engine_init_params_accepts_frozen_dict_weights(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), {"params": {}})
+        weights = FrozenDict(params)
+
+        engine.init_params(weights=weights, use_tpu=False)
+
+    assert "params" in engine.params
+
+
+def test_engine_init_params_rejects_frozen_dict_without_params(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(ValueError, match="'params'"):
+            engine.init_params(weights=FrozenDict({"cache": {}}), use_tpu=False)
 
 
 def test_engine_init_params_rejects_empty_weights_mapping(llama_model_with_head):
@@ -178,7 +199,7 @@ def test_engine_init_params_rejects_empty_weights_mapping(llama_model_with_head)
 @pytest.mark.parametrize(
     "weights,exception,match",
     [
-        (("params", {}), TypeError, "weights must be a dict"),
+        (("params", {}), TypeError, "weights must be a mapping"),
         ({}, ValueError, "'params'"),
     ],
 )

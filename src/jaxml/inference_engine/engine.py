@@ -1,6 +1,7 @@
 import logging
 import operator
 import warnings
+from collections.abc import Mapping
 from typing import Any, Optional
 
 import flax.linen as nn
@@ -173,8 +174,8 @@ class Engine:
 
     @staticmethod
     def _validate_param_weights(weights: Any):
-        if not isinstance(weights, dict):
-            raise TypeError(f"weights must be a dict, got {type(weights)}.")
+        if not isinstance(weights, Mapping):
+            raise TypeError(f"weights must be a mapping, got {type(weights)}.")
         if "params" not in weights:
             raise ValueError(f"The key 'params' was not found in weights. Got keys: {weights.keys()}.")
 
