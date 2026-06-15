@@ -27,6 +27,7 @@ from ..nn.module import Block
 from ..nn.norms import RMSNorm
 from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
+from ._utils import slice_last_n_logits_hidden_states
 
 
 class GemmaMLP(Block):
@@ -303,8 +304,9 @@ class GemmaModelWithHead(Block):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-        # logits.shape: (bs, keep_last_n_logits, vocab_size)
-        logits = self.lm_head(outputs.last_hidden_state[:, -keep_last_n_logits:])
+        hidden_states = slice_last_n_logits_hidden_states(outputs.last_hidden_state, keep_last_n_logits)
+        # logits.shape: (bs, kept_length, vocab_size)
+        logits = self.lm_head(hidden_states)
         return CausalLMOutputWithCache(
             logits=logits,
             kv_caches=outputs.kv_caches,
