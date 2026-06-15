@@ -15,6 +15,19 @@ class RngSamplingMethod:
         return sample_fn
 
 
+class RecordingSamplingMethod:
+    def __init__(self):
+        self.calls = []
+
+    def get_sampling_fn(self):
+        def sample_fn(rng, logits, top_k, top_p, min_p, temp):
+            del rng
+            self.calls.append((top_k, top_p, min_p, temp))
+            return jnp.zeros(logits.shape[:-1], dtype=jnp.int32)
+
+        return sample_fn
+
+
 def test_prefill_rng_is_dynamic_when_compiled_function_is_reused(monkeypatch):
     cached_fns = {}
 
@@ -189,6 +202,42 @@ def test_generate_accepts_numpy_scalar_control_arguments():
     )
 
     assert output.tokens.shape == (1, 1)
+
+
+def test_generate_forwards_clipped_sampling_arguments_to_sampling_method(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+    sampling_method = RecordingSamplingMethod()
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash="sampling-clip",
+        sampling_method=sampling_method,
+        max_new_tokens=1,
+        top_k=-1,
+        top_p=2.0,
+        min_p=-0.5,
+        temperature=-1.0,
+    )
+
+    assert output.tokens.shape == (1, 1)
+    assert sampling_method.calls == [(0, 1.0, 0.0, 0.0)]
 
 
 @pytest.mark.parametrize(
