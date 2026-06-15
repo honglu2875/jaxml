@@ -1,6 +1,8 @@
 import pickle
 from pathlib import Path
 
+import jax
+import jax.numpy as jnp
 import pytest
 
 from jaxml.utils import (
@@ -115,6 +117,23 @@ def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
     with (cache_entry / "in_out_spec").open("rb") as f:
         assert pickle.load(f) == ("in-tree", "out-tree")
     assert not list(cache_entry.glob("*.tmp"))
+
+
+def test_save_and_load_compiled_fn_round_trips_jax_executable(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    _load_compiled_fn_from_path.cache_clear()
+
+    def add_one(x):
+        return x + 1
+
+    compiled = jax.jit(add_one).lower(jnp.ones((4,), dtype=jnp.float32)).compile()
+
+    byte_count = save_compiled_fn(compiled, "add_one", "abc", log=False)
+    loaded = load_compiled_fn("add_one", "abc", log=False)
+    result = loaded(jnp.arange(4, dtype=jnp.float32))
+
+    assert byte_count > 0
+    assert result.tolist() == [1.0, 2.0, 3.0, 4.0]
 
 
 def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tmp_path):
