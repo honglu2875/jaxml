@@ -409,6 +409,17 @@ def test_torch_to_jax_states_rejects_non_tensor_state_values():
         torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
 
 
+def test_torch_to_jax_states_rejects_non_string_state_keys():
+    with pytest.raises(TypeError, match="State key must be a string"):
+        torch_to_jax_states({1: torch.ones(1)}, dtype=torch.float32)
+
+
+@pytest.mark.parametrize("key", ["", ".weight", "stack..weight", "stack.weight."])
+def test_torch_to_jax_states_rejects_empty_state_key_segments(key):
+    with pytest.raises(ValueError, match="State key"):
+        torch_to_jax_states({key: torch.ones(1)}, dtype=torch.float32)
+
+
 def test_torch_to_jax_states_normalizes_repeated_numeric_key_segments():
     params = torch_to_jax_states(
         {"encoder.0.block.1.weight": torch.ones((2, 3))},

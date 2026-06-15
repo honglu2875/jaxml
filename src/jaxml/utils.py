@@ -118,8 +118,14 @@ def get_default_pos_ids(mask):
 
 
 def _normalize_state_key(key: str) -> list[str]:
+    if not isinstance(key, str):
+        raise TypeError(f"State key must be a string, got {type(key)}.")
+    if not key:
+        raise ValueError("State key must be non-empty.")
     normalized = []
     for segment in key.split("."):
+        if not segment:
+            raise ValueError(f"State key {key!r} must not contain empty path segments.")
         if segment.isdigit() and normalized:
             normalized[-1] += "_" + segment
         else:
