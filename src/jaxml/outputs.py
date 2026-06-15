@@ -55,3 +55,4 @@ class AttentionOutput:
 class GenerationOutput:
     tokens: jnp.ndarray
     kv_caches: tuple[KVCache, ...]
+    rng: Optional[jnp.ndarray] = None

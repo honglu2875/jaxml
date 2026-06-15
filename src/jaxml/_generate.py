@@ -92,6 +92,7 @@ def generate(
     call_hash: str,
     sampling_method: SamplingMethod,
     seed: int = 0,
+    rng: Optional[jnp.ndarray] = None,
     max_new_tokens: int = 100,
     top_k: int = 0,
     top_p: float = 1.0,
@@ -111,6 +112,7 @@ def generate(
         call_hash: A hash unique to each AOT-function for decoding
         sampling_method: A dataclass specifying the sampling method
         seed: random seed
+        rng: optional PRNG key to continue generation across calls
         max_new_tokens: the max generation length
         top_k: top k (0 will skip top_k sampling)
         top_p: top p
@@ -128,6 +130,14 @@ def generate(
     include_prompt = _normalize_bool("include_prompt", include_prompt)
     fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
     skip_prefill = _normalize_bool("skip_prefill", skip_prefill)
+    if rng is None:
+        rng = jax.random.PRNGKey(seed)
+    else:
+        rng = jnp.asarray(rng)
+        if rng.shape != (2,):
+            raise ValueError(f"rng must be a PRNG key with shape (2,), got shape {rng.shape}.")
+        if not jnp.issubdtype(rng.dtype, jnp.integer):
+            raise TypeError(f"rng must contain integer key data, got dtype {rng.dtype}.")
 
     prompt_tokens = jnp.array(prompt_tokens)
     if prompt_tokens.ndim == 1:
@@ -155,8 +165,6 @@ def generate(
         attention_mask = attention_mask.astype(bool)
         if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
-
-    rng = jax.random.PRNGKey(seed)
 
     sample_fn = sampling_method.get_sampling_fn()
     loop_fn_params = dict(
@@ -200,12 +208,12 @@ def generate(
                 (params, kv_caches, rng, first_generated_tok),
                 jnp.arange(decode_steps),
             )
-            return output[1].T, output[0][1]  # tokens, kv_caches
+            return output[1].T, output[0][1], output[0][2]  # tokens, kv_caches, rng
 
         if decode_steps == 0:
             generated_toks = jnp.empty((prompt_tokens.shape[0], 0), dtype=first_generated_tok.dtype)
         else:
-            generated_toks, kv_caches = _decode(params, kv_caches, rng, first_generated_tok)
+            generated_toks, kv_caches, rng = _decode(params, kv_caches, rng, first_generated_tok)
     else:
         # This could potentially turn into token-streaming
         loop_fn = functools.partial(_loop_fn_no_scan, **loop_fn_params)
@@ -230,4 +238,4 @@ def generate(
         else:
             tokens = jnp.concatenate((first_generated_tok, generated_toks), axis=-1)
 
-    return GenerationOutput(tokens=tokens, kv_caches=kv_caches)
+    return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=rng)

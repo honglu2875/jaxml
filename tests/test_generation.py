@@ -200,7 +200,7 @@ def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_
     ):
         del params, eval_fn, prompt_tokens, attention_mask, call_hash, sampling_method
         calls.append(kwargs)
-        return GenerationOutput(tokens=jnp.array([[1]], dtype=jnp.int32), kv_caches=kv_caches)
+        return GenerationOutput(tokens=jnp.array([[1]], dtype=jnp.int32), kv_caches=kv_caches, rng=kwargs["rng"])
 
     monkeypatch.setattr("jaxml._generate.generate", fake_generate)
 
@@ -222,6 +222,54 @@ def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_
     assert calls[0]["top_p"] == 1.0
     assert calls[0]["min_p"] == 0.0
     assert calls[0]["temperature"] == 0.0
+
+
+def test_engine_generate_continues_rng_across_cache_resize_chunks(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, call_hash, sampling_method
+        calls.append(kwargs)
+        next_rng = kwargs["rng"]
+        decode_steps = kwargs["max_new_tokens"] if kwargs["skip_prefill"] else kwargs["max_new_tokens"] - 1
+        for _ in range(decode_steps):
+            next_rng, _ = jax.random.split(next_rng)
+        tokens = jnp.full((1, kwargs["max_new_tokens"]), len(calls), dtype=jnp.int32)
+        return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=next_rng)
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params, cache_stride=4)
+        output = engine.generate(
+            jnp.ones((1, 4), dtype=jnp.int32),
+            seed=7,
+            max_new_tokens=6,
+            temperature=0.0,
+            include_prompt=False,
+        )
+
+    expected_second_rng = jax.random.PRNGKey(7)
+    for _ in range(3):
+        expected_second_rng, _ = jax.random.split(expected_second_rng)
+
+    assert output.shape == (1, 6)
+    assert len(calls) == 2
+    assert calls[0]["max_new_tokens"] == 4
+    assert calls[0]["skip_prefill"] is False
+    assert calls[1]["max_new_tokens"] == 2
+    assert calls[1]["skip_prefill"] is True
+    assert np.array_equal(np.array(calls[1]["rng"]), np.array(expected_second_rng))
 
 
 @pytest.mark.parametrize(

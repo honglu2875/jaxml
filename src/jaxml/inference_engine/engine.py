@@ -21,7 +21,7 @@ from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
 
-GENERATION_AOT_CACHE_VERSION = "generate_v3"
+GENERATION_AOT_CACHE_VERSION = "generate_v4"
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -363,6 +363,7 @@ class Engine:
         output_tokens = []
         next_input_tokens = prompt_tokens
         generated_count = 0
+        rng = jax.random.PRNGKey(seed)
         initial_buffer_len = (prompt_len // self.cache_stride + 1) * self.cache_stride
         kv_caches = self.init_cache(max_seq_len=initial_buffer_len)
         cache_len = initial_buffer_len
@@ -401,6 +402,7 @@ class Engine:
                 call_hash,
                 sampling_method,
                 seed=seed,
+                rng=rng,
                 max_new_tokens=new_token_count,
                 top_k=top_k,
                 top_p=top_p,
@@ -412,6 +414,9 @@ class Engine:
             )
             output_tokens.append(step_output.tokens)
             kv_caches = step_output.kv_caches
+            if step_output.rng is None:
+                raise ValueError("Internal generation did not return an RNG key for continuation.")
+            rng = step_output.rng
             generated_count += step_output.tokens.shape[1]
             next_input_tokens = step_output.tokens[:, -1:]
 

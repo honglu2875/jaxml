@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -160,6 +161,68 @@ def test_generate_accepts_numpy_scalar_control_arguments():
     )
 
     assert output.tokens.shape == (1, 1)
+
+
+def test_generate_returns_rng_for_decoding_continuation(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+    initial_rng = jnp.array([0, 7], dtype=jnp.uint32)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash="rng-continuation",
+        sampling_method=RngSamplingMethod(),
+        rng=initial_rng,
+        max_new_tokens=3,
+    )
+
+    expected_rng = initial_rng
+    for _ in range(2):
+        expected_rng, _ = jax.random.split(expected_rng)
+
+    assert output.tokens.shape == (1, 3)
+    assert np.array_equal(np.array(output.rng), np.array(expected_rng))
+
+
+@pytest.mark.parametrize(
+    "rng,exception,match",
+    [
+        (jnp.ones((1, 2), dtype=jnp.uint32), ValueError, "shape"),
+        (jnp.ones((2,), dtype=jnp.float32), TypeError, "integer key data"),
+    ],
+)
+def test_generate_rejects_invalid_rng_before_prefill(rng, exception, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-input",
+            sampling_method=RngSamplingMethod(),
+            rng=rng,
+            max_new_tokens=1,
+        )
 
 
 @pytest.mark.parametrize(
