@@ -181,6 +181,31 @@ def test_generate_tokens_rejects_prompt_batches_with_non_strings(prompts):
     assert engine.generate_calls == []
 
 
+def test_generate_tokens_rejects_non_mapping_tokenize_kwargs_before_tokenizing():
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(TypeError, match="tokenize_kwargs must be a mapping"):
+        pipeline.generate_tokens("hello", tokenize_kwargs=["padding"])
+
+    assert tokenizer.encode_calls == []
+    assert engine.generate_calls == []
+
+
+def test_generate_text_rejects_non_mapping_decode_kwargs_before_generation():
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(TypeError, match="decode_kwargs must be a mapping"):
+        pipeline.generate_text("hello", decode_kwargs=["skip_special_tokens"])
+
+    assert tokenizer.encode_calls == []
+    assert tokenizer.decode_calls == []
+    assert engine.generate_calls == []
+
+
 def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     calls = {}
 
@@ -229,6 +254,28 @@ def test_from_hf_rejects_non_boolean_use_tpu_before_loading(monkeypatch):
 
     with pytest.raises(TypeError, match="use_tpu must be a boolean"):
         TextGenerationPipeline.from_hf("some/model", tokenizer=DummyTokenizer(), use_tpu=1)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"tokenizer_kwargs": ["padding"]}, "tokenizer_kwargs must be a mapping"),
+        ({"model_kwargs": ["trust_remote_code"]}, "model_kwargs must be a mapping"),
+    ],
+)
+def test_from_hf_rejects_non_mapping_kwargs_before_loading(monkeypatch, kwargs, match):
+    calls = []
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid kwargs.")
+
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(TypeError, match=match):
+        TextGenerationPipeline.from_hf("some/model", tokenizer=DummyTokenizer(), **kwargs)
 
     assert calls == []
 

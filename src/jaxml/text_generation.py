@@ -1,6 +1,7 @@
 import math
 import numbers
 import operator
+from collections.abc import Mapping
 from collections.abc import Sequence as SequenceABC
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
@@ -34,6 +35,14 @@ def _normalize_bool(name: str, value: bool) -> bool:
     if not isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be a boolean, got {type(value)}.")
     return bool(value)
+
+
+def _normalize_optional_kwargs(name: str, value: Optional[dict[str, Any]]) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{name} must be a mapping when set, got {type(value)}.")
+    return dict(value)
 
 
 @dataclass(frozen=True)
@@ -92,18 +101,20 @@ class TextGenerationPipeline:
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
             raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
+        tokenizer_kwargs = _normalize_optional_kwargs("tokenizer_kwargs", tokenizer_kwargs)
+        model_kwargs = _normalize_optional_kwargs("model_kwargs", model_kwargs)
         if tokenizer is None:
             try:
                 from transformers import AutoTokenizer
             except ImportError as e:
                 raise ImportError("Please install transformers library.") from e
-            tokenizer = AutoTokenizer.from_pretrained(name, **(tokenizer_kwargs or {}))
+            tokenizer = AutoTokenizer.from_pretrained(name, **tokenizer_kwargs)
 
         model, params = load_model_from_hf(
             name,
             architecture=architecture,
             dtype=model_dtype,
-            **(model_kwargs or {}),
+            **model_kwargs,
         )
         engine = Engine(
             model,
@@ -127,7 +138,7 @@ class TextGenerationPipeline:
             raise ValueError("prompts must contain at least one prompt.")
         if not all(isinstance(prompt, str) for prompt in prompt_batch):
             raise TypeError("prompts must be a string or a sequence of strings.")
-        kwargs = self.default_tokenize_kwargs | (tokenize_kwargs or {})
+        kwargs = self.default_tokenize_kwargs | _normalize_optional_kwargs("tokenize_kwargs", tokenize_kwargs)
         encoded = self.tokenizer(prompt_batch, return_tensors="np", **kwargs)
         input_ids = self._get_encoded_field(encoded, "input_ids")
         attention_mask = self._get_encoded_field(encoded, "attention_mask", default=None)
@@ -186,6 +197,7 @@ class TextGenerationPipeline:
         decode_kwargs: Optional[dict[str, Any]] = None,
         **generation_kwargs,
     ) -> str | list[str]:
+        decode_kwargs = _normalize_optional_kwargs("decode_kwargs", decode_kwargs)
         is_single_prompt, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
         tokens = self._generate_tokens_from_arrays(
             input_ids,
@@ -193,5 +205,5 @@ class TextGenerationPipeline:
             generation_config=generation_config,
             **generation_kwargs,
         )
-        decoded = self.tokenizer.batch_decode(tokens, **(self.default_decode_kwargs | (decode_kwargs or {})))
+        decoded = self.tokenizer.batch_decode(tokens, **(self.default_decode_kwargs | decode_kwargs))
         return decoded[0] if is_single_prompt else decoded
