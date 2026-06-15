@@ -1016,6 +1016,20 @@ def test_prepare_generation_inputs_accepts_traced_attention_mask():
 
 
 @pytest.mark.parametrize(
+    "attention_mask",
+    [
+        jnp.array([1, 2, 0, 0], dtype=jnp.int32),
+        jnp.array([1, -1, 0, 0], dtype=jnp.int32),
+    ],
+)
+def test_prepare_generation_inputs_rejects_non_binary_integer_attention_mask(attention_mask):
+    input_ids = jnp.arange(4, dtype=jnp.int32)
+
+    with pytest.raises(ValueError, match="integer values must be 0 or 1"):
+        Engine._prepare_generation_inputs(input_ids, attention_mask)
+
+
+@pytest.mark.parametrize(
     "input_ids,match",
     [
         (jnp.ones((1, 2, 3), dtype=jnp.int32), "prompt_tokens must be a 1D or 2D array"),
@@ -1072,6 +1086,17 @@ def test_engine_generate_rejects_non_boolean_or_integer_attention_mask(llama_mod
         attention_mask = jnp.ones((1, 4), dtype=jnp.float32)
 
         with pytest.raises(TypeError, match="attention_mask must be boolean or integer"):
+            engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
+
+
+def test_engine_generate_rejects_non_binary_integer_attention_mask(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+        attention_mask = jnp.array([[1, 2, 1, 1]], dtype=jnp.int32)
+
+        with pytest.raises(ValueError, match="integer values must be 0 or 1"):
             engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
 
 
