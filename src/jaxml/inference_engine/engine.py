@@ -158,16 +158,26 @@ class Engine:
         return str((jax.tree.structure(tree), tuple(_leaf_signature(x) for x in leaves)))
 
     @staticmethod
+    def _device_platform(device: Any) -> Optional[str]:
+        if callable(device):
+            device = device()
+        if device is None:
+            return None
+        return str(getattr(device, "platform", device))
+
+    @staticmethod
     def _platform_signature(tree: Any) -> str:
         import jaxlib
 
         platforms = set()
         for leaf in jax.tree.leaves(tree):
-            device = getattr(leaf, "device", None)
-            if device is not None:
-                platforms.add(getattr(device, "platform", str(device)))
+            platform = Engine._device_platform(getattr(leaf, "device", None))
+            if platform is not None:
+                platforms.add(platform)
             for shard in getattr(leaf, "addressable_shards", ()):
-                platforms.add(shard.device.platform)
+                platform = Engine._device_platform(getattr(shard, "device", None))
+                if platform is not None:
+                    platforms.add(platform)
         if not platforms:
             platforms.add(jax.default_backend())
         return str((jax.__version__, jaxlib.__version__, jax.default_backend(), tuple(sorted(platforms))))

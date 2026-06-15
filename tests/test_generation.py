@@ -14,6 +14,36 @@ class FakeSharding:
         self.spec = spec
 
 
+class FakeDevice:
+    def __init__(self, platform):
+        self.platform = platform
+
+
+class FakeArrayWithDeviceProperty:
+    shape = (1,)
+    dtype = jnp.float32
+    device = FakeDevice("tpu")
+
+
+class FakeArrayWithDeviceMethod:
+    shape = (1,)
+    dtype = jnp.float32
+
+    def device(self):
+        return FakeDevice("gpu")
+
+
+class FakeShard:
+    def __init__(self, platform):
+        self.device = FakeDevice(platform)
+
+
+class FakeShardedArray:
+    shape = (1,)
+    dtype = jnp.float32
+    addressable_shards = (FakeShard("tpu"),)
+
+
 class InitShouldNotRunModel:
     def init(self, *args, **kwargs):
         raise AssertionError("model.init should not be called before rejecting invalid explicit weights.")
@@ -401,6 +431,25 @@ def test_engine_generate_hash_includes_kv_cache_signature(monkeypatch, llama_mod
 
     assert len(call_hashes) == 2
     assert call_hashes[0] != call_hashes[1]
+
+
+def test_engine_platform_signature_accepts_device_property():
+    signature = Engine._platform_signature(FakeArrayWithDeviceProperty())
+
+    assert "'tpu'" in signature
+
+
+def test_engine_platform_signature_accepts_device_method():
+    signature = Engine._platform_signature(FakeArrayWithDeviceMethod())
+
+    assert "'gpu'" in signature
+    assert "method" not in signature
+
+
+def test_engine_platform_signature_includes_addressable_shards():
+    signature = Engine._platform_signature(FakeShardedArray())
+
+    assert "'tpu'" in signature
 
 
 def test_engine_generate_continues_rng_across_cache_resize_chunks(monkeypatch, llama_model_with_head):
