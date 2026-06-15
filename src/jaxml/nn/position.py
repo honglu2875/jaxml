@@ -73,6 +73,9 @@ class RotaryEmbedding(nn.Module):
             raise ValueError(f"q must be a 4D array, got shape {q.shape}.")
         if k.ndim != 4:
             raise ValueError(f"k must be a 4D array, got shape {k.shape}.")
+        for name, value in (("q", q), ("k", k), ("cos", cos), ("sin", sin)):
+            if not jnp.issubdtype(value.dtype, jnp.floating):
+                raise TypeError(f"{name} must contain floating point values, got dtype {value.dtype}.")
         if q.shape[:2] != k.shape[:2] or q.shape[-1] != k.shape[-1]:
             raise ValueError(f"q and k must have matching batch, sequence, and head dimensions, got {q.shape} and {k.shape}.")
         if cos.ndim != 2 or sin.ndim != 2:
@@ -172,7 +175,12 @@ class RotaryEmbedding(nn.Module):
         return emb
 
     def __call__(self, x: jnp.ndarray, seq_len=None):
-        # x: [bs, seq_len, num_attention_heads, head_size]
+        # x supplies dtype plus batch/sequence axes; callers may pass hidden states or projected states.
+        x = jnp.asarray(x)
+        if x.ndim < 2:
+            raise ValueError(f"x must have batch and sequence axes, got shape {x.shape}.")
+        if not jnp.issubdtype(x.dtype, jnp.floating):
+            raise TypeError(f"x must contain floating point values, got dtype {x.dtype}.")
         if seq_len is None:
             seq_len = x.shape[1]
         seq_len = _normalize_count("seq_len", seq_len)

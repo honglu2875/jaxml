@@ -98,10 +98,28 @@ def test_uncached_rope_can_compute_beyond_max_length():
 
 
 @pytest.mark.parametrize(
+    "x,exception,match",
+    [
+        (jnp.ones((2,), dtype=jnp.float32), ValueError, "batch and sequence axes"),
+        (jnp.ones((1, 2, 1, 4), dtype=jnp.int32), TypeError, "x must contain floating point"),
+    ],
+)
+def test_rope_rejects_invalid_input_tensor(x, exception, match):
+    rope = RotaryEmbedding(dim=4, max_length=8)
+
+    with pytest.raises(exception, match=match):
+        rope.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize(
     "kwargs,exception,match",
     [
         ({"q": jnp.ones((1, 2, 4)), "k": jnp.ones((1, 2, 1, 4))}, ValueError, "q must be a 4D array"),
         ({"q": jnp.ones((1, 2, 1, 4)), "k": jnp.ones((1, 2, 4))}, ValueError, "k must be a 4D array"),
+        ({"q": jnp.ones((1, 2, 2, 4), dtype=jnp.int32)}, TypeError, "q must contain floating point"),
+        ({"k": jnp.ones((1, 2, 1, 4), dtype=jnp.int32)}, TypeError, "k must contain floating point"),
+        ({"cos": jnp.ones((4, 4), dtype=jnp.int32)}, TypeError, "cos must contain floating point"),
+        ({"sin": jnp.ones((4, 4), dtype=jnp.int32)}, TypeError, "sin must contain floating point"),
         ({"q": jnp.ones((1, 3, 1, 4)), "k": jnp.ones((1, 2, 1, 4))}, ValueError, "matching batch, sequence"),
         ({"cos": jnp.ones((4,)), "sin": jnp.ones((4, 4))}, ValueError, "cos and sin must be 2D"),
         ({"cos": jnp.ones((4, 4)), "sin": jnp.ones((5, 4))}, ValueError, "same shape"),
