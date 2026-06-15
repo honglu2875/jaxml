@@ -1,5 +1,7 @@
 import functools
 import logging
+import math
+import numbers
 import operator
 
 import jax
@@ -69,6 +71,15 @@ def _normalize_top_k(top_k: int) -> int:
     return _clip_value("top_k", top_k, 0, float("inf"))
 
 
+def _normalize_real(name: str, value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be a real number, got {type(value)}.")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}.")
+    return value
+
+
 @struct.dataclass
 class SamplingParams:
     top_k: int
@@ -80,9 +91,9 @@ class SamplingParams:
 def normalize_sampling_params(top_k: int, top_p: float, min_p: float, temp: float) -> SamplingParams:
     return SamplingParams(
         top_k=_normalize_top_k(top_k),
-        top_p=_clip_value("top_p", top_p, 0.0, 1.0),
-        min_p=_clip_value("min_p", min_p, 0.0, 1.0),
-        temp=_clip_value("temp", temp, 0.0, float("inf")),
+        top_p=_clip_value("top_p", _normalize_real("top_p", top_p), 0.0, 1.0),
+        min_p=_clip_value("min_p", _normalize_real("min_p", min_p), 0.0, 1.0),
+        temp=_clip_value("temp", _normalize_real("temp", temp), 0.0, float("inf")),
     )
 
 

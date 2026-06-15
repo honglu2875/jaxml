@@ -157,6 +157,24 @@ def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_
     assert calls[0]["temperature"] == 0.0
 
 
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"top_p": True}, TypeError, "top_p must be a real number"),
+        ({"min_p": "0.1"}, TypeError, "min_p must be a real number"),
+        ({"temperature": np.nan}, ValueError, "temp must be finite"),
+    ],
+)
+def test_engine_generate_rejects_invalid_sampling_values(llama_model_with_head, kwargs, exception, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+
+        with pytest.raises(exception, match=match):
+            engine.generate(input_ids, max_new_tokens=0, **kwargs)
+
+
 def test_engine_generate_accepts_unbatched_prompt_tokens(llama_model_with_head):
     with jax.default_device(jax.devices("cpu")[0]):
         model, params = llama_model_with_head
