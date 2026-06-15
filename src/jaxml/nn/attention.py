@@ -68,6 +68,10 @@ def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarra
     for name, states in (("query_states", query_states), ("key_states", key_states), ("value_states", value_states)):
         if states.ndim != 4:
             raise ValueError(f"{name} must be a 4D array, got shape {states.shape}.")
+        axis_names = ("batch", "sequence", "head", "head_dim")
+        for axis_name, axis_size in zip(axis_names, states.shape):
+            if axis_size <= 0:
+                raise ValueError(f"{name} {axis_name} axis must be non-empty, got shape {states.shape}.")
         if not jnp.issubdtype(states.dtype, jnp.floating):
             raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
 
@@ -92,6 +96,10 @@ def _validate_key_value_states(
     for name, states in (("key_states", key_states), ("value_states", value_states)):
         if states.ndim != 4:
             raise ValueError(f"{name} must be a 4D array, got shape {states.shape}.")
+        axis_names = ("batch", "sequence", "head", "head_dim")
+        for axis_name, axis_size in zip(axis_names, states.shape):
+            if axis_size <= 0:
+                raise ValueError(f"{name} {axis_name} axis must be non-empty, got shape {states.shape}.")
         if not jnp.issubdtype(states.dtype, jnp.floating):
             raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
 
