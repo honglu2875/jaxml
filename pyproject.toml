@@ -21,7 +21,7 @@ dependencies = [
 tpu = [
     "jax==0.8.3",
     "jaxlib==0.8.3",
-    "libtpu==0.0.13",
+    "libtpu==0.0.41",
 ]
 dev = [
     "pytest==8.4.2",
