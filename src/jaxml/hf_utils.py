@@ -93,7 +93,7 @@ def _normalize_hf_model_name(name: str | PathLike[str]) -> str:
         raise TypeError(f"name must be a string or path-like object, got {type(name)}.") from e
     if not isinstance(normalized, str):
         raise TypeError(f"name must resolve to a string path, got {type(normalized)}.")
-    if not normalized:
+    if not normalized or not normalized.strip():
         raise ValueError("name must be non-empty.")
     return normalized
 

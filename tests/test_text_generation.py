@@ -502,6 +502,7 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     "name,exception,match",
     [
         ("", ValueError, "non-empty"),
+        ("   ", ValueError, "non-empty"),
         (123, TypeError, "string or path-like"),
     ],
 )

@@ -114,6 +114,7 @@ def test_to_neox_jax_params_does_not_mutate_state_dict_keys():
     "name,exception,match",
     [
         ("", ValueError, "non-empty"),
+        ("   ", ValueError, "non-empty"),
         (123, TypeError, "string or path-like"),
     ],
 )
@@ -194,6 +195,7 @@ def test_direct_hf_loader_rejects_invalid_dtype_before_model_loading(monkeypatch
     "name,exception,match",
     [
         ("", ValueError, "non-empty"),
+        ("   ", ValueError, "non-empty"),
         (123, TypeError, "string or path-like"),
     ],
 )
