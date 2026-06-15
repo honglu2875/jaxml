@@ -49,6 +49,12 @@ def _normalize_optional_count(name: str, value: int | None) -> int | None:
     return value
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
 def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarray, value_states: jnp.ndarray):
     for name, states in (("query_states", query_states), ("key_states", key_states), ("value_states", value_states)):
         if states.ndim != 4:
@@ -212,6 +218,9 @@ class Attention(Block):
         value_states = jnp.asarray(value_states)
         _validate_attention_states(query_states, key_states, value_states)
         sliding_window = _normalize_optional_count("sliding_window", sliding_window)
+        causal = _normalize_bool("causal", causal)
+        softmax_fp32 = _normalize_bool("softmax_fp32", softmax_fp32)
+        output_attentions = _normalize_bool("output_attentions", output_attentions)
         x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) * self.attn_scale
 
         _, _, q_len, k_len = x.shape
@@ -327,6 +336,8 @@ class Attention(Block):
         **kwargs,
     ) -> AttentionOutput:
         """The base class implements basic MHA **without** positional encoding such as RoPE."""
+        output_attentions = _normalize_bool("output_attentions", output_attentions)
+        use_flash = _normalize_bool("use_flash", use_flash)
         if position_ids is not None:
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
@@ -374,6 +385,8 @@ class AttentionWithRoPE(Attention):
         use_flash: bool = False,
         sliding_window: int | None = None,
     ) -> AttentionOutput:
+        output_attentions = _normalize_bool("output_attentions", output_attentions)
+        use_flash = _normalize_bool("use_flash", use_flash)
         query_states, key_states, value_states = self.qkv(hidden_states)
 
         if attention_mask is None:

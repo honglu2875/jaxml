@@ -20,7 +20,7 @@ import torch
 
 from jaxml.config import ModelConfig
 from jaxml.hf_utils import to_llama_jax_params, to_neox_jax_params
-from jaxml.nn.attention import Attention
+from jaxml.nn.attention import Attention, AttentionWithRoPE
 from jaxml.test_utils.torch_utils import DummyPosEmb
 
 
@@ -219,6 +219,74 @@ def test_attention_mha_rejects_invalid_attention_states(kwargs, exception, match
             **(defaults | kwargs),
             method=Attention.mha,
         )
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"causal": 1}, "causal must be a boolean"),
+        ({"softmax_fp32": 1}, "softmax_fp32 must be a boolean"),
+        ({"output_attentions": 1}, "output_attentions must be a boolean"),
+    ],
+)
+def test_attention_mha_rejects_non_boolean_flags(kwargs, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+    value_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match=match):
+        attn.apply(
+            {},
+            query_states,
+            key_states,
+            value_states,
+            **kwargs,
+            method=Attention.mha,
+        )
+
+
+@pytest.mark.parametrize(
+    "attn_cls,use_rope",
+    [
+        (Attention, False),
+        (AttentionWithRoPE, True),
+    ],
+)
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"output_attentions": 1}, "output_attentions must be a boolean"),
+        ({"use_flash": 1}, "use_flash must be a boolean"),
+    ],
+)
+def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=use_rope,
+    )
+    attn = attn_cls(config)
+    hidden_states = jnp.zeros((1, 2, 1), dtype=jnp.float32)
+    params = attn.init(jax.random.PRNGKey(0), hidden_states)
+
+    with pytest.raises(TypeError, match=match):
+        attn.apply(params, hidden_states, **kwargs)
 
 
 @pytest.mark.parametrize(
