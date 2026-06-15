@@ -222,6 +222,8 @@ class Engine:
             raise TypeError(f"weights must be a mapping, got {type(weights)}.")
         if "params" not in weights:
             raise ValueError(f"The key 'params' was not found in weights. Got keys: {weights.keys()}.")
+        if not isinstance(weights["params"], Mapping):
+            raise TypeError(f"weights['params'] must be a mapping, got {type(weights['params'])}.")
 
     @timeit(logger)
     def init_params(self, weights: Optional[FrozenDict] = None, use_tpu: bool = False, reinit_weight: bool = False):
