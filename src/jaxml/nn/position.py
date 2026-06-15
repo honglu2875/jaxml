@@ -88,6 +88,9 @@ class RotaryEmbedding(nn.Module):
             raise ValueError(f"q must be a 4D array, got shape {q.shape}.")
         if k.ndim != 4:
             raise ValueError(f"k must be a 4D array, got shape {k.shape}.")
+        for name, value in (("q", q), ("k", k)):
+            if any(axis_size <= 0 for axis_size in value.shape):
+                raise ValueError(f"{name} must not contain empty axes, got shape {value.shape}.")
         for name, value in (("q", q), ("k", k), ("cos", cos), ("sin", sin)):
             if not jnp.issubdtype(value.dtype, jnp.floating):
                 raise TypeError(f"{name} must contain floating point values, got dtype {value.dtype}.")
@@ -202,6 +205,8 @@ class RotaryEmbedding(nn.Module):
         x = jnp.asarray(x)
         if x.ndim < 2:
             raise ValueError(f"x must have batch and sequence axes, got shape {x.shape}.")
+        if any(axis_size <= 0 for axis_size in x.shape):
+            raise ValueError(f"x must not contain empty axes, got shape {x.shape}.")
         if not jnp.issubdtype(x.dtype, jnp.floating):
             raise TypeError(f"x must contain floating point values, got dtype {x.dtype}.")
         if seq_len is None:

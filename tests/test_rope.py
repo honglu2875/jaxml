@@ -126,6 +126,9 @@ def test_uncached_rope_can_compute_beyond_max_length():
     "x,exception,match",
     [
         (jnp.ones((2,), dtype=jnp.float32), ValueError, "batch and sequence axes"),
+        (jnp.ones((0, 2, 1, 4), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.ones((1, 0, 1, 4), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.ones((1, 2, 0, 4), dtype=jnp.float32), ValueError, "empty axes"),
         (jnp.ones((1, 2, 1, 4), dtype=jnp.int32), TypeError, "x must contain floating point"),
     ],
 )
@@ -141,6 +144,14 @@ def test_rope_rejects_invalid_input_tensor(x, exception, match):
     [
         ({"q": jnp.ones((1, 2, 4)), "k": jnp.ones((1, 2, 1, 4))}, ValueError, "q must be a 4D array"),
         ({"q": jnp.ones((1, 2, 1, 4)), "k": jnp.ones((1, 2, 4))}, ValueError, "k must be a 4D array"),
+        ({"q": jnp.ones((0, 2, 2, 4))}, ValueError, "q must not contain empty axes"),
+        ({"q": jnp.ones((1, 0, 2, 4))}, ValueError, "q must not contain empty axes"),
+        ({"q": jnp.ones((1, 2, 0, 4))}, ValueError, "q must not contain empty axes"),
+        ({"q": jnp.ones((1, 2, 2, 0))}, ValueError, "q must not contain empty axes"),
+        ({"k": jnp.ones((0, 2, 1, 4))}, ValueError, "k must not contain empty axes"),
+        ({"k": jnp.ones((1, 0, 1, 4))}, ValueError, "k must not contain empty axes"),
+        ({"k": jnp.ones((1, 2, 0, 4))}, ValueError, "k must not contain empty axes"),
+        ({"k": jnp.ones((1, 2, 1, 0))}, ValueError, "k must not contain empty axes"),
         ({"q": jnp.ones((1, 2, 2, 4), dtype=jnp.int32)}, TypeError, "q must contain floating point"),
         ({"k": jnp.ones((1, 2, 1, 4), dtype=jnp.int32)}, TypeError, "k must contain floating point"),
         ({"cos": jnp.ones((4, 4), dtype=jnp.int32)}, TypeError, "cos must contain floating point"),
