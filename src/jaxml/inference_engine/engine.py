@@ -129,6 +129,20 @@ class Engine:
             mesh = Mesh(jax.devices(), (None,))
         return NamedSharding(mesh, pspec)
 
+    def _create_configured_mesh(self) -> Mesh:
+        mesh_layout = (self.config.dp_size, self.config.tp_size)
+        required_devices = self.config.dp_size * self.config.tp_size
+        devices = tuple(jax.devices()[:required_devices])
+        if len(devices) != required_devices:
+            raise ValueError(
+                f"InferenceConfig requires {required_devices} devices "
+                f"(tp_size={self.config.tp_size}, dp_size={self.config.dp_size}), but only {len(devices)} are available."
+            )
+        return Mesh(
+            devices=mesh_utils.create_device_mesh(mesh_layout, devices=devices),
+            axis_names=("data", "model"),
+        )
+
     def _shard_params(self, x: Any, y: PartitionSpec):
         if not hasattr(y, "spec"):
             raise TypeError(f"Expected sharding object with a spec attribute, got {type(y)}.")
@@ -238,10 +252,7 @@ class Engine:
         )
 
         if not is_single_device:
-            mesh = Mesh(
-                devices=mesh_utils.create_device_mesh(mesh_layout),
-                axis_names=("data", "model"),
-            )
+            mesh = self._create_configured_mesh()
 
             logical_state_spec = nn.get_partition_spec(abstract_variables)
             logical_state_sharding = logical_to_mesh_sharding(logical_state_spec, mesh, rules)
@@ -292,8 +303,6 @@ class Engine:
         self.params = params
 
     def prepare_input(self, inputs, dtype: Any = None):
-        tp_size = self.config.tp_size
-        dp_size = self.config.dp_size
         dtype = _normalize_optional_dtype("dtype", dtype)
 
         def _prepare_leaf(x):
@@ -309,10 +318,7 @@ class Engine:
 
         inputs = jax.tree.map(_prepare_leaf, inputs)
 
-        mesh = Mesh(
-            devices=mesh_utils.create_device_mesh((dp_size, tp_size)),
-            axis_names=("data", "model"),
-        )
+        mesh = self._create_configured_mesh()
         inputs = jax.device_put(inputs, self.mesh_sharding(PartitionSpec("data", None), mesh))
         return inputs
 

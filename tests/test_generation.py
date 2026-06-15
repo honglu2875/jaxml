@@ -276,6 +276,26 @@ def test_engine_prepare_input_converts_array_like_leaves_and_dtype(llama_model_w
     assert prepared["input_ids"].dtype == jnp.float32
 
 
+def test_engine_prepare_input_uses_configured_device_count(monkeypatch, llama_model_with_head):
+    captured = {}
+    available_devices = tuple(jax.devices())
+
+    def fake_create_device_mesh(mesh_shape, devices=None):
+        captured["mesh_shape"] = mesh_shape
+        captured["devices"] = tuple(devices)
+        return np.asarray(devices).reshape(mesh_shape)
+
+    monkeypatch.setattr("jaxml.inference_engine.engine.mesh_utils.create_device_mesh", fake_create_device_mesh)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    engine.prepare_input({"input_ids": np.array([[1, 2, 3]], dtype=np.int32)}, dtype=jnp.float32)
+
+    assert captured["mesh_shape"] == (1, 1)
+    assert captured["devices"] == available_devices[:1]
+
+
 @pytest.mark.parametrize(
     "inputs,exception,match",
     [
