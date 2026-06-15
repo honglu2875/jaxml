@@ -108,6 +108,14 @@ def _validate_kv_caches(kv_caches) -> tuple[KVCache, ...]:
     return kv_caches
 
 
+def _validate_prefilled_kv_caches(kv_caches: tuple[KVCache, ...]):
+    if not kv_caches:
+        raise ValueError("skip_prefill=True requires at least one prefilled KV cache.")
+    for idx, kv_cache in enumerate(kv_caches):
+        if kv_cache.k is None or kv_cache.v is None or kv_cache.mask is None or kv_cache.pos_id is None:
+            raise ValueError(f"skip_prefill=True requires kv_caches[{idx}] to be prefilled.")
+
+
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
 def _pad_to(x, length, axis=0):
     pad_shape = x.shape[:axis] + (length - x.shape[axis],) + x.shape[axis + 1 :]
@@ -220,6 +228,8 @@ def generate(
     if max_new_tokens < 0:
         raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
     kv_caches = _validate_kv_caches(kv_caches)
+    if skip_prefill:
+        _validate_prefilled_kv_caches(kv_caches)
     if attention_mask is not None:
         attention_mask = jnp.asarray(attention_mask)
         if attention_mask.ndim == 1:

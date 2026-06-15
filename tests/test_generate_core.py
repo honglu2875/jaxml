@@ -187,6 +187,65 @@ def test_generate_accepts_valid_initial_kv_caches_without_prefill():
     assert output.kv_caches == kv_caches
 
 
+@pytest.mark.parametrize(
+    "kv_caches,match",
+    [
+        ((), "at least one prefilled KV cache"),
+        ((KVCache.init(4),), r"kv_caches\[0\] to be prefilled"),
+    ],
+)
+def test_generate_skip_prefill_rejects_uninitialized_kv_caches(kv_caches, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for uninitialized skip_prefill caches.")
+
+    with pytest.raises(ValueError, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=kv_caches,
+            call_hash="invalid-skip-prefill-cache",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+            skip_prefill=True,
+        )
+
+
+def test_generate_skip_prefill_accepts_prefilled_kv_caches(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+    k = jnp.ones((1, 1, 1, 2), dtype=jnp.float32)
+    kv_caches = (KVCache.init(4, k=k, v=k, mask=jnp.ones((1, 1), dtype=bool)),)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=kv_caches,
+        call_hash="valid-skip-prefill-cache",
+        sampling_method=RngSamplingMethod(),
+        max_new_tokens=1,
+        skip_prefill=True,
+    )
+
+    assert output.tokens.shape == (1, 1)
+    assert output.kv_caches == kv_caches
+
+
 def test_generate_rejects_non_callable_eval_fn_before_prefill():
     with pytest.raises(TypeError, match="eval_fn must be callable"):
         generate(
