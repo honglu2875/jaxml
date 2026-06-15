@@ -83,6 +83,33 @@ def _normalize_generation_config(generation_config: Optional[GenerationConfig]) 
     return generation_config
 
 
+def _normalize_tokenizer_arrays(input_ids, attention_mask):
+    input_ids = jnp.asarray(input_ids)
+    if input_ids.ndim != 2:
+        raise ValueError(f"tokenizer input_ids must be a 2D array, got shape {input_ids.shape}.")
+    if not jnp.issubdtype(input_ids.dtype, jnp.integer):
+        raise TypeError(f"tokenizer input_ids must contain integer token ids, got dtype {input_ids.dtype}.")
+    if input_ids.shape[1] == 0:
+        raise ValueError("tokenizer input_ids must contain at least one token.")
+
+    if attention_mask is None:
+        return input_ids, None
+
+    attention_mask = jnp.asarray(attention_mask)
+    if attention_mask.ndim != 2:
+        raise ValueError(f"tokenizer attention_mask must be a 2D array, got shape {attention_mask.shape}.")
+    if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
+        raise TypeError(f"tokenizer attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
+    if attention_mask.shape != input_ids.shape:
+        raise ValueError(
+            f"tokenizer attention_mask shape must match input_ids shape; got {attention_mask.shape} and {input_ids.shape}."
+        )
+    attention_mask = attention_mask.astype(bool)
+    if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+        raise ValueError("tokenizer attention_mask must contain at least one valid token per batch row.")
+    return input_ids, attention_mask
+
+
 @dataclass
 class TextGenerationPipeline:
     engine: Engine
@@ -150,7 +177,8 @@ class TextGenerationPipeline:
         encoded = self.tokenizer(prompt_batch, return_tensors="np", **kwargs)
         input_ids = self._get_encoded_field(encoded, "input_ids")
         attention_mask = self._get_encoded_field(encoded, "attention_mask", default=None)
-        return is_single_prompt, jnp.array(input_ids), None if attention_mask is None else jnp.array(attention_mask)
+        input_ids, attention_mask = _normalize_tokenizer_arrays(input_ids, attention_mask)
+        return is_single_prompt, input_ids, attention_mask
 
     @staticmethod
     def _get_encoded_field(encoded: Any, name: str, default: Any = ...):

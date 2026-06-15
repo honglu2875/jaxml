@@ -44,6 +44,21 @@ class DummyEngine:
         return new_tokens
 
 
+class StaticTokenizer:
+    def __init__(self, encoded):
+        self.encoded = encoded
+        self.encode_calls = []
+        self.decode_calls = []
+
+    def __call__(self, prompts, return_tensors, **kwargs):
+        self.encode_calls.append((prompts, return_tensors, kwargs))
+        return self.encoded
+
+    def batch_decode(self, tokens, **kwargs):
+        self.decode_calls.append((np.array(tokens), kwargs))
+        return ["decoded"]
+
+
 @pytest.mark.parametrize("field_name", ["seed", "max_new_tokens", "top_k"])
 @pytest.mark.parametrize("value", [True, np.bool_(True), 1.5])
 def test_generation_config_rejects_non_integer_count_fields(field_name, value):
@@ -227,6 +242,47 @@ def test_generate_text_rejects_non_mapping_decode_kwargs_before_generation():
         pipeline.generate_text("hello", decode_kwargs=["skip_special_tokens"])
 
     assert tokenizer.encode_calls == []
+    assert tokenizer.decode_calls == []
+    assert engine.generate_calls == []
+
+
+@pytest.mark.parametrize(
+    "encoded,exception,match",
+    [
+        ({"input_ids": np.ones((2,), dtype=np.int32)}, ValueError, "input_ids must be a 2D array"),
+        ({"input_ids": np.ones((1, 2), dtype=np.float32)}, TypeError, "integer token ids"),
+        ({"input_ids": np.ones((1, 0), dtype=np.int32)}, ValueError, "at least one token"),
+        (
+            {"input_ids": np.ones((1, 2), dtype=np.int32), "attention_mask": np.ones((2,), dtype=np.int32)},
+            ValueError,
+            "attention_mask must be a 2D array",
+        ),
+        (
+            {"input_ids": np.ones((1, 2), dtype=np.int32), "attention_mask": np.ones((1, 2), dtype=np.float32)},
+            TypeError,
+            "attention_mask must be boolean or integer",
+        ),
+        (
+            {"input_ids": np.ones((1, 2), dtype=np.int32), "attention_mask": np.ones((1, 3), dtype=np.int32)},
+            ValueError,
+            "attention_mask shape must match",
+        ),
+        (
+            {"input_ids": np.ones((1, 2), dtype=np.int32), "attention_mask": np.zeros((1, 2), dtype=np.int32)},
+            ValueError,
+            "at least one valid token",
+        ),
+    ],
+)
+def test_generate_tokens_rejects_invalid_tokenizer_arrays_before_generation(encoded, exception, match):
+    tokenizer = StaticTokenizer(encoded)
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(exception, match=match):
+        pipeline.generate_tokens("hello")
+
+    assert tokenizer.encode_calls
     assert tokenizer.decode_calls == []
     assert engine.generate_calls == []
 
