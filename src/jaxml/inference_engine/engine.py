@@ -436,8 +436,11 @@ class Engine:
             raise ValueError(f"Internal generation token batch size must be {batch_size}, got {tokens.shape[0]}.")
         if tokens.shape[1] <= 0:
             raise ValueError("Internal generation must return at least one token per step.")
-        if tokens.shape[1] > max_new_tokens:
-            raise ValueError(f"Internal generation returned {tokens.shape[1]} tokens for a step limited to {max_new_tokens}.")
+        if tokens.shape[1] != max_new_tokens:
+            raise ValueError(
+                "Internal generation token length must match requested step length; "
+                f"got {tokens.shape[1]} and expected {max_new_tokens}."
+            )
         if not jnp.issubdtype(tokens.dtype, jnp.integer):
             raise TypeError(f"Internal generation tokens must contain integer token ids, got dtype {tokens.dtype}.")
         tokens = Engine._validate_token_ids_in_vocab("Internal generation", tokens, vocab_size)

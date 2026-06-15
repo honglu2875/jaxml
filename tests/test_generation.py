@@ -791,7 +791,16 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
                 rng=kwargs["rng"],
             ),
             ValueError,
-            "step limited",
+            "expected 1",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "expected 2",
         ),
         (
             lambda kwargs, kv_caches: GenerationOutput(
@@ -933,9 +942,10 @@ def test_engine_generate_rejects_invalid_internal_step_output(
     with jax.default_device(jax.devices("cpu")[0]):
         model, params = llama_model_with_head
         engine = Engine(model, InferenceConfig(), params)
+        max_new_tokens = 2 if match == "expected 2" else 1
 
         with pytest.raises(exception, match=match):
-            engine.generate(jnp.ones((1, 4), dtype=jnp.int32), max_new_tokens=1, include_prompt=False)
+            engine.generate(jnp.ones((1, 4), dtype=jnp.int32), max_new_tokens=max_new_tokens, include_prompt=False)
 
 
 @pytest.mark.parametrize(
