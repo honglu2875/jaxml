@@ -432,6 +432,17 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
                 k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
                 v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
                 max_seq_len=4,
+                mask=jnp.zeros((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "at least one valid token",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
                 mask=jnp.ones((1, 4), dtype=bool),
                 pos_id=jnp.zeros((1,), dtype=jnp.int32),
             ),
@@ -459,6 +470,17 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
             ),
             ValueError,
             r"within \[0, 4\)",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.array([[True, True, False, False]], dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "last valid token position",
         ),
     ],
 )

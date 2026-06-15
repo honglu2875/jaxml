@@ -148,6 +148,8 @@ class KVCache(struct.PyTreeNode):
             raise ValueError(f"Cached mask shape must match cached k/v batch and sequence axes, got {self.mask.shape}.")
         if not jnp.issubdtype(self.mask.dtype, jnp.bool_):
             raise TypeError(f"Cached mask must be boolean, got dtype {self.mask.dtype}.")
+        if not _contains_tracer(self.mask) and not bool(jnp.all(jnp.any(self.mask, axis=1))):
+            raise ValueError("Cached mask must contain at least one valid token per batch row.")
 
         if self.pos_id.shape != (self.k.shape[0], 1):
             raise ValueError(f"Cached pos_id shape must be {(self.k.shape[0], 1)}, got {self.pos_id.shape}.")
@@ -155,6 +157,9 @@ class KVCache(struct.PyTreeNode):
             raise TypeError(f"Cached pos_id must contain integer positions, got dtype {self.pos_id.dtype}.")
         if not _contains_tracer(self.pos_id) and bool(jnp.any((self.pos_id < 0) | (self.pos_id >= self.max_seq_len))):
             raise ValueError(f"Cached pos_id values must be within [0, {self.max_seq_len}).")
+        expected_pos_id = get_default_pos_ids(self.mask)
+        if not _contains_tracer((self.mask, self.pos_id)) and not bool(jnp.array_equal(self.pos_id, expected_pos_id)):
+            raise ValueError("Cached pos_id must match the last valid token position in cached mask.")
 
     def validate_state(self):
         self._validate_populated_state()
@@ -192,8 +197,6 @@ class KVCache(struct.PyTreeNode):
             return self.replace(k=k, v=v, mask=mask, pos_id=pos_id)
 
         self._validate_populated_state()
-        if not _contains_tracer(self.mask) and not bool(jnp.all(jnp.any(self.mask, axis=1))):
-            raise ValueError("Cached mask must contain at least one valid token per batch row before decode.")
         if mask is not None:
             mask = jnp.asarray(mask)
             if mask.shape != self.mask.shape:
