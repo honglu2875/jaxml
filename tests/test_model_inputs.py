@@ -203,6 +203,22 @@ def test_prepare_position_ids_accepts_broadcast_batch_axis():
     assert prepared.shape == (1, 4)
 
 
+def test_prepare_position_ids_rejects_invalid_max_position_embeddings():
+    input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+    position_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+    with pytest.raises(ValueError, match="max_position_embeddings must be positive"):
+        prepare_position_ids(position_ids, input_ids, max_position_embeddings=0)
+
+
+def test_prepare_position_ids_rejects_positions_at_or_above_max_position_embeddings():
+    input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+    position_ids = jnp.array([[0, 1, 2, 8]], dtype=jnp.int32)
+
+    with pytest.raises(ValueError, match="less than max_position_embeddings=8"):
+        prepare_position_ids(position_ids, input_ids, max_position_embeddings=np.int64(8))
+
+
 def test_default_attention_mask_uses_any_populated_cache_entry():
     k, v = _kv(seq_len=2)
     populated_cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
@@ -450,6 +466,17 @@ def test_models_reject_invalid_position_ids(request, fixture_name, position_ids,
         input_ids = jnp.arange(4, dtype=jnp.int32)[None]
 
         with pytest.raises(exception, match=match):
+            model.apply(params, input_ids, position_ids=position_ids)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_position_ids_at_or_above_max_position_embeddings(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+        position_ids = jnp.array([[0, 1, 2, model.config.max_position_embeddings]], dtype=jnp.int32)
+
+        with pytest.raises(ValueError, match="less than max_position_embeddings"):
             model.apply(params, input_ids, position_ids=position_ids)
 
 

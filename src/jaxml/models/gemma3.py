@@ -234,7 +234,7 @@ class GemmaModel(Block):
             self.num_layers,
             vocab_size=self.config.vocab_size,
         )
-        position_ids = prepare_position_ids(position_ids, input_ids)
+        position_ids = prepare_position_ids(position_ids, input_ids, self.config.max_position_embeddings)
 
         if attention_mask is None:
             attention_mask = prepare_default_attention_mask(input_ids, kv_caches)

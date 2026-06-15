@@ -183,9 +183,13 @@ def cached_sequence_length(kv_caches):
     return sequence_length
 
 
-def prepare_position_ids(position_ids, input_ids):
+def prepare_position_ids(position_ids, input_ids, max_position_embeddings: int | None = None):
     if position_ids is None:
         return None
+    if max_position_embeddings is not None:
+        max_position_embeddings = _normalize_count("max_position_embeddings", max_position_embeddings)
+        if max_position_embeddings <= 0:
+            raise ValueError(f"max_position_embeddings must be positive, got {max_position_embeddings}.")
     position_ids = jnp.asarray(position_ids)
     if position_ids.ndim != 2:
         raise ValueError(f"position_ids must be a 2D array, got shape {position_ids.shape}.")
@@ -198,4 +202,7 @@ def prepare_position_ids(position_ids, input_ids):
         )
     if not _contains_tracer(position_ids) and bool(jnp.any(position_ids < 0)):
         raise ValueError("position_ids must contain non-negative positions.")
+    position_ids_exceed_max = max_position_embeddings is not None and not _contains_tracer(position_ids)
+    if position_ids_exceed_max and bool(jnp.any(position_ids >= max_position_embeddings)):
+        raise ValueError(f"position_ids must be less than max_position_embeddings={max_position_embeddings}.")
     return position_ids
