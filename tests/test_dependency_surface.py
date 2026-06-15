@@ -49,6 +49,10 @@ def _workflow_config():
     return (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
 
 
+def _readme_text():
+    return (PROJECT_ROOT / "README.md").read_text()
+
+
 def _workflow_python_versions(job_name: str) -> tuple[str, ...]:
     workflow = _workflow_config()
     job_match = re.search(
@@ -251,6 +255,15 @@ def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events()
     assert "uv run --frozen --extra dev make verify-milestone-cpu" in workflow
     assert "workflow_dispatch:" in workflow
     assert "schedule:" in workflow
+
+
+def test_readme_documents_ci_test_cadence():
+    readme = _readme_text()
+
+    assert "shared push checks" in readme
+    assert "critical CPU tests on Python 3.11 and 3.12" in readme
+    assert "full milestone CPU suite runs on the weekly scheduled workflow and manual dispatch" in readme
+    assert "TPU tests are excluded from CPU suites" in readme
 
 
 @pytest.mark.parametrize("job_name", ["cpu", "milestone-cpu"])
