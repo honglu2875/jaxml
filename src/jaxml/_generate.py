@@ -88,6 +88,16 @@ def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
     return logits, kv_caches
 
 
+def _validate_sampled_tokens(sampled_tokens, logits: jnp.ndarray):
+    sampled_tokens = jnp.asarray(sampled_tokens)
+    expected_shape = logits.shape[:-1]
+    if sampled_tokens.shape != expected_shape:
+        raise ValueError(f"sample_fn must return token ids with shape {expected_shape}, got {sampled_tokens.shape}.")
+    if not jnp.issubdtype(sampled_tokens.dtype, jnp.integer):
+        raise TypeError(f"sample_fn must return integer token ids, got dtype {sampled_tokens.dtype}.")
+    return sampled_tokens
+
+
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
 def _pad_to(x, length, axis=0):
     pad_shape = x.shape[:axis] + (length - x.shape[axis],) + x.shape[axis + 1 :]
@@ -104,7 +114,7 @@ def _loop_fn(cache_and_rng_and_out, i, sample_fn, eval_fn, top_k, top_p, min_p, 
         use_cache=True,
     )
     outputs, kv_caches = _unpack_eval_output(eval_output, tok)
-    out_tk = sample_fn(subkey, outputs, top_k, top_p, min_p, temp)
+    out_tk = _validate_sampled_tokens(sample_fn(subkey, outputs, top_k, top_p, min_p, temp), outputs)
 
     return (params, kv_caches, key, out_tk), out_tk.squeeze(1).T
 
@@ -122,7 +132,7 @@ def _loop_fn_no_scan(key, kv_caches, tok, params, sample_fn, eval_fn, top_k, top
         use_cache=True,
     )
     outputs, kv_caches = _unpack_eval_output(eval_output, tok)
-    out_tk = sample_fn(subkey, outputs, top_k, top_p, min_p, temp)
+    out_tk = _validate_sampled_tokens(sample_fn(subkey, outputs, top_k, top_p, min_p, temp), outputs)
 
     return key, kv_caches, out_tk
 
@@ -247,8 +257,10 @@ def generate(
                 use_cache=True,
             )
             first_generated_logit, kv_caches = _unpack_eval_output(eval_output, prompt_tokens)
+            first_generated_tok = sample_fn(rng, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature)
+            first_generated_tok = _validate_sampled_tokens(first_generated_tok, first_generated_logit[:, -1:])
             return (
-                sample_fn(rng, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature),
+                first_generated_tok,
                 kv_caches,
             )
 

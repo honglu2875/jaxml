@@ -37,6 +37,18 @@ class NonCallableSamplingFn:
         return None
 
 
+class StaticSamplingMethod:
+    def __init__(self, token_ids):
+        self.token_ids = token_ids
+
+    def get_sampling_fn(self):
+        def sample_fn(rng, logits, top_k, top_p, min_p, temp):
+            del rng, logits, top_k, top_p, min_p, temp
+            return self.token_ids
+
+        return sample_fn
+
+
 def test_prefill_rng_is_dynamic_when_compiled_function_is_reused(monkeypatch):
     cached_fns = {}
 
@@ -201,6 +213,42 @@ def test_generate_rejects_invalid_eval_outputs(monkeypatch, eval_output, excepti
             kv_caches=(),
             call_hash="invalid-eval-output",
             sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "token_ids,exception,match",
+    [
+        (jnp.zeros((1,), dtype=jnp.int32), ValueError, "shape"),
+        (jnp.zeros((1, 1), dtype=jnp.float32), TypeError, "integer token ids"),
+    ],
+)
+def test_generate_rejects_invalid_sampled_tokens(monkeypatch, token_ids, exception, match):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-sampled-tokens",
+            sampling_method=StaticSamplingMethod(token_ids),
             max_new_tokens=1,
         )
 
