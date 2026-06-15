@@ -73,6 +73,48 @@ def test_norms_reject_scalar_inputs(norm_cls):
         norm.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"hidden_size": True}, TypeError, "hidden_size must be an integer"),
+        ({"hidden_size": np.bool_(True)}, TypeError, "hidden_size must be an integer"),
+        ({"hidden_size": 1.5}, TypeError, "hidden_size must be an integer"),
+        ({"hidden_size": 0}, ValueError, "hidden_size must be positive"),
+        ({"eps": True}, TypeError, "eps must be a real number"),
+        ({"eps": "1e-6"}, TypeError, "eps must be a real number"),
+        ({"eps": float("nan")}, ValueError, "eps must be finite"),
+        ({"eps": 0.0}, ValueError, "eps must be positive"),
+        ({"upcast": 1}, TypeError, "upcast must be a boolean"),
+    ],
+)
+def test_norms_reject_invalid_parameters(norm_cls, kwargs, exception, match):
+    norm = norm_cls(**({"hidden_size": 4} | kwargs))
+    x = jnp.ones((1, 2, 4), dtype=jnp.float32)
+
+    with pytest.raises(exception, match=match):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
+def test_layer_norm_rejects_non_boolean_use_bias():
+    norm = LayerNorm(hidden_size=4, use_bias=1)
+    x = jnp.ones((1, 2, 4), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="use_bias must be a boolean"):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
+def test_norms_accept_numpy_scalar_parameters(norm_cls):
+    norm = norm_cls(hidden_size=np.int64(4), eps=np.float64(1e-6), upcast=np.bool_(True))
+    x = jnp.ones((1, 2, 4), dtype=jnp.float32)
+
+    params = norm.init(jax.random.PRNGKey(0), x)
+    y = norm.apply(params, x)
+
+    assert y.shape == x.shape
+
+
 @pytest.mark.parametrize(
     "kwargs,exception,match",
     [
