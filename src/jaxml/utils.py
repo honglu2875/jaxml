@@ -166,6 +166,8 @@ def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"State value for key {source_key!r} must be a torch.Tensor, got {type(value)}.")
     tensor = value.detach().cpu()
+    if tensor.numel() == 0:
+        raise ValueError(f"State value for key {source_key!r} must not be empty.")
     if tensor.dtype == torch.bfloat16:
         tensor = tensor.to(torch.float32)
     return tensor.numpy().astype(dtype)

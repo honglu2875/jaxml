@@ -690,6 +690,19 @@ def test_torch_to_jax_states_rejects_non_tensor_state_values():
         torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
 
 
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"bias": torch.empty(0)},
+        {"weight": torch.empty((0, 4))},
+        {"q_proj.weight": torch.empty((4, 0))},
+    ],
+)
+def test_torch_to_jax_states_rejects_empty_state_tensors(state):
+    with pytest.raises(ValueError, match="must not be empty"):
+        torch_to_jax_states(state, dtype=torch.float32)
+
+
 def test_torch_to_jax_states_detaches_values_requiring_grad():
     params = torch_to_jax_states(
         {"bias": torch.tensor([1.0, 2.0], requires_grad=True)},
