@@ -103,8 +103,10 @@ def _write_bytes_atomically(path: Path, data: bytes):
 @functools.lru_cache()
 def _hash(*args) -> str:
     m = hashlib.sha256()
-    for s in args:
-        encoded = s.encode(encoding="utf-8")
+    for idx, value in enumerate(args):
+        if not isinstance(value, str):
+            raise TypeError(f"AOT cache hash arguments must be strings, got {type(value)} at index {idx}.")
+        encoded = value.encode(encoding="utf-8")
         m.update(len(encoded).to_bytes(8, byteorder="big"))
         m.update(encoded)
     return m.hexdigest()

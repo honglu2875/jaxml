@@ -25,6 +25,11 @@ def test_hash_frames_arguments_to_avoid_concatenation_collisions():
     assert _hash("ab", "c") != _hash("a", "bc")
 
 
+def test_hash_rejects_non_string_arguments():
+    with pytest.raises(TypeError, match="hash arguments must be strings"):
+        _hash("decode", 1)
+
+
 def test_compiled_fn_path_uses_cache_dir_env(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
 
