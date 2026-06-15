@@ -22,6 +22,25 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _infer_hf_head_dim(config) -> int:
+    head_dim = getattr(config, "head_dim", None)
+    if head_dim is not None:
+        head_dim = _normalize_count("head_dim", head_dim)
+        if head_dim <= 0:
+            raise ValueError(f"head_dim must be positive, got {head_dim}.")
+        return head_dim
+
+    hidden_size = _normalize_count("hidden_size", config.hidden_size)
+    num_attention_heads = _normalize_count("num_attention_heads", config.num_attention_heads)
+    if hidden_size <= 0:
+        raise ValueError(f"hidden_size must be positive, got {hidden_size}.")
+    if num_attention_heads <= 0:
+        raise ValueError(f"num_attention_heads must be positive, got {num_attention_heads}.")
+    if hidden_size % num_attention_heads != 0:
+        raise ValueError("hidden_size must be divisible by num_attention_heads when head_dim is not set.")
+    return hidden_size // num_attention_heads
+
+
 @struct.dataclass
 class ModelConfig:
     head_dim: int = struct.field(pytree_node=False)
@@ -162,7 +181,7 @@ class ModelConfig:
         # hidden_size is guaranteed to exist in HF config
         hidden_size = config.hidden_size
         # head_dim is usually hidden_size // num_attention_heads, but it can specify a different number
-        head_dim = getattr(config, "head_dim", None) or config.hidden_size // config.num_attention_heads
+        head_dim = _infer_hf_head_dim(config)
         num_heads = config.num_attention_heads
         num_layers = config.num_hidden_layers
         max_position_embeddings = config.max_position_embeddings

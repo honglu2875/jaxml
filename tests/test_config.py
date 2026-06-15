@@ -153,6 +153,72 @@ def test_model_config_from_hf_accepts_supported_config_subclasses():
     assert config.norm_eps == 1e-5
 
 
+def test_model_config_from_hf_accepts_integer_like_head_dim():
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    hf_config.head_dim = np.int64(8)
+
+    config = ModelConfig.from_hf(hf_config)
+
+    assert config.head_dim == 8
+
+
+@pytest.mark.parametrize(
+    ("head_dim", "exception", "match"),
+    [
+        (0, ValueError, "head_dim must be positive"),
+        (-1, ValueError, "head_dim must be positive"),
+        (True, TypeError, "head_dim must be an integer"),
+        (np.bool_(True), TypeError, "head_dim must be an integer"),
+        (1.5, TypeError, "head_dim must be an integer"),
+    ],
+)
+def test_model_config_from_hf_rejects_invalid_head_dim(head_dim, exception, match):
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    hf_config.head_dim = head_dim
+
+    with pytest.raises(exception, match=match):
+        ModelConfig.from_hf(hf_config)
+
+
+def test_model_config_from_hf_rejects_non_divisible_head_dim_fallback():
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=50,
+        intermediate_size=150,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    if hasattr(hf_config, "head_dim"):
+        del hf_config.head_dim
+
+    with pytest.raises(ValueError, match="hidden_size must be divisible"):
+        ModelConfig.from_hf(hf_config)
+
+
 def test_model_config_from_hf_maps_neox_specific_fields():
     from transformers import GPTNeoXConfig
 
