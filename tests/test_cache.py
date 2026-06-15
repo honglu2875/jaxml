@@ -210,6 +210,128 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
         cache.update(k, v, mask=None)
 
 
+@pytest.mark.parametrize(
+    "cache,exception,match",
+    [
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 3, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "same shape",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "4D arrays",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 3, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 3, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 3), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "sequence axis must match",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.int32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            TypeError,
+            "Cached k must contain floating",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.int32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            TypeError,
+            "Cached v must contain floating",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 3), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "Cached mask shape",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=jnp.float32),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            TypeError,
+            "Cached mask must be boolean or integer",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1,), dtype=jnp.int32),
+            ),
+            ValueError,
+            "Cached pos_id shape",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.float32),
+            ),
+            TypeError,
+            "Cached pos_id must contain integer",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.array([[4]], dtype=jnp.int32),
+            ),
+            ValueError,
+            r"within \[0, 4\)",
+        ),
+    ],
+)
+def test_kv_cache_update_rejects_invalid_populated_state(cache, exception, match):
+    k, v = _kv(batch=1, seq_len=1)
+
+    with pytest.raises(exception, match=match):
+        cache.update(k, v, mask=None)
+
+
 @pytest.mark.parametrize("mask_arg", ["none", "cached"])
 def test_kv_cache_update_decode_extends_cached_mask(mask_arg):
     k, v = _kv(seq_len=2)
