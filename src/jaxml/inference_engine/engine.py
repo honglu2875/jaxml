@@ -39,6 +39,15 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_optional_dtype(name: str, value: Any):
+    if value is None:
+        return None
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 @struct.dataclass
 class InferenceConfig:
     tp_size: int = 1
@@ -247,14 +256,26 @@ class Engine:
     def prepare_input(self, inputs, dtype: Any = None):
         tp_size = self.config.tp_size
         dp_size = self.config.dp_size
+        dtype = _normalize_optional_dtype("dtype", dtype)
+
+        def _prepare_leaf(x):
+            try:
+                x = jnp.asarray(x)
+            except TypeError as e:
+                raise TypeError(f"prepare_input leaves must be array-like, got {type(x)}.") from e
+            if x.ndim != 2:
+                raise ValueError(f"prepare_input leaves must be 2D arrays for data/model sharding, got shape {x.shape}.")
+            if dtype is not None:
+                x = x.astype(dtype)
+            return x
+
+        inputs = jax.tree.map(_prepare_leaf, inputs)
 
         mesh = Mesh(
             devices=mesh_utils.create_device_mesh((dp_size, tp_size)),
             axis_names=("data", "model"),
         )
         inputs = jax.device_put(inputs, self.mesh_sharding(PartitionSpec("data", None), mesh))
-        if dtype is not None:
-            inputs = jax.tree.map(lambda x: x.astype(dtype), inputs)
         return inputs
 
     def wrapped_apply_fn(

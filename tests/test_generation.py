@@ -197,6 +197,50 @@ def test_engine_init_params_accepts_numpy_boolean_control_flags(llama_model_with
     assert "params" in engine.params
 
 
+def test_engine_prepare_input_converts_array_like_leaves_and_dtype(llama_model_with_head):
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    prepared = engine.prepare_input({"input_ids": np.array([[1, 2, 3]], dtype=np.int32)}, dtype=jnp.float32)
+
+    assert prepared["input_ids"].shape == (1, 3)
+    assert prepared["input_ids"].dtype == jnp.float32
+
+
+@pytest.mark.parametrize(
+    "inputs,exception,match",
+    [
+        (object(), TypeError, "array-like"),
+        (jnp.ones((3,), dtype=jnp.int32), ValueError, "2D arrays"),
+        (jnp.ones((1, 2, 3), dtype=jnp.int32), ValueError, "2D arrays"),
+    ],
+)
+def test_engine_prepare_input_rejects_invalid_leaves(llama_model_with_head, inputs, exception, match):
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(exception, match=match):
+        engine.prepare_input(inputs)
+
+
+def test_engine_prepare_input_rejects_invalid_dtype_before_device_put(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_device_put(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("device_put should not be called for invalid dtype.")
+
+    monkeypatch.setattr(jax, "device_put", fake_device_put)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(TypeError, match="valid JAX dtype"):
+        engine.prepare_input(jnp.ones((1, 2), dtype=jnp.int32), dtype="not-a-dtype")
+
+    assert calls == []
+
+
 def test_engine_shard_params_rejects_object_without_spec(llama_model_with_head):
     model, params = llama_model_with_head
     engine = Engine(model, InferenceConfig(), params)
