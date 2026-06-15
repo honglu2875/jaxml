@@ -118,6 +118,15 @@ def test_engine_generate_rejects_negative_max_new_tokens(llama_model_with_head):
             engine.generate(input_ids, max_new_tokens=-1)
 
 
+def test_engine_generate_rejects_negative_max_new_tokens_before_prompt_or_sampling_validation(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(ValueError, match="max_new_tokens must be non-negative"):
+            engine.generate(jnp.ones((1, 2, 3), dtype=jnp.float32), max_new_tokens=-1, temperature=np.nan)
+
+
 @pytest.mark.parametrize("max_new_tokens", [True, 1.5])
 def test_engine_generate_rejects_non_integer_max_new_tokens(llama_model_with_head, max_new_tokens):
     with jax.default_device(jax.devices("cpu")[0]):

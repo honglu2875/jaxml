@@ -241,6 +241,8 @@ def generate(
     """
     seed = _normalize_count("seed", seed)
     max_new_tokens = _normalize_count("max_new_tokens", max_new_tokens)
+    if max_new_tokens < 0:
+        raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
     include_prompt = _normalize_bool("include_prompt", include_prompt)
     fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
     skip_prefill = _normalize_bool("skip_prefill", skip_prefill)
@@ -263,8 +265,6 @@ def generate(
         raise TypeError(f"prompt_tokens must contain integer token ids, got dtype {prompt_tokens.dtype}.")
     if prompt_tokens.shape[1] == 0:
         raise ValueError("prompt_tokens must contain at least one token.")
-    if max_new_tokens < 0:
-        raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
     kv_caches = _validate_kv_caches(kv_caches)
     if attention_mask is not None:
         attention_mask = jnp.asarray(attention_mask)

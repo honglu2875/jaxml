@@ -144,6 +144,24 @@ def test_generate_rejects_non_integer_prompt_tokens_before_prefill():
         )
 
 
+def test_generate_rejects_negative_max_new_tokens_before_prompt_or_sampling_validation():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    with pytest.raises(ValueError, match="max_new_tokens must be non-negative"):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 2, 3), dtype=jnp.float32),
+            attention_mask=None,
+            kv_caches=object(),
+            call_hash="negative-max-new-tokens",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=-1,
+            temperature=np.nan,
+        )
+
+
 @pytest.mark.parametrize(
     "kv_caches,exception,match",
     [

@@ -466,6 +466,8 @@ class Engine:
     ):
         seed = _normalize_count("seed", seed)
         max_new_tokens = _normalize_count("max_new_tokens", max_new_tokens)
+        if max_new_tokens < 0:
+            raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
         fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
         include_prompt = _normalize_bool("include_prompt", include_prompt)
         prompt_tokens, attention_mask = self._prepare_generation_inputs(prompt_tokens, attention_mask)
@@ -493,8 +495,6 @@ class Engine:
         # Note: top_k value cannot be traced and need to be hashed as well.
         prompt_len = prompt_tokens.shape[1]
 
-        if max_new_tokens < 0:
-            raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
         if max_new_tokens == 0:
             if include_prompt:
                 return prompt_tokens
