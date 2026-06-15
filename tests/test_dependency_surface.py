@@ -18,9 +18,35 @@ def _exact_direct_pins():
         yield pytest.param(name, version, id=name)
 
 
+def _exact_pin_map(requirements):
+    pins = {}
+    for requirement in requirements:
+        if "==" not in requirement:
+            continue
+        name, version = requirement.split("==", maxsplit=1)
+        pins[name] = version
+    return pins
+
+
 @pytest.mark.parametrize(("package_name", "expected_version"), list(_exact_direct_pins()))
 def test_installed_direct_dependency_matches_project_pin(package_name, expected_version):
     assert metadata.version(package_name) == expected_version
+
+
+def test_tpu_extra_keeps_jax_runtime_pins_aligned_with_base_dependencies():
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    base_pins = _exact_pin_map(pyproject["project"]["dependencies"])
+    tpu_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["tpu"])
+
+    assert tpu_pins["jax"] == base_pins["jax"]
+    assert tpu_pins["jaxlib"] == base_pins["jaxlib"]
+
+
+def test_tpu_extra_keeps_libtpu_explicitly_pinned():
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    tpu_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["tpu"])
+
+    assert "libtpu" in tpu_pins
 
 
 def test_jax_runtime_surface_executes_jitted_cpu_work():
