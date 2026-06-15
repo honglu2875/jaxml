@@ -27,6 +27,19 @@ def test_kv_cache_init_accepts_numpy_integer_capacity():
     assert cache.max_seq_len == 4
 
 
+@pytest.mark.parametrize("dtype", [None, "not-a-dtype", object()])
+def test_kv_cache_init_rejects_invalid_dtype(dtype):
+    with pytest.raises(TypeError, match="dtype must be a valid JAX dtype"):
+        KVCache.init(4, dtype=dtype)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, np.float32, "bfloat16"])
+def test_kv_cache_init_canonicalizes_dtype(dtype):
+    cache = KVCache.init(4, dtype=dtype)
+
+    assert cache.dtype == jnp.dtype(dtype)
+
+
 def test_kv_cache_init_accepts_complete_initial_state():
     k, v = _kv(seq_len=2)
     mask = jnp.array([[1, 1], [1, 0]], dtype=jnp.int32)

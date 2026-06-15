@@ -37,6 +37,15 @@ def _normalize_count(name: str, value: int) -> int:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
 
@@ -57,6 +66,7 @@ class KVCache(struct.PyTreeNode):
         dtype: Any = jnp.float32,
     ):
         max_seq_len = _normalize_count("max_seq_len", max_seq_len)
+        dtype = _normalize_dtype("dtype", dtype)
         if max_seq_len <= 0:
             raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
         if k is None and v is None and mask is None:
