@@ -1,3 +1,4 @@
+import math
 import numbers
 import operator
 from collections.abc import Sequence as SequenceABC
@@ -23,7 +24,10 @@ def _normalize_count(name: str, value: int) -> int:
 def _normalize_float(name: str, value: float) -> float:
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
         raise TypeError(f"{name} must be a real number, got {type(value)}.")
-    return float(value)
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}.")
+    return value
 
 
 def _normalize_bool(name: str, value: bool) -> bool:

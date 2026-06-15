@@ -63,6 +63,13 @@ def test_generation_config_rejects_non_real_sampling_fields(field_name, value):
         GenerationConfig(**{field_name: value})
 
 
+@pytest.mark.parametrize("field_name", ["top_p", "min_p", "temperature"])
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_generation_config_rejects_non_finite_sampling_fields(field_name, value):
+    with pytest.raises(ValueError, match=f"{field_name} must be finite"):
+        GenerationConfig(**{field_name: value})
+
+
 @pytest.mark.parametrize("field_name", ["fuse_decoding", "include_prompt"])
 @pytest.mark.parametrize("value", [1, "true"])
 def test_generation_config_rejects_non_boolean_fields(field_name, value):
