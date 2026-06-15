@@ -312,6 +312,10 @@ class Engine:
                 raise TypeError(f"prepare_input leaves must be array-like, got {type(x)}.") from e
             if x.ndim != 2:
                 raise ValueError(f"prepare_input leaves must be 2D arrays for data/model sharding, got shape {x.shape}.")
+            if x.shape[0] % self.config.dp_size != 0:
+                raise ValueError(
+                    f"prepare_input batch size must be divisible by dp_size={self.config.dp_size}, got {x.shape[0]}."
+                )
             if dtype is not None:
                 x = x.astype(dtype)
             return x

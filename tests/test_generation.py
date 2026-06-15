@@ -296,6 +296,53 @@ def test_engine_prepare_input_uses_configured_device_count(monkeypatch, llama_mo
     assert captured["devices"] == available_devices[:1]
 
 
+def test_engine_prepare_input_accepts_batch_divisible_by_dp_size(monkeypatch, llama_model_with_head):
+    available_devices = tuple(jax.devices())
+
+    def fake_devices():
+        return available_devices * 2
+
+    def fake_create_device_mesh(mesh_shape, devices=None):
+        return np.asarray(devices).reshape(mesh_shape)
+
+    monkeypatch.setattr("jaxml.inference_engine.engine.jax.devices", fake_devices)
+    monkeypatch.setattr("jaxml.inference_engine.engine.jax.device_count", lambda: 2)
+    monkeypatch.setattr("jaxml.inference_engine.engine.jax.device_put", lambda inputs, sharding: inputs)
+    monkeypatch.setattr("jaxml.inference_engine.engine.mesh_utils.create_device_mesh", fake_create_device_mesh)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(dp_size=2), params)
+
+    prepared = engine.prepare_input({"input_ids": np.array([[1, 2], [3, 4]], dtype=np.int32)}, dtype=jnp.float32)
+
+    assert prepared["input_ids"].shape == (2, 2)
+    assert prepared["input_ids"].dtype == jnp.float32
+
+
+def test_engine_prepare_input_rejects_batch_not_divisible_by_dp_size(monkeypatch, llama_model_with_head):
+    calls = []
+    available_devices = tuple(jax.devices())
+
+    def fake_devices():
+        return available_devices * 2
+
+    def fake_device_put(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("device_put should not be called for an invalid data-parallel batch size.")
+
+    monkeypatch.setattr("jaxml.inference_engine.engine.jax.devices", fake_devices)
+    monkeypatch.setattr("jaxml.inference_engine.engine.jax.device_count", lambda: 2)
+    monkeypatch.setattr(jax, "device_put", fake_device_put)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(dp_size=2), params)
+
+    with pytest.raises(ValueError, match="divisible by dp_size=2"):
+        engine.prepare_input({"input_ids": np.array([[1, 2], [3, 4], [5, 6]], dtype=np.int32)}, dtype=jnp.float32)
+
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     "inputs,exception,match",
     [
