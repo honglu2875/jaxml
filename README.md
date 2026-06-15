@@ -86,6 +86,8 @@ Run the push gate before every commit or push:
 uv run --frozen --extra dev make verify-critical-cpu
 ```
 
+This also builds the source distribution and wheel into `tmp/build-check` so packaging regressions fail the push gate.
+
 Run the full CPU milestone suite before larger review points:
 
 ```bash

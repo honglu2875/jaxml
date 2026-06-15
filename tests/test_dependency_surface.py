@@ -149,6 +149,13 @@ def test_lock_metadata_matches_project_dependencies():
     assert actual == expected
 
 
+def test_static_project_version_avoids_scm_build_versioning_dependency():
+    pyproject = _project_config()
+
+    assert "version" in pyproject["project"]
+    assert all("setuptools_scm" not in requirement for requirement in pyproject["build-system"]["requires"])
+
+
 def test_project_runtime_requirements_are_exactly_pinned():
     unpinned = [requirement for requirement in _project_runtime_requirements() if "==" not in requirement]
 
@@ -185,8 +192,15 @@ def test_critical_cpu_verification_runs_push_cadence_checks_before_tests():
         "dependency-check",
         "lint",
         "format-check",
+        "build-check",
         "pytest-critical-cpu",
     )
+
+
+def test_build_check_builds_source_and_wheel_artifacts_in_throwaway_path():
+    recipes = _makefile_recipes()
+
+    assert recipes["build-check"] == ["uv build --clear --out-dir tmp/build-check"]
 
 
 def test_milestone_cpu_verification_keeps_full_cpu_suite_available():

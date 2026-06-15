@@ -3,7 +3,7 @@ LINT_PATHS=src/jaxml/ tests/ scripts/
 CPU_TESTS=JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
 CRITICAL_CPU_TESTS=JAX_PLATFORMS=cpu pytest -m "critical and not tpu" tests/
 
-.PHONY: pytest pytest-cpu pytest-critical-cpu pytest-tpu lint format format-check lock-check dependency-check dependency-drift style verify-critical-cpu verify-cpu verify-milestone-cpu verify-tpu
+.PHONY: pytest pytest-cpu pytest-critical-cpu pytest-tpu lint format format-check build-check lock-check dependency-check dependency-drift style verify-critical-cpu verify-cpu verify-milestone-cpu verify-tpu
 
 pytest:
 	${CPU_TESTS}
@@ -29,6 +29,9 @@ format-check:
 	isort --check-only ${LINT_PATHS}
 	black --check ${LINT_PATHS}
 
+build-check:
+	uv build --clear --out-dir tmp/build-check
+
 lock-check:
 	uv lock --locked
 
@@ -40,7 +43,7 @@ dependency-drift:
 
 style: format lint
 
-verify-critical-cpu: lock-check dependency-check lint format-check pytest-critical-cpu
+verify-critical-cpu: lock-check dependency-check lint format-check build-check pytest-critical-cpu
 
 verify-cpu: verify-milestone-cpu
 
