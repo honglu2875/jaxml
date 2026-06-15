@@ -498,7 +498,7 @@ requires-dist = [
     { name = "jax-tqdm", specifier = "==0.4.0" },
     { name = "jaxlib", specifier = "==0.10.1" },
     { name = "jaxlib", marker = "extra == 'tpu'", specifier = "==0.10.1" },
-    { name = "libtpu", marker = "extra == 'tpu'", specifier = "==0.0.41" },
+    { name = "libtpu", marker = "extra == 'tpu'", specifier = "==0.0.42" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.0" },
     { name = "torch", marker = "extra == 'dev'", specifier = "==2.12.0" },
     { name = "transformers", marker = "extra == 'dev'", specifier = "==5.12.1" },
@@ -519,15 +519,15 @@ wheels = [
 
 [[package]]
 name = "libtpu"
-version = "0.0.41"
+version = "0.0.42"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/76/24f89a712006681479f03590386c247923b14943ccbc3e4b1253fbbf4269/libtpu-0.0.41-cp311-cp311-manylinux_2_31_x86_64.whl", hash = "sha256:62dd05e942de8f1379eff9a1b2ada33e1a99d0fbddf52ffce57b18268a0413e6", size = 211768643, upload-time = "2026-05-13T22:40:34.95Z" },
-    { url = "https://files.pythonhosted.org/packages/27/bb/70a97644f2114fe5dff0fb7ac58922e2188b6355a0439ea6ae14358a61d0/libtpu-0.0.41-cp312-cp312-manylinux_2_31_x86_64.whl", hash = "sha256:47feeac3cd4cd88c58342c20f3cb3635d1f2d53f8689aa24bbe9690e664629de", size = 211768760, upload-time = "2026-05-13T22:40:22.982Z" },
-    { url = "https://files.pythonhosted.org/packages/3c/6e/16eee4b4c3a642cef091f8aafea7797edc3d20f224ea265ae05dceba31b0/libtpu-0.0.41-cp313-cp313-manylinux_2_31_x86_64.whl", hash = "sha256:5dd67e594cefb67f4272efb5a3fa38cf9206b7dd1ab5fbd559001809f8b9dddb", size = 211768672, upload-time = "2026-05-13T22:41:07.061Z" },
-    { url = "https://files.pythonhosted.org/packages/f6/16/d5faa773888b6abb6575ad8ee347cf35e6cbfc8879340fcd7e8f3ba6fbaf/libtpu-0.0.41-cp313-cp313t-manylinux_2_31_x86_64.whl", hash = "sha256:ca9dd60976c035b071b2d5d61acdd78598f717bba4f277b3708269d05b5c32fb", size = 211769221, upload-time = "2026-05-13T22:40:56.767Z" },
-    { url = "https://files.pythonhosted.org/packages/b5/fe/bd3e068432c39e7bce1249ae4d8adb5cf01cb26f9dce2d2e3895334f1fdf/libtpu-0.0.41-cp314-cp314-manylinux_2_31_x86_64.whl", hash = "sha256:5c2776bffaac0acd0376e8c4a40981f5fcdbe71da067fe50da150eee51958efc", size = 211768490, upload-time = "2026-05-13T22:40:45.371Z" },
-    { url = "https://files.pythonhosted.org/packages/53/c4/aac6012c7b228374d20542a0a9320dddff9e4a71714ce63af16cc7f36a87/libtpu-0.0.41-cp314-cp314t-manylinux_2_31_x86_64.whl", hash = "sha256:49df53647fead6188b7f1a8d3bfc7e0fb664f30b445bba5a672b1e3fff777f02", size = 211769138, upload-time = "2026-05-13T22:41:17.659Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/fe/2813cc771908e39b5d6148b2411689dcc7591055bda617c1488dbaaa665a/libtpu-0.0.42-cp311-cp311-manylinux_2_31_x86_64.whl", hash = "sha256:8f6608bf5ebb563be990c61783c8d541671a5c9cd6c1f2bd53145c3f0afa18cc", size = 209060279, upload-time = "2026-06-15T17:28:49.449Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/8e/c784a2e813268768ab240dfef095644dc354ba26e51decaf227aa6c81cb0/libtpu-0.0.42-cp312-cp312-manylinux_2_31_x86_64.whl", hash = "sha256:eecac4f4d364fa815d3124b42e682d924601828e82363c2a940c30c725b3f6fb", size = 209060270, upload-time = "2026-06-15T17:28:38.844Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/60/67b36a018ec8a70bc645a09f7e967777b6c500bd76131f0c7334df5f5699/libtpu-0.0.42-cp313-cp313-manylinux_2_31_x86_64.whl", hash = "sha256:eb00bfb17125a22905533a60743622dad2df32a0288dab5367fca66a2ee9c38f", size = 209060515, upload-time = "2026-06-15T17:29:09.428Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/a5/3512c49893f97b398d753748fdb403419299dda8f1da05c029726161d03e/libtpu-0.0.42-cp313-cp313t-manylinux_2_31_x86_64.whl", hash = "sha256:4f4e5b332aa6c3d23f7edc6eb1a93c4a0c066f9a8b9f6d9cd77cab5b99ac9bff", size = 209061158, upload-time = "2026-06-15T17:28:28.22Z" },
+    { url = "https://files.pythonhosted.org/packages/02/cc/b782b6310366fd55c61267657df3fc07d12b7e7c03dc965305c5a5a57c7d/libtpu-0.0.42-cp314-cp314-manylinux_2_31_x86_64.whl", hash = "sha256:377fb47ba539ec3fb2644c8266d928f8005d377cb02ca7db7617c04a4c682377", size = 209060528, upload-time = "2026-06-15T17:28:59.263Z" },
+    { url = "https://files.pythonhosted.org/packages/40/2c/bd8678db913f4f9e1f18f9320fd92d664d9d55eaf82ac5b7402b53b9b2ed/libtpu-0.0.42-cp314-cp314t-manylinux_2_31_x86_64.whl", hash = "sha256:983a8531ca317bd97ed6fc85ddc30b40347448a0bec24a6f633d55dfda0b3ed5", size = 209061061, upload-time = "2026-06-15T17:29:20.07Z" },
 ]
 
 [[package]]
