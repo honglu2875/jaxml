@@ -138,6 +138,30 @@ def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
     assert not list(cache_entry.glob("*.tmp"))
 
 
+def test_save_compiled_fn_rejects_non_bytes_executable_payload(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: ("not-bytes", "in-tree", "out-tree"))
+
+    with pytest.raises(TypeError, match="Serialized AOT executable must be bytes"):
+        save_compiled_fn(object(), "decode", "abc", log=False)
+
+    cache_entry = compiled_fn_path("decode", "abc")
+    assert not (cache_entry / "aot").exists()
+    assert not (cache_entry / "in_out_spec").exists()
+
+
+def test_save_compiled_fn_rejects_empty_executable_payload(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"", "in-tree", "out-tree"))
+
+    with pytest.raises(ValueError, match="Serialized AOT executable must not be empty"):
+        save_compiled_fn(object(), "decode", "abc", log=False)
+
+    cache_entry = compiled_fn_path("decode", "abc")
+    assert not (cache_entry / "aot").exists()
+    assert not (cache_entry / "in_out_spec").exists()
+
+
 def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr(
@@ -162,17 +186,19 @@ def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
 
 
 def test_save_and_load_compiled_fn_round_trips_jax_executable(monkeypatch, tmp_path):
+    if jax.default_backend() != "cpu":
+        pytest.skip("Executable serialization round-trip is covered by the CPU milestone gate.")
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     _load_compiled_fn_from_path.cache_clear()
 
     def add_one(x):
         return x + 1
 
-    compiled = jax.jit(add_one).lower(jnp.ones((4,), dtype=jnp.float32)).compile()
-
-    byte_count = save_compiled_fn(compiled, "add_one", "abc", log=False)
-    loaded = load_compiled_fn("add_one", "abc", log=False)
-    result = loaded(jnp.arange(4, dtype=jnp.float32))
+    with jax.default_device(jax.devices("cpu")[0]):
+        compiled = jax.jit(add_one).lower(jnp.ones((4,), dtype=jnp.float32)).compile()
+        byte_count = save_compiled_fn(compiled, "add_one", "abc", log=False)
+        loaded = load_compiled_fn("add_one", "abc", log=False)
+        result = loaded(jnp.arange(4, dtype=jnp.float32))
 
     assert byte_count > 0
     assert result.tolist() == [1.0, 2.0, 3.0, 4.0]

@@ -350,6 +350,11 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     aot_fn, in_tree, out_tree = serialize(fn)
+    if not isinstance(aot_fn, (bytes, bytearray)):
+        raise TypeError(f"Serialized AOT executable must be bytes, got {type(aot_fn)}.")
+    aot_fn = bytes(aot_fn)
+    if not aot_fn:
+        raise ValueError("Serialized AOT executable must not be empty.")
     _write_bytes_atomically(fn_path, aot_fn)
     io_spec_bytes = pickle.dumps((in_tree, out_tree))
     _write_bytes_atomically(spec_path, io_spec_bytes)
