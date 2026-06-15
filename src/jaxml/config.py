@@ -201,18 +201,23 @@ class ModelConfig:
         else:
             raise ValueError(f"Unsupported config class {config.__class__}")
 
-        factor = math.gcd(config.intermediate_size, config.hidden_size)
-
         # Shared params.
         # hidden_size is guaranteed to exist in HF config
-        hidden_size = config.hidden_size
+        hidden_size = _normalize_count("hidden_size", config.hidden_size)
+        intermediate_size = _normalize_count("intermediate_size", config.intermediate_size)
+        if hidden_size <= 0:
+            raise ValueError(f"hidden_size must be positive, got {hidden_size}.")
+        if intermediate_size <= 0:
+            raise ValueError(f"intermediate_size must be positive, got {intermediate_size}.")
+        factor = math.gcd(intermediate_size, hidden_size)
+
         # head_dim is usually hidden_size // num_attention_heads, but it can specify a different number
         head_dim = _infer_hf_head_dim(config)
         num_heads = config.num_attention_heads
         num_layers = config.num_hidden_layers
         max_position_embeddings = config.max_position_embeddings
         vocab_size = config.vocab_size
-        intermediate_ratio = (config.intermediate_size // factor, config.hidden_size // factor)
+        intermediate_ratio = (intermediate_size // factor, hidden_size // factor)
         attn_scale = head_dim**-0.5
 
         # Case-by-case.
@@ -246,7 +251,7 @@ class ModelConfig:
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False
             sliding_window = config.sliding_window
-            sliding_window_pattern = int(config.sliding_window_pattern)
+            sliding_window_pattern = config.sliding_window_pattern
 
         return cls(
             hidden_size=hidden_size,
