@@ -83,3 +83,44 @@ def test_uncached_rope_can_compute_beyond_max_length():
 
     assert cos.shape == (5, 4)
     assert sin.shape == (5, 4)
+
+
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"q": jnp.ones((1, 2, 4)), "k": jnp.ones((1, 2, 1, 4))}, ValueError, "q must be a 4D array"),
+        ({"q": jnp.ones((1, 2, 1, 4)), "k": jnp.ones((1, 2, 4))}, ValueError, "k must be a 4D array"),
+        ({"q": jnp.ones((1, 3, 1, 4)), "k": jnp.ones((1, 2, 1, 4))}, ValueError, "matching batch, sequence"),
+        ({"cos": jnp.ones((4,)), "sin": jnp.ones((4, 4))}, ValueError, "cos and sin must be 2D"),
+        ({"cos": jnp.ones((4, 4)), "sin": jnp.ones((5, 4))}, ValueError, "same shape"),
+        ({"cos": jnp.ones((4, 3)), "sin": jnp.ones((4, 3))}, ValueError, "positive and even"),
+        ({"cos": jnp.ones((4, 6)), "sin": jnp.ones((4, 6))}, ValueError, "cannot exceed"),
+        ({"position_ids": jnp.arange(2)}, ValueError, "position_ids must be a 2D array"),
+        ({"position_ids": jnp.arange(3, dtype=jnp.int32)[None]}, ValueError, "position_ids shape must be broadcastable"),
+        ({"position_ids": jnp.arange(2, dtype=jnp.float32)[None]}, TypeError, "integer positions"),
+    ],
+)
+def test_apply_rotary_pos_emb_rejects_invalid_inputs(kwargs, exception, match):
+    defaults = {
+        "q": jnp.ones((1, 2, 2, 4), dtype=jnp.float32),
+        "k": jnp.ones((1, 2, 1, 4), dtype=jnp.float32),
+        "cos": jnp.ones((4, 4), dtype=jnp.float32),
+        "sin": jnp.zeros((4, 4), dtype=jnp.float32),
+        "position_ids": jnp.arange(2, dtype=jnp.int32)[None],
+    }
+
+    with pytest.raises(exception, match=match):
+        RotaryEmbedding.apply_rotary_pos_emb(**(defaults | kwargs))
+
+
+def test_apply_rotary_pos_emb_allows_grouped_query_head_counts():
+    q = jnp.ones((1, 2, 2, 4), dtype=jnp.float32)
+    k = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+    cos = jnp.ones((4, 4), dtype=jnp.float32)
+    sin = jnp.zeros((4, 4), dtype=jnp.float32)
+    position_ids = jnp.arange(2, dtype=jnp.int32)[None]
+
+    q_out, k_out = RotaryEmbedding.apply_rotary_pos_emb(q, k, cos, sin, position_ids)
+
+    assert q_out.shape == q.shape
+    assert k_out.shape == k.shape

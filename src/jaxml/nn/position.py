@@ -47,6 +47,35 @@ class RotaryEmbedding(nn.Module):
 
     @staticmethod
     def apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+        q = jnp.asarray(q)
+        k = jnp.asarray(k)
+        cos = jnp.asarray(cos)
+        sin = jnp.asarray(sin)
+        position_ids = jnp.asarray(position_ids)
+        if q.ndim != 4:
+            raise ValueError(f"q must be a 4D array, got shape {q.shape}.")
+        if k.ndim != 4:
+            raise ValueError(f"k must be a 4D array, got shape {k.shape}.")
+        if q.shape[:2] != k.shape[:2] or q.shape[-1] != k.shape[-1]:
+            raise ValueError(f"q and k must have matching batch, sequence, and head dimensions, got {q.shape} and {k.shape}.")
+        if cos.ndim != 2 or sin.ndim != 2:
+            raise ValueError(f"cos and sin must be 2D arrays, got shapes {cos.shape} and {sin.shape}.")
+        if cos.shape != sin.shape:
+            raise ValueError(f"cos and sin must have the same shape, got {cos.shape} and {sin.shape}.")
+        if cos.shape[-1] <= 0 or cos.shape[-1] % 2:
+            raise ValueError(f"rotary dimension must be positive and even, got {cos.shape[-1]}.")
+        if cos.shape[-1] > q.shape[-1]:
+            raise ValueError(f"rotary dimension cannot exceed q/k head dimension, got {cos.shape[-1]} and {q.shape[-1]}.")
+        if position_ids.ndim != 2:
+            raise ValueError(f"position_ids must be a 2D array, got shape {position_ids.shape}.")
+        if position_ids.shape[1] != q.shape[1] or position_ids.shape[0] not in (1, q.shape[0]):
+            raise ValueError(
+                "position_ids shape must be broadcastable to q/k batch and sequence axes, "
+                f"got {position_ids.shape} and {q.shape[:2]}."
+            )
+        if not jnp.issubdtype(position_ids.dtype, jnp.integer):
+            raise TypeError(f"position_ids must contain integer positions, got dtype {position_ids.dtype}.")
+
         # [seq_len, dim] -> [batch_size, seq_len, 1, head_dim]
         rotary_dim = cos.shape[-1]
         cos = jnp.expand_dims(jnp.take(cos, position_ids, axis=0), axis=2)
