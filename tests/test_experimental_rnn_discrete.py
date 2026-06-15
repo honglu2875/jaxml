@@ -5,6 +5,8 @@ import pytest
 
 from jaxml.experimental.rnn_discrete import RNNDiscrete, RNNDiscreteConfig
 
+pytestmark = pytest.mark.milestone
+
 
 def test_rnn_discrete_forward_returns_logits():
     config = RNNDiscreteConfig(num_classes=8, num_layers=2, hidden_dim=6, state_dim=4)

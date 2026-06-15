@@ -16,6 +16,8 @@ from jaxml.utils import (
     save_compiled_fn,
 )
 
+pytestmark = pytest.mark.milestone
+
 
 def test_compiled_fn_path_defaults_to_project_cache(monkeypatch):
     monkeypatch.delenv(JAXML_CACHE_DIR_ENV, raising=False)

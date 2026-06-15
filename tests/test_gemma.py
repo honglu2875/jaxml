@@ -10,6 +10,8 @@ from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.models.gemma3 import GemmaDecoder
 from jaxml.utils import torch_to_jax_states
 
+pytestmark = pytest.mark.milestone
+
 
 def test_gemma_decoder_rejects_disabled_rope():
     config = ModelConfig(

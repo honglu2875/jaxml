@@ -6,6 +6,8 @@ import pytest
 from jaxml._generate import generate
 from jaxml.cache import KVCache
 
+pytestmark = pytest.mark.critical
+
 
 class RngSamplingMethod:
     def get_sampling_fn(self):

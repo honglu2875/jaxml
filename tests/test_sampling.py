@@ -12,6 +12,8 @@ from jaxml.inference_engine.sampling import (
     top_p_filtering,
 )
 
+pytestmark = pytest.mark.critical
+
 
 def _is_kept(filtered):
     return ~np.isneginf(np.array(filtered))

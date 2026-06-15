@@ -6,6 +6,8 @@ import torch
 
 from jaxml.nn.position import RotaryEmbedding
 
+pytestmark = pytest.mark.milestone
+
 
 @pytest.mark.parametrize("model_type", ["llama", "neox"])
 def test_rope(rope_factory, model_type):

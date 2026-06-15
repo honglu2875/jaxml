@@ -3,6 +3,8 @@ import pytest
 
 from jaxml.config import ModelConfig
 
+pytestmark = pytest.mark.milestone
+
 
 def _valid_config_kwargs(**overrides):
     return {

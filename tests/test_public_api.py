@@ -2,6 +2,10 @@ import importlib
 import logging
 import sys
 
+import pytest
+
+pytestmark = pytest.mark.critical
+
 
 def test_inference_engine_exports_documented_entry_points():
     from jaxml.inference_engine import Engine, InferenceConfig, SamplingMethod

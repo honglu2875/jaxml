@@ -7,6 +7,8 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SPECIFIER_OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<")
 
+pytestmark = pytest.mark.critical
+
 
 def _project_config():
     return tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
@@ -24,6 +26,27 @@ def _makefile_targets():
         target, dependencies = line.split(":", maxsplit=1)
         targets[target] = tuple(dependencies.split())
     return targets
+
+
+def _makefile_recipes():
+    recipes = {}
+    current_target = None
+    for line in (PROJECT_ROOT / "Makefile").read_text().splitlines():
+        if line and not line.startswith(("\t", ".", "#")) and ":" in line:
+            current_target = line.split(":", maxsplit=1)[0]
+            recipes[current_target] = []
+            continue
+        if current_target is not None and line.startswith("\t"):
+            recipes[current_target].append(line.strip())
+    return recipes
+
+
+def _workflow_config():
+    return (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+
+def _test_modules():
+    return sorted((PROJECT_ROOT / "tests").glob("test_*.py"))
 
 
 def _exact_direct_pins():
@@ -122,6 +145,53 @@ def test_tpu_verification_checks_lockfile_and_installed_dependencies_before_test
     targets = _makefile_targets()
 
     assert targets["verify-tpu"] == ("lock-check", "dependency-check", "pytest-tpu")
+
+
+def test_critical_cpu_verification_runs_push_cadence_checks_before_tests():
+    targets = _makefile_targets()
+
+    assert targets["verify-critical-cpu"] == (
+        "lock-check",
+        "dependency-check",
+        "lint",
+        "format-check",
+        "pytest-critical-cpu",
+    )
+
+
+def test_milestone_cpu_verification_keeps_full_cpu_suite_available():
+    targets = _makefile_targets()
+
+    assert targets["verify-cpu"] == ("verify-milestone-cpu",)
+    assert targets["verify-milestone-cpu"] == ("lock-check", "dependency-check", "lint", "format-check", "pytest-cpu")
+
+
+def test_cpu_test_targets_use_expected_pytest_markers():
+    recipes = _makefile_recipes()
+
+    assert recipes["pytest-critical-cpu"] == ["${CRITICAL_CPU_TESTS}"]
+    assert recipes["pytest-cpu"] == ["${CPU_TESTS}"]
+
+
+def test_cpu_test_modules_are_assigned_to_cadence_markers():
+    unmarked = []
+    for path in _test_modules():
+        if path.name == "test_tpu.py":
+            continue
+        text = path.read_text()
+        if "pytest.mark.critical" not in text and "pytest.mark.milestone" not in text:
+            unmarked.append(path.name)
+
+    assert unmarked == []
+
+
+def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events():
+    workflow = _workflow_config()
+
+    assert "uv run --frozen --extra dev make pytest-critical-cpu" in workflow
+    assert "uv run --frozen --extra dev make verify-milestone-cpu" in workflow
+    assert "workflow_dispatch:" in workflow
+    assert "schedule:" in workflow
 
 
 def test_jax_runtime_surface_executes_jitted_cpu_work():

@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 import torch
 
 from jaxml.config import ModelConfig
@@ -9,6 +10,8 @@ from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.models.gpt_neox import GPTNeoXModel
 
 NEOX_PARITY_ATOL = 1e-5
+
+pytestmark = pytest.mark.milestone
 
 
 def test_neox_model(neox_model, hf_neox_model):

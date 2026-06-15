@@ -5,6 +5,8 @@ import pytest
 
 from jaxml.cache import KVCache
 
+pytestmark = pytest.mark.critical
+
 
 def _kv(batch=2, seq_len=3, value=1.0):
     x = jnp.full((batch, seq_len, 1, 2), value, dtype=jnp.float32)

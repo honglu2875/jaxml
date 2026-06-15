@@ -8,6 +8,8 @@ from flax.core import FrozenDict
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.outputs import GenerationOutput
 
+pytestmark = pytest.mark.critical
+
 
 class FakeSharding:
     def __init__(self, spec):

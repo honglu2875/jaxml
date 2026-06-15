@@ -23,6 +23,8 @@ from jaxml.hf_utils import to_llama_jax_params, to_neox_jax_params
 from jaxml.nn.attention import Attention, AttentionWithRoPE
 from jaxml.test_utils.torch_utils import DummyPosEmb
 
+pytestmark = pytest.mark.milestone
+
 
 def _identity_cos_sin(config: ModelConfig, seq_len: int, dtype=jnp.float32):
     rotary_dim = int(config.head_dim * config.rotary_pct)

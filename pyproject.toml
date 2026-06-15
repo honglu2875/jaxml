@@ -34,6 +34,8 @@ dev = [
 
 [tool.pytest.ini_options]
 markers = [
+    "critical: CPU tests that form the required push gate",
+    "milestone: CPU tests that run in the full milestone gate",
     "tpu: tests that require a TPU runtime and are excluded from the default CPU suite",
 ]
 

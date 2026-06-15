@@ -5,6 +5,8 @@ import pytest
 
 from jaxml.models._utils import slice_last_n_logits_hidden_states
 
+pytestmark = pytest.mark.milestone
+
 
 def test_slice_last_n_logits_hidden_states_rejects_invalid_rank():
     hidden_states = jnp.ones((1, 4), dtype=jnp.float32)

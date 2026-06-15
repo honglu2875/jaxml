@@ -15,12 +15,15 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import pytest
 import torch
 
 from jaxml.cache import KVCache
 from jaxml.hf_utils import to_llama_jax_params
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.utils import torch_to_jax_states
+
+pytestmark = pytest.mark.milestone
 
 
 def test_llama_mlp(llama_mlp, hf_llama_mlp):

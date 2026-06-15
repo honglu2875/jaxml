@@ -1,13 +1,18 @@
 SHELL=/bin/bash
 LINT_PATHS=src/jaxml/ tests/
+CPU_TESTS=JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
+CRITICAL_CPU_TESTS=JAX_PLATFORMS=cpu pytest -m "critical and not tpu" tests/
 
-.PHONY: pytest pytest-cpu pytest-tpu lint format format-check lock-check dependency-check style verify-cpu verify-tpu
+.PHONY: pytest pytest-cpu pytest-critical-cpu pytest-tpu lint format format-check lock-check dependency-check style verify-critical-cpu verify-cpu verify-milestone-cpu verify-tpu
 
 pytest:
-	JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
+	${CPU_TESTS}
 
 pytest-cpu:
-	JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
+	${CPU_TESTS}
+
+pytest-critical-cpu:
+	${CRITICAL_CPU_TESTS}
 
 pytest-tpu:
 	pytest -m "tpu" tests/
@@ -32,6 +37,10 @@ dependency-check:
 
 style: format lint
 
-verify-cpu: lock-check dependency-check lint format-check pytest-cpu
+verify-critical-cpu: lock-check dependency-check lint format-check pytest-critical-cpu
+
+verify-cpu: verify-milestone-cpu
+
+verify-milestone-cpu: lock-check dependency-check lint format-check pytest-cpu
 
 verify-tpu: lock-check dependency-check pytest-tpu

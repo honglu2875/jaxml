@@ -27,6 +27,8 @@ from jaxml.nn.linear import DenseGeneral
 from jaxml.nn.norms import LayerNorm, RMSNorm
 from jaxml.utils import torch_to_jax_states
 
+pytestmark = pytest.mark.milestone
+
 
 @pytest.mark.parametrize("mlp_cls", [LlamaMLP, GPTNeoXMLP, GemmaMLP])
 def test_mlp_rejects_hidden_size_mismatch(mlp_cls):

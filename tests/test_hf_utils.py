@@ -15,6 +15,8 @@ from jaxml.hf_utils import (
     to_neox_jax_params,
 )
 
+pytestmark = pytest.mark.milestone
+
 
 class FakeModel:
     def __init__(self, config):

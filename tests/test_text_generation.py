@@ -7,6 +7,8 @@ import pytest
 from jaxml.inference_engine.engine import InferenceConfig
 from jaxml.text_generation import GenerationConfig, TextGenerationPipeline
 
+pytestmark = pytest.mark.critical
+
 
 class DummyTokenizer:
     def __init__(self, include_attention_mask=True):
