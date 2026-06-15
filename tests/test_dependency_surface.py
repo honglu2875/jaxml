@@ -5,10 +5,19 @@ from pathlib import Path
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_SPECIFIER_OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<")
+
+
+def _project_config():
+    return tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+
+
+def _lock_config():
+    return tomllib.loads((PROJECT_ROOT / "uv.lock").read_text())
 
 
 def _exact_direct_pins():
-    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    pyproject = _project_config()
     dependencies = list(pyproject["project"]["dependencies"])
     dependencies.extend(pyproject["project"]["optional-dependencies"]["dev"])
     for requirement in dependencies:
@@ -16,6 +25,15 @@ def _exact_direct_pins():
             continue
         name, version = requirement.split("==", maxsplit=1)
         yield pytest.param(name, version, id=name)
+
+
+def _requirement_entry(requirement: str, marker: str | None = None):
+    for operator in _SPECIFIER_OPERATORS:
+        if operator not in requirement:
+            continue
+        name, version = requirement.split(operator, maxsplit=1)
+        return name, operator + version, marker
+    return requirement, None, marker
 
 
 def _exact_pin_map(requirements):
@@ -28,13 +46,41 @@ def _exact_pin_map(requirements):
     return pins
 
 
+def _jaxml_lock_package():
+    lock = _lock_config()
+    for package in lock["package"]:
+        if package["name"] == "jaxml":
+            return package
+    raise AssertionError("uv.lock does not contain the editable jaxml package.")
+
+
 @pytest.mark.parametrize(("package_name", "expected_version"), list(_exact_direct_pins()))
 def test_installed_direct_dependency_matches_project_pin(package_name, expected_version):
     assert metadata.version(package_name) == expected_version
 
 
+def test_lock_metadata_matches_project_dependencies():
+    pyproject = _project_config()
+    expected = {_requirement_entry(requirement) for requirement in pyproject["project"]["dependencies"]}
+    for extra_name, requirements in pyproject["project"]["optional-dependencies"].items():
+        marker = f"extra == '{extra_name}'"
+        expected.update(_requirement_entry(requirement, marker) for requirement in requirements)
+
+    lock_requires_dist = _jaxml_lock_package()["metadata"]["requires-dist"]
+    actual = {
+        (
+            requirement["name"],
+            requirement.get("specifier"),
+            requirement.get("marker"),
+        )
+        for requirement in lock_requires_dist
+    }
+
+    assert actual == expected
+
+
 def test_tpu_extra_keeps_jax_runtime_pins_aligned_with_base_dependencies():
-    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    pyproject = _project_config()
     base_pins = _exact_pin_map(pyproject["project"]["dependencies"])
     tpu_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["tpu"])
 
@@ -43,7 +89,7 @@ def test_tpu_extra_keeps_jax_runtime_pins_aligned_with_base_dependencies():
 
 
 def test_tpu_extra_keeps_libtpu_explicitly_pinned():
-    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+    pyproject = _project_config()
     tpu_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["tpu"])
 
     assert "libtpu" in tpu_pins
