@@ -120,6 +120,18 @@ def test_compiled_fn_exist_requires_payload_files(monkeypatch, tmp_path):
     assert compiled_fn_exist("decode", "abc")
 
 
+@pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec"])
+def test_compiled_fn_exist_rejects_empty_payload_files(monkeypatch, tmp_path, empty_payload_name):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    cache_entry = compiled_fn_path("decode", "abc")
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(b"compiled")
+    (cache_entry / "in_out_spec").write_bytes(b"spec")
+    (cache_entry / empty_payload_name).write_bytes(b"")
+
+    assert not compiled_fn_exist("decode", "abc")
+
+
 def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"new-aot", "in-tree", "out-tree"))

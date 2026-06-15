@@ -393,7 +393,9 @@ def compiled_fn_path(name: str, hash: str = "0", cache_dir: str | Path | None = 
 
 def compiled_fn_exist(name: str, hash: str = "0"):
     path = compiled_fn_path(name, hash)
-    return (path / "aot").is_file() and (path / "in_out_spec").is_file()
+    fn_path = path / "aot"
+    spec_path = path / "in_out_spec"
+    return fn_path.is_file() and fn_path.stat().st_size > 0 and spec_path.is_file() and spec_path.stat().st_size > 0
 
 
 @functools.lru_cache()
