@@ -143,6 +143,8 @@ def _validate_hidden_states(hidden_states: jnp.ndarray) -> jnp.ndarray:
     hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim != 3:
         raise ValueError(f"hidden_states must be a 3D array, got shape {hidden_states.shape}.")
+    if any(axis_size <= 0 for axis_size in hidden_states.shape):
+        raise ValueError(f"hidden_states must not contain empty axes, got shape {hidden_states.shape}.")
     if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
         raise TypeError(f"hidden_states must contain floating point values, got dtype {hidden_states.dtype}.")
     return hidden_states

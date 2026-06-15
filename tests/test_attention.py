@@ -473,6 +473,9 @@ def test_attention_call_rejects_flash_before_deeper_validation(attn_cls, use_rop
     [
         (jnp.zeros((1, 2), dtype=jnp.float32), ValueError, "hidden_states must be a 3D array"),
         (jnp.zeros((1, 2, 1, 1), dtype=jnp.float32), ValueError, "hidden_states must be a 3D array"),
+        (jnp.zeros((0, 2, 1), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.zeros((1, 0, 1), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.zeros((1, 2, 0), dtype=jnp.float32), ValueError, "empty axes"),
         (jnp.zeros((1, 2, 1), dtype=jnp.int32), TypeError, "hidden_states must contain floating"),
     ],
 )
