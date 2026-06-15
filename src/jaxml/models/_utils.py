@@ -1,5 +1,7 @@
 import operator
+from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -17,6 +19,10 @@ def _normalize_bool(name: str, value: bool) -> bool:
     if isinstance(value, (bool, np.bool_)):
         return bool(value)
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def normalize_model_output_flags(
@@ -58,6 +64,8 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
         if attention_mask.shape != input_ids.shape:
             raise ValueError(f"attention_mask shape must match input_ids shape; got {attention_mask.shape} and {input_ids.shape}.")
         attention_mask = attention_mask.astype(bool)
+        if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+            raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
     if kv_caches is not None and len(kv_caches) != num_layers:
         raise ValueError(f"kv_caches must contain one cache per layer, got {len(kv_caches)} and expected {num_layers}.")

@@ -45,6 +45,17 @@ def test_models_reject_invalid_attention_mask(request, fixture_name, attention_m
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_attention_mask_without_valid_tokens(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.tile(jnp.arange(4, dtype=jnp.int32)[None], (2, 1))
+        attention_mask = jnp.array([[1, 1, 0, 0], [0, 0, 0, 0]], dtype=bool)
+
+        with pytest.raises(ValueError, match="at least one valid token"):
+            model.apply(params, input_ids, attention_mask=attention_mask)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
 def test_models_canonicalize_integer_attention_mask(request, fixture_name):
     with jax.default_device(jax.devices("cpu")[0]):
         model, params = request.getfixturevalue(fixture_name)
