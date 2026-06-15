@@ -355,6 +355,8 @@ def _validate_cache_key_part(part: str, label: str) -> str:
         raise ValueError(f"AOT cache {label} must be a non-empty path segment, got {part!r}.")
     if "/" in part or "\\" in part:
         raise ValueError(f"AOT cache {label} must not contain path separators, got {part!r}.")
+    if any(char.isspace() for char in part):
+        raise ValueError(f"AOT cache {label} must not contain whitespace, got {part!r}.")
     return part
 
 

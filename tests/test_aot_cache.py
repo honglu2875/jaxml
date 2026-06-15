@@ -49,9 +49,15 @@ def test_compiled_fn_path_accepts_integer_hash(tmp_path):
         ("../decode", "abc"),
         ("nested/decode", "abc"),
         ("nested\\decode", "abc"),
+        (" decode", "abc"),
+        ("decode ", "abc"),
+        ("de code", "abc"),
+        ("decode\n", "abc"),
         ("decode", ""),
         ("decode", "../abc"),
         ("decode", "nested\\abc"),
+        ("decode", " abc"),
+        ("decode", "ab c"),
     ],
 )
 def test_compiled_fn_path_rejects_unsafe_key_parts(tmp_path, name, hash):
