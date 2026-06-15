@@ -272,6 +272,50 @@ def test_engine_generate_continues_rng_across_cache_resize_chunks(monkeypatch, l
     assert np.array_equal(np.array(calls[1]["rng"]), np.array(expected_second_rng))
 
 
+def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, call_hash, sampling_method
+        calls.append((prompt_tokens, attention_mask, kwargs))
+        tokens = jnp.full((prompt_tokens.shape[0], kwargs["max_new_tokens"]), len(calls), dtype=jnp.int32)
+        return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=kwargs["rng"])
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params, cache_stride=4)
+        input_ids = jnp.ones((2, 4), dtype=jnp.int32)
+        attention_mask = jnp.array([[1, 1, 1, 1], [1, 1, 1, 0]], dtype=jnp.int32)
+
+        output = engine.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=6,
+            temperature=0.0,
+            include_prompt=False,
+        )
+
+    assert output.shape == (2, 6)
+    assert len(calls) == 2
+    assert calls[0][0].shape == (2, 4)
+    assert np.array_equal(np.array(calls[0][1]), np.array(attention_mask, dtype=bool))
+    assert calls[0][2]["skip_prefill"] is False
+    assert calls[1][0].shape == (2, 1)
+    assert calls[1][1] is None
+    assert calls[1][2]["skip_prefill"] is True
+
+
 @pytest.mark.parametrize(
     "kwargs,exception,match",
     [

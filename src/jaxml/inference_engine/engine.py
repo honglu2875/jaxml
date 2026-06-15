@@ -397,7 +397,7 @@ class Engine:
                 self.params,
                 apply,
                 next_input_tokens,
-                attention_mask,
+                attention_mask if generated_count == 0 else None,
                 kv_caches,
                 call_hash,
                 sampling_method,
