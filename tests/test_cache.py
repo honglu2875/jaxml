@@ -38,6 +38,28 @@ def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [1]]))
 
 
+def test_kv_cache_update_canonicalizes_integer_initial_mask():
+    k, v = _kv(seq_len=3)
+    mask = jnp.array([[1, 1, 0], [1, 0, 0]], dtype=jnp.int32)
+
+    cache = KVCache.init(4).update(k, v, mask=mask)
+
+    assert cache.mask.dtype == jnp.bool_
+    assert np.array_equal(
+        np.array(cache.mask),
+        np.array([[True, True, False, False], [True, False, False, False]]),
+    )
+    assert np.array_equal(np.array(cache.pos_id), np.array([[1], [0]]))
+
+
+def test_kv_cache_update_rejects_float_initial_mask():
+    k, v = _kv(seq_len=3)
+    mask = jnp.ones((2, 3), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="mask must be boolean or integer"):
+        KVCache.init(4).update(k, v, mask=mask)
+
+
 def test_kv_cache_next_pos_id_rejects_uninitialized_cache():
     with pytest.raises(ValueError, match="before KV cache initialization"):
         _ = KVCache.init(4).next_pos_id

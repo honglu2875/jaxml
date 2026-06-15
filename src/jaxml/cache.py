@@ -88,6 +88,8 @@ class KVCache(struct.PyTreeNode):
             raise ValueError(f"k and v must have at least batch and sequence axes, got shape {k.shape}.")
 
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
+        k = jnp.asarray(k)
+        v = jnp.asarray(v)
         self._validate_kv_inputs(k, v)
         if self.k is None:
             if self.v is not None or self.mask is not None:
@@ -96,8 +98,13 @@ class KVCache(struct.PyTreeNode):
                 raise ValueError(f"Cannot cache {k.shape[1]} tokens in max_seq_len={self.max_seq_len}.")
             if mask is None:
                 mask = jnp.ones(k.shape[:2], dtype=bool)
+            else:
+                mask = jnp.asarray(mask)
             if mask.shape != k.shape[:2]:
                 raise ValueError(f"mask shape must match k/v batch and sequence axes, got {mask.shape} and {k.shape[:2]}.")
+            if not (jnp.issubdtype(mask.dtype, jnp.bool_) or jnp.issubdtype(mask.dtype, jnp.integer)):
+                raise TypeError(f"mask must be boolean or integer, got dtype {mask.dtype}.")
+            mask = mask.astype(bool)
             if not _contains_tracer(mask) and not bool(jnp.all(jnp.any(mask, axis=1))):
                 raise ValueError("mask must contain at least one valid token per batch row.")
             pos_id = get_default_pos_ids(mask)
