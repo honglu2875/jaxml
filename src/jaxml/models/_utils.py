@@ -48,6 +48,19 @@ def validate_attention_hidden_size(config, architecture_name: str):
         )
 
 
+def validate_mlp_input(module_name: str, x, hidden_size: int) -> jnp.ndarray:
+    x = jnp.asarray(x)
+    if x.ndim != 3:
+        raise ValueError(f"{module_name} input must be a 3D array, got shape {x.shape}.")
+    if not jnp.issubdtype(x.dtype, jnp.floating):
+        raise TypeError(f"{module_name} input must contain floating point values, got dtype {x.dtype}.")
+    if any(axis_size <= 0 for axis_size in x.shape):
+        raise ValueError(f"{module_name} input must not contain empty axes, got shape {x.shape}.")
+    if x.shape[-1] != hidden_size:
+        raise ValueError(f"{module_name} hidden dimension mismatch: got {x.shape[-1]} and expected {hidden_size}.")
+    return x
+
+
 def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_logits: int) -> jnp.ndarray:
     hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim != 3:

@@ -37,6 +37,7 @@ from ._utils import (
     should_use_default_attention_mask,
     slice_last_n_logits_hidden_states,
     validate_attention_hidden_size,
+    validate_mlp_input,
 )
 
 
@@ -72,11 +73,7 @@ class GPTNeoXMLP(Block):
         )
 
     def __call__(self, x, **kwargs):
-        if x.shape[-1] != self.hidden_size:
-            raise ValueError(
-                "Input to MLP layers must match the model hidden dimension, "
-                f"got {x.shape[-1]} and expected {self.hidden_size}."
-            )
+        x = validate_mlp_input("GPTNeoXMLP", x, self.hidden_size)
         x = with_sharding_constraint(x, ("batch", "length", "embed"))
         x = self.act_fn(self.up_proj(x))
         x = self.down_proj(x)

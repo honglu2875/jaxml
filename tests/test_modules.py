@@ -49,6 +49,57 @@ def test_mlp_rejects_hidden_size_mismatch(mlp_cls):
         mlp.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize("mlp_cls", [LlamaMLP, GPTNeoXMLP, GemmaMLP])
+@pytest.mark.parametrize(
+    "x,exception,match",
+    [
+        (jnp.ones((2, 48), dtype=jnp.float32), ValueError, "3D array"),
+        (jnp.ones((1, 2, 48, 1), dtype=jnp.float32), ValueError, "3D array"),
+        (jnp.ones((0, 2, 48), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.ones((1, 0, 48), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.ones((1, 2, 0), dtype=jnp.float32), ValueError, "empty axes"),
+        (jnp.ones((1, 2, 48), dtype=jnp.int32), TypeError, "floating point"),
+    ],
+)
+def test_mlp_rejects_invalid_inputs(mlp_cls, x, exception, match):
+    config = ModelConfig(
+        hidden_size=48,
+        head_dim=8,
+        num_heads=6,
+        num_layers=1,
+        intermediate_ratio=(2, 1),
+        max_position_embeddings=16,
+        vocab_size=128,
+        attn_scale=8**-0.5,
+    )
+    mlp = mlp_cls(config=config, dtype=jnp.float32)
+
+    with pytest.raises(exception, match=match):
+        mlp.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("mlp_cls", [LlamaMLP, GPTNeoXMLP, GemmaMLP])
+def test_mlp_accepts_array_like_inputs(mlp_cls):
+    config = ModelConfig(
+        hidden_size=2,
+        head_dim=1,
+        num_heads=2,
+        num_layers=1,
+        intermediate_ratio=(2, 1),
+        max_position_embeddings=16,
+        vocab_size=128,
+        attn_scale=1.0,
+    )
+    mlp = mlp_cls(config=config, dtype=jnp.float32)
+    x = np.ones((1, 2, 2), dtype=np.float32)
+
+    params = mlp.init(jax.random.PRNGKey(0), x)
+    out = mlp.apply(params, x)
+
+    assert out.shape == (1, 2, 2)
+    assert out.dtype == jnp.float32
+
+
 def test_gemma_rms_norm_rejects_disabled_upcast():
     norm = GemmaRMSNorm(hidden_size=4, upcast=False)
     x = jnp.ones((1, 2, 4), dtype=jnp.float32)
