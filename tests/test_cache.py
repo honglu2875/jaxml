@@ -327,11 +327,22 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
                 k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
                 v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
                 max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=jnp.int32),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            TypeError,
+            "Cached mask must be boolean",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
                 mask=jnp.ones((1, 4), dtype=jnp.float32),
                 pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
             ),
             TypeError,
-            "Cached mask must be boolean or integer",
+            "Cached mask must be boolean",
         ),
         (
             KVCache(

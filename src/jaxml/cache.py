@@ -131,8 +131,8 @@ class KVCache(struct.PyTreeNode):
 
         if self.mask.shape != self.k.shape[:2]:
             raise ValueError(f"Cached mask shape must match cached k/v batch and sequence axes, got {self.mask.shape}.")
-        if not (jnp.issubdtype(self.mask.dtype, jnp.bool_) or jnp.issubdtype(self.mask.dtype, jnp.integer)):
-            raise TypeError(f"Cached mask must be boolean or integer, got dtype {self.mask.dtype}.")
+        if not jnp.issubdtype(self.mask.dtype, jnp.bool_):
+            raise TypeError(f"Cached mask must be boolean, got dtype {self.mask.dtype}.")
 
         if self.pos_id.shape != (self.k.shape[0], 1):
             raise ValueError(f"Cached pos_id shape must be {(self.k.shape[0], 1)}, got {self.pos_id.shape}.")
