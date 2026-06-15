@@ -58,6 +58,24 @@ def test_model_config_normalizes_numpy_boolean_fields():
     assert config.use_parallel_residual is False
 
 
+def test_model_config_normalizes_numpy_float_fields():
+    config = ModelConfig(
+        **_valid_config_kwargs(
+            norm_eps=np.float32(1e-5),
+            attn_scale=np.float64(0.25),
+            rope_theta=np.float64(5000.0),
+            rope_scale=np.float32(2.0),
+            rotary_pct=np.float64(0.5),
+        )
+    )
+
+    assert config.norm_eps == pytest.approx(1e-5)
+    assert config.attn_scale == 0.25
+    assert config.rope_theta == 5000.0
+    assert config.rope_scale == 2.0
+    assert config.rotary_pct == 0.5
+
+
 @pytest.mark.parametrize(
     "overrides,match",
     [
@@ -77,6 +95,22 @@ def test_model_config_normalizes_numpy_boolean_fields():
 )
 def test_model_config_rejects_non_integer_counts(overrides, match):
     with pytest.raises(TypeError, match=match):
+        ModelConfig(**_valid_config_kwargs(**overrides))
+
+
+@pytest.mark.parametrize(
+    "overrides,exception,match",
+    [
+        ({"norm_eps": True}, TypeError, "norm_eps must be a real number"),
+        ({"attn_scale": "0.5"}, TypeError, "attn_scale must be a real number"),
+        ({"rope_theta": np.bool_(True)}, TypeError, "rope_theta must be a real number"),
+        ({"rope_scale": float("nan")}, ValueError, "rope_scale must be finite"),
+        ({"rotary_pct": float("inf")}, ValueError, "rotary_pct must be finite"),
+        ({"attn_scale": -float("inf")}, ValueError, "attn_scale must be finite"),
+    ],
+)
+def test_model_config_rejects_invalid_float_fields(overrides, exception, match):
+    with pytest.raises(exception, match=match):
         ModelConfig(**_valid_config_kwargs(**overrides))
 
 

@@ -1,4 +1,5 @@
 import math
+from numbers import Real
 import operator
 from dataclasses import fields
 from typing import Optional
@@ -20,6 +21,15 @@ def _normalize_bool(name: str, value: bool) -> bool:
     if isinstance(value, (bool, np.bool_)):
         return bool(value)
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
+def _normalize_float(name: str, value: float) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number, got {type(value)}.")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}.")
+    return value
 
 
 def _infer_hf_head_dim(config) -> int:
@@ -108,6 +118,8 @@ class ModelConfig:
         object.__setattr__(self, "intermediate_ratio", intermediate_ratio)
         if intermediate_ratio[0] <= 0 or intermediate_ratio[1] <= 0:
             raise ValueError(f"intermediate_ratio values must be positive, got {intermediate_ratio}.")
+        for name in ("norm_eps", "rope_theta", "rope_scale", "rotary_pct"):
+            object.__setattr__(self, name, _normalize_float(name, getattr(self, name)))
         if self.norm_eps <= 0:
             raise ValueError(f"norm_eps must be positive, got {self.norm_eps}.")
 
@@ -135,8 +147,10 @@ class ModelConfig:
             raise ValueError(f"sliding_window_pattern must be positive when set, got {self.sliding_window_pattern}.")
         if self.attn_scale is None:
             object.__setattr__(self, "attn_scale", self.head_dim**-0.5)
-        elif self.attn_scale <= 0:
-            raise ValueError(f"attn_scale must be positive, got {self.attn_scale}.")
+        else:
+            object.__setattr__(self, "attn_scale", _normalize_float("attn_scale", self.attn_scale))
+            if self.attn_scale <= 0:
+                raise ValueError(f"attn_scale must be positive, got {self.attn_scale}.")
 
         if self.use_alibi and self.use_rope:
             raise ValueError("AliBi and RoPE cannot both be used.")
