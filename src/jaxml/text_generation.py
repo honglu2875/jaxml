@@ -1,3 +1,5 @@
+import numbers
+import operator
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
@@ -6,6 +8,27 @@ import numpy as np
 
 from jaxml.hf_utils import HFArchitecture, load_model_from_hf
 from jaxml.inference_engine.engine import Engine, InferenceConfig
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+
+
+def _normalize_float(name: str, value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be a real number, got {type(value)}.")
+    return float(value)
+
+
+def _normalize_bool(name: str, value: bool) -> bool:
+    if not isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+    return bool(value)
 
 
 @dataclass(frozen=True)
@@ -18,6 +41,22 @@ class GenerationConfig:
     temperature: float = 1.0
     fuse_decoding: bool = False
     include_prompt: bool = True
+
+    def __post_init__(self):
+        seed = _normalize_count("seed", self.seed)
+        max_new_tokens = _normalize_count("max_new_tokens", self.max_new_tokens)
+        top_k = _normalize_count("top_k", self.top_k)
+        if max_new_tokens < 0:
+            raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
+
+        object.__setattr__(self, "seed", seed)
+        object.__setattr__(self, "max_new_tokens", max_new_tokens)
+        object.__setattr__(self, "top_k", top_k)
+        object.__setattr__(self, "top_p", _normalize_float("top_p", self.top_p))
+        object.__setattr__(self, "min_p", _normalize_float("min_p", self.min_p))
+        object.__setattr__(self, "temperature", _normalize_float("temperature", self.temperature))
+        object.__setattr__(self, "fuse_decoding", _normalize_bool("fuse_decoding", self.fuse_decoding))
+        object.__setattr__(self, "include_prompt", _normalize_bool("include_prompt", self.include_prompt))
 
 
 @dataclass

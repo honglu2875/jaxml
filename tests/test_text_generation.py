@@ -44,6 +44,54 @@ class DummyEngine:
         return new_tokens
 
 
+@pytest.mark.parametrize("field_name", ["seed", "max_new_tokens", "top_k"])
+@pytest.mark.parametrize("value", [True, 1.5])
+def test_generation_config_rejects_non_integer_count_fields(field_name, value):
+    with pytest.raises(TypeError, match=f"{field_name} must be an integer"):
+        GenerationConfig(**{field_name: value})
+
+
+def test_generation_config_rejects_negative_max_new_tokens():
+    with pytest.raises(ValueError, match="max_new_tokens must be non-negative"):
+        GenerationConfig(max_new_tokens=-1)
+
+
+@pytest.mark.parametrize("field_name", ["top_p", "min_p", "temperature"])
+@pytest.mark.parametrize("value", [True, "1.0"])
+def test_generation_config_rejects_non_real_sampling_fields(field_name, value):
+    with pytest.raises(TypeError, match=f"{field_name} must be a real number"):
+        GenerationConfig(**{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["fuse_decoding", "include_prompt"])
+@pytest.mark.parametrize("value", [1, "true"])
+def test_generation_config_rejects_non_boolean_fields(field_name, value):
+    with pytest.raises(TypeError, match=f"{field_name} must be a boolean"):
+        GenerationConfig(**{field_name: value})
+
+
+def test_generation_config_accepts_numpy_scalar_fields():
+    config = GenerationConfig(
+        seed=np.int64(1),
+        max_new_tokens=np.int64(2),
+        top_k=np.int64(3),
+        top_p=np.float32(0.9),
+        min_p=np.float32(0.1),
+        temperature=np.float32(0.5),
+        fuse_decoding=np.bool_(True),
+        include_prompt=np.bool_(False),
+    )
+
+    assert config.seed == 1
+    assert config.max_new_tokens == 2
+    assert config.top_k == 3
+    assert config.top_p == pytest.approx(0.9)
+    assert config.min_p == pytest.approx(0.1)
+    assert config.temperature == pytest.approx(0.5)
+    assert config.fuse_decoding is True
+    assert config.include_prompt is False
+
+
 def test_generate_text_returns_string_for_single_prompt():
     tokenizer = DummyTokenizer()
     engine = DummyEngine()
