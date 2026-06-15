@@ -1,7 +1,7 @@
 SHELL=/bin/bash
 LINT_PATHS=src/jaxml/ tests/
 
-.PHONY: pytest pytest-cpu pytest-tpu lint format format-check lock-check style verify-cpu verify-tpu
+.PHONY: pytest pytest-cpu pytest-tpu lint format format-check lock-check dependency-check style verify-cpu verify-tpu
 
 pytest:
 	JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
@@ -27,8 +27,11 @@ format-check:
 lock-check:
 	uv lock --locked
 
+dependency-check:
+	uv pip check
+
 style: format lint
 
-verify-cpu: lock-check lint format-check pytest-cpu
+verify-cpu: lock-check dependency-check lint format-check pytest-cpu
 
 verify-tpu: pytest-tpu
