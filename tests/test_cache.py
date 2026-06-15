@@ -159,6 +159,19 @@ def test_kv_cache_update_rejects_non_floating_values(k, v, match):
         KVCache.init(4).update(k, v, mask=None)
 
 
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("field_name", ["k", "v"])
+def test_kv_cache_update_rejects_non_finite_key_values(field_name, value):
+    k, v = _kv(seq_len=1)
+    if field_name == "k":
+        k = k.at[0, 0, 0, 0].set(value)
+    else:
+        v = v.at[0, 0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match=f"{field_name} must contain only finite values"):
+        KVCache.init(4).update(k, v, mask=None)
+
+
 def test_kv_cache_update_canonicalizes_integer_initial_mask():
     k, v = _kv(seq_len=3)
     mask = jnp.array([[1, 1, 0], [1, 0, 0]], dtype=jnp.int32)
@@ -265,6 +278,21 @@ def test_kv_cache_update_rejects_decode_past_capacity():
     next_k, next_v = _kv(seq_len=1)
 
     with pytest.raises(ValueError, match="max_seq_len=2"):
+        cache.update(next_k, next_v, mask=None)
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("field_name", ["k", "v"])
+def test_kv_cache_update_rejects_non_finite_decode_key_values(field_name, value):
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
+    next_k, next_v = _kv(seq_len=1)
+    if field_name == "k":
+        next_k = next_k.at[0, 0, 0, 0].set(value)
+    else:
+        next_v = next_v.at[0, 0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match=f"{field_name} must contain only finite values"):
         cache.update(next_k, next_v, mask=None)
 
 
@@ -419,6 +447,28 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
             ),
             TypeError,
             "Cached v must contain floating",
+        ),
+        (
+            KVCache(
+                k=jnp.array([[[[jnp.nan, 0.0]], [[0.0, 0.0]], [[0.0, 0.0]], [[0.0, 0.0]]]], dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.array([[3]], dtype=jnp.int32),
+            ),
+            ValueError,
+            "Cached k must contain only finite values",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.array([[[[jnp.inf, 0.0]], [[0.0, 0.0]], [[0.0, 0.0]], [[0.0, 0.0]]]], dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.array([[3]], dtype=jnp.int32),
+            ),
+            ValueError,
+            "Cached v must contain only finite values",
         ),
         (
             KVCache(

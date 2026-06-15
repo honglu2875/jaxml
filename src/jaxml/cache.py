@@ -59,6 +59,11 @@ def _validate_binary_integer_mask(name: str, mask: jnp.ndarray):
             raise ValueError(f"{name} integer values must be 0 or 1.")
 
 
+def _validate_finite_values(name: str, values: jnp.ndarray):
+    if not _contains_tracer(values) and not bool(jnp.all(jnp.isfinite(values))):
+        raise ValueError(f"{name} must contain only finite values.")
+
+
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
 
@@ -122,6 +127,8 @@ class KVCache(struct.PyTreeNode):
             raise TypeError(f"k must contain floating point values, got dtype {k.dtype}.")
         if not jnp.issubdtype(v.dtype, jnp.floating):
             raise TypeError(f"v must contain floating point values, got dtype {v.dtype}.")
+        _validate_finite_values("k", k)
+        _validate_finite_values("v", v)
 
     def _validate_static_state(self):
         max_seq_len = _normalize_count("max_seq_len", self.max_seq_len)
@@ -156,6 +163,8 @@ class KVCache(struct.PyTreeNode):
             raise TypeError(f"Cached k dtype must match cache dtype {self.dtype}, got {self.k.dtype}.")
         if self.v.dtype != self.dtype:
             raise TypeError(f"Cached v dtype must match cache dtype {self.dtype}, got {self.v.dtype}.")
+        _validate_finite_values("Cached k", self.k)
+        _validate_finite_values("Cached v", self.v)
 
         if self.mask.shape != self.k.shape[:2]:
             raise ValueError(f"Cached mask shape must match cached k/v batch and sequence axes, got {self.mask.shape}.")
