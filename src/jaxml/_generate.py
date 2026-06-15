@@ -234,8 +234,6 @@ def generate(
     if max_new_tokens < 0:
         raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
     kv_caches = _validate_kv_caches(kv_caches)
-    if skip_prefill:
-        _validate_prefilled_kv_caches(kv_caches)
     if attention_mask is not None:
         attention_mask = jnp.asarray(attention_mask)
         if attention_mask.ndim == 1:
@@ -258,6 +256,9 @@ def generate(
         else:
             tokens = jnp.empty((prompt_tokens.shape[0], 0), dtype=prompt_tokens.dtype)
         return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=rng)
+
+    if skip_prefill:
+        _validate_prefilled_kv_caches(kv_caches)
 
     eval_fn = _normalize_callable("eval_fn", eval_fn)
     sample_fn = _get_sampling_fn(sampling_method)
