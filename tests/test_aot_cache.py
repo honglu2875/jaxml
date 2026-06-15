@@ -186,6 +186,34 @@ def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tm
     assert second == (b"second-payload", "in-tree", "out-tree")
 
 
+def test_load_compiled_fn_cache_key_resolves_relative_paths(monkeypatch, tmp_path):
+    def write_cache_entry(cwd, payload):
+        cache_entry = cwd / "cache" / "decode_abc"
+        cache_entry.mkdir(parents=True)
+        (cache_entry / "aot").write_bytes(payload)
+        with (cache_entry / "in_out_spec").open("wb") as f:
+            pickle.dump(("in-tree", "out-tree"), f)
+
+    monkeypatch.setattr(
+        "jax.experimental.serialize_executable.deserialize_and_load",
+        lambda payload, in_tree, out_tree: (payload, in_tree, out_tree),
+    )
+    _load_compiled_fn_from_path.cache_clear()
+    first_cwd = tmp_path / "first"
+    second_cwd = tmp_path / "second"
+    write_cache_entry(first_cwd, b"first-payload")
+    write_cache_entry(second_cwd, b"second-payload")
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, "cache")
+
+    monkeypatch.chdir(first_cwd)
+    first = load_compiled_fn("decode", "abc", log=False)
+    monkeypatch.chdir(second_cwd)
+    second = load_compiled_fn("decode", "abc", log=False)
+
+    assert first == (b"first-payload", "in-tree", "out-tree")
+    assert second == (b"second-payload", "in-tree", "out-tree")
+
+
 class FakeJit:
     def __init__(self, fn, compiled_fn):
         self.fn = fn

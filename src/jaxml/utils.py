@@ -397,7 +397,7 @@ def _load_compiled_fn_from_path(path: str):
 
 @timeit(logger)
 def load_compiled_fn(name: str, hash=0):
-    return _load_compiled_fn_from_path(str(compiled_fn_path(name, hash)))
+    return _load_compiled_fn_from_path(str(compiled_fn_path(name, hash).resolve()))
 
 
 def _is_stale_compiled_fn_error(error: TypeError) -> bool:
