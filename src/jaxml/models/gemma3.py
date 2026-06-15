@@ -27,7 +27,14 @@ from ..nn.module import Block
 from ..nn.norms import RMSNorm, _validate_hidden_states_shape
 from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
-from ._utils import normalize_model_output_flags, prepare_model_inputs, prepare_position_ids, slice_last_n_logits_hidden_states
+from ._utils import (
+    cached_sequence_length,
+    normalize_model_output_flags,
+    prepare_model_inputs,
+    prepare_position_ids,
+    should_use_default_attention_mask,
+    slice_last_n_logits_hidden_states,
+)
 
 
 class GemmaMLP(Block):
@@ -228,7 +235,7 @@ class GemmaModel(Block):
 
         if attention_mask is None:
             # need to apply a default value if kv_cache is either unused or empty
-            if kv_caches is None or kv_caches[0].mask is None:
+            if should_use_default_attention_mask(kv_caches):
                 # our convention is that negative ids (such as -100) is masked by default.
                 attention_mask = input_ids >= 0
 
@@ -242,7 +249,7 @@ class GemmaModel(Block):
         all_self_attns = []
         next_kv_caches = []
 
-        k_len = None if kv_caches is None or kv_caches[0].k is None else kv_caches[0].k.shape[1]
+        k_len = cached_sequence_length(kv_caches)
         cos_sin = self.rotary_emb(hidden_states, seq_len=k_len)
         cos_sin_local = self.rotary_emb_local(hidden_states, seq_len=k_len)
         sw_stride = self.config.sliding_window_pattern or 1

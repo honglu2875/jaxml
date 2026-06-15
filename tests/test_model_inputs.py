@@ -261,6 +261,19 @@ def test_models_reject_invalid_kv_cache_entries(request, fixture_name):
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_accept_empty_kv_cache_entries_without_attention_mask(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+        kv_caches = (None,) * model.num_layers
+
+        output = model.apply(params, input_ids, kv_caches=kv_caches, use_cache=True)
+
+    assert output.last_hidden_state.shape[:2] == input_ids.shape
+    assert output.kv_caches == kv_caches
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
 @pytest.mark.parametrize(
     "kwargs,match",
     [

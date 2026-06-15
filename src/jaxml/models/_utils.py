@@ -103,6 +103,18 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
     return input_ids, attention_mask, kv_caches
 
 
+def should_use_default_attention_mask(kv_caches) -> bool:
+    first_cache = None if kv_caches is None else kv_caches[0]
+    return first_cache is None or first_cache.mask is None
+
+
+def cached_sequence_length(kv_caches):
+    first_cache = None if kv_caches is None else kv_caches[0]
+    if first_cache is None or first_cache.k is None:
+        return None
+    return first_cache.k.shape[1]
+
+
 def prepare_position_ids(position_ids, input_ids):
     if position_ids is None:
         return None
