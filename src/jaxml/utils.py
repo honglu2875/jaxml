@@ -17,6 +17,7 @@ import functools
 import hashlib
 import json
 import logging
+import operator
 import os
 import pickle
 import time
@@ -148,6 +149,20 @@ def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
     return value.numpy().astype(dtype)
 
 
+def _normalize_optional_head_dim(head_dim: int | None) -> int | None:
+    if head_dim is None:
+        return None
+    if isinstance(head_dim, bool):
+        raise TypeError(f"head_dim must be an integer when set, got {type(head_dim)}.")
+    try:
+        head_dim = operator.index(head_dim)
+    except TypeError as e:
+        raise TypeError(f"head_dim must be an integer when set, got {type(head_dim)}.") from e
+    if head_dim <= 0:
+        raise ValueError(f"head_dim must be positive when set, got {head_dim}.")
+    return head_dim
+
+
 def torch_to_jax_states(
     input: torch.nn.Module | dict,
     dtype: str | torch.dtype = torch.float16,
@@ -162,6 +177,7 @@ def torch_to_jax_states(
             weights further into (..., head_dim, num_head).
     """
     np_dtype = _resolve_np_dtype(dtype)
+    head_dim = _normalize_optional_head_dim(head_dim)
 
     if isinstance(input, torch.nn.Module):
         states = input.state_dict()

@@ -216,6 +216,28 @@ def test_torch_to_jax_states_rejects_invalid_dtype_type():
         torch_to_jax_states({"weight": torch.ones(1)}, dtype=np.float32)
 
 
+@pytest.mark.parametrize("head_dim", [True, 1.5])
+def test_torch_to_jax_states_rejects_non_integer_head_dim(head_dim):
+    with pytest.raises(TypeError, match="head_dim must be an integer"):
+        torch_to_jax_states({"weight": torch.ones(1)}, dtype=torch.float32, head_dim=head_dim)
+
+
+@pytest.mark.parametrize("head_dim", [0, -1])
+def test_torch_to_jax_states_rejects_non_positive_head_dim(head_dim):
+    with pytest.raises(ValueError, match="head_dim must be positive"):
+        torch_to_jax_states({"weight": torch.ones(1)}, dtype=torch.float32, head_dim=head_dim)
+
+
+def test_torch_to_jax_states_accepts_numpy_integer_head_dim():
+    params = torch_to_jax_states(
+        {"q_proj.weight": torch.ones((4, 8))},
+        dtype=torch.float32,
+        head_dim=np.int64(4),
+    )
+
+    assert params["params"]["q_proj"]["kernel"].shape == (8, 1, 4)
+
+
 def test_torch_to_jax_states_rejects_non_tensor_state_values():
     with pytest.raises(TypeError, match="State value for key 'weight'"):
         torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
