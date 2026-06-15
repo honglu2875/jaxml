@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import math
+from numbers import Real
 import operator
 from typing import Any
 
@@ -28,6 +30,15 @@ def _normalize_count(name: str, value: int) -> int:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+
+
+def _normalize_float(name: str, value: float) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
+        raise TypeError(f"{name} must be a real number, got {type(value)}.")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}.")
+    return value
 
 
 def _contains_tracer(x: Any) -> bool:
@@ -110,34 +121,41 @@ class RotaryEmbedding(nn.Module):
     def setup(self):
         dim = _normalize_count("dim", self.dim)
         max_length = _normalize_count("max_length", self.max_length)
+        base = _normalize_float("base", self.base)
+        rope_scale = _normalize_float("rope_scale", self.rope_scale)
+        rotary_pct = _normalize_float("rotary_pct", self.rotary_pct)
         if dim <= 0:
             raise ValueError(f"dim must be positive, got {dim}.")
         if max_length <= 0:
             raise ValueError(f"max_length must be positive, got {max_length}.")
-        if self.rope_scale < 1.0:
+        if base <= 0:
+            raise ValueError(f"base must be positive, got {base}.")
+        if rope_scale < 1.0:
             raise ValueError(
                 f"Although rope scale in theory can be < 1.0, it is more likely a mistake (potential confusion of "
-                f"whether dividing or multiplying it). I raise the error for awareness (got {self.rope_scale})."
+                f"whether dividing or multiplying it). I raise the error for awareness (got {rope_scale})."
             )
-        if self.full_rotate:
+        if not 0 < rotary_pct <= 1:
+            raise ValueError(f"rotary_pct must be in (0, 1], got {rotary_pct}.")
+        if rotary_pct >= 1.0:
             self.rotary_dim = dim
         else:
-            self.rotary_dim = int(dim * self.rotary_pct)
+            self.rotary_dim = int(dim * rotary_pct)
         if self.rotary_dim <= 0:
             raise ValueError(
-                f"Rotary dimension cannot be less than or equal to 0. The `rotary_pct`({self.rotary_pct}) might be too "
+                f"Rotary dimension cannot be less than or equal to 0. The `rotary_pct`({rotary_pct}) might be too "
                 f"small relative to the head dim ({dim})."
             )
         elif self.rotary_dim % 2 == 1:
             raise ValueError(
-                f"Rotary dimension cannot be an odd number. Please adjust the `rotary_pct`({self.rotary_pct}) "
+                f"Rotary dimension cannot be an odd number. Please adjust the `rotary_pct`({rotary_pct}) "
                 f"according to the head dim ({dim})."
             )
 
         self.inv_freq = self.variable(
             "cache",
             "inv_freq",
-            lambda: 1.0 / (self.base ** (jnp.arange(0, self.rotary_dim, 2, dtype=jnp.float32) / self.rotary_dim)),
+            lambda: 1.0 / (base ** (jnp.arange(0, self.rotary_dim, 2, dtype=jnp.float32) / self.rotary_dim)),
         )
 
         if not self.disable_cache:

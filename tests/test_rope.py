@@ -48,6 +48,16 @@ def test_rope(rope_factory, model_type):
         ({"dim": 4, "max_length": np.bool_(True)}, TypeError, "max_length must be an integer"),
         ({"dim": 4, "max_length": 1.5}, TypeError, "max_length must be an integer"),
         ({"dim": 4, "max_length": 0}, ValueError, "max_length must be positive"),
+        ({"dim": 4, "max_length": 8, "base": True}, TypeError, "base must be a real number"),
+        ({"dim": 4, "max_length": 8, "base": float("nan")}, ValueError, "base must be finite"),
+        ({"dim": 4, "max_length": 8, "base": 0.0}, ValueError, "base must be positive"),
+        ({"dim": 4, "max_length": 8, "rope_scale": "1.0"}, TypeError, "rope_scale must be a real number"),
+        ({"dim": 4, "max_length": 8, "rope_scale": float("inf")}, ValueError, "rope_scale must be finite"),
+        ({"dim": 4, "max_length": 8, "rope_scale": 0.5}, ValueError, "rope scale"),
+        ({"dim": 4, "max_length": 8, "rotary_pct": np.bool_(True)}, TypeError, "rotary_pct must be a real number"),
+        ({"dim": 4, "max_length": 8, "rotary_pct": float("nan")}, ValueError, "rotary_pct must be finite"),
+        ({"dim": 4, "max_length": 8, "rotary_pct": 0.0}, ValueError, "rotary_pct must be in"),
+        ({"dim": 4, "max_length": 8, "rotary_pct": 1.5}, ValueError, "rotary_pct must be in"),
     ],
 )
 def test_rope_rejects_invalid_shape_parameters(kwargs, exception, match):
