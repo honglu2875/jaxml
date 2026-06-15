@@ -419,6 +419,10 @@ class Engine:
                 raise TypeError(
                     f"Internal generation kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}."
                 )
+            try:
+                kv_cache.validate_state()
+            except (TypeError, ValueError) as e:
+                raise type(e)(f"Invalid internal generation KV cache at index {idx}: {e}") from e
 
         return tokens, kv_caches, rng
 

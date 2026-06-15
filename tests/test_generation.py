@@ -690,6 +690,20 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
             TypeError,
             "KVCache instances",
         ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=(
+                    kv_caches[0].replace(
+                        k=jnp.ones((1, kv_caches[0].max_seq_len, 1, 1), dtype=kv_caches[0].dtype),
+                    ),
+                    *kv_caches[1:],
+                ),
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "Invalid internal generation KV cache",
+        ),
     ],
 )
 def test_engine_generate_rejects_invalid_internal_step_output(
