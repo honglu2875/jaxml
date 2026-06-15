@@ -372,6 +372,18 @@ def test_generate_text_rejects_invalid_engine_tokens_before_decode(engine_output
     assert tokenizer.decode_calls == []
 
 
+def test_generate_text_rejects_engine_token_batch_mismatch_before_decode():
+    tokenizer = DummyTokenizer()
+    engine = StaticEngine(np.ones((2, 1), dtype=np.int32))
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(ValueError, match="token batch size must match input batch size"):
+        pipeline.generate_text("hello")
+
+    assert engine.generate_calls
+    assert tokenizer.decode_calls == []
+
+
 def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     calls = {}
 

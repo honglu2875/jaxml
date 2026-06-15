@@ -254,7 +254,13 @@ class TextGenerationPipeline:
             "fuse_decoding": config.fuse_decoding,
             "include_prompt": config.include_prompt,
         } | generation_kwargs
-        return _normalize_generated_tokens(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
+        tokens = _normalize_generated_tokens(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
+        if tokens.shape[0] != input_ids.shape[0]:
+            raise ValueError(
+                "engine.generate token batch size must match input batch size; "
+                f"got {tokens.shape[0]} and {input_ids.shape[0]}."
+            )
+        return tokens
 
     def generate_text(
         self,
