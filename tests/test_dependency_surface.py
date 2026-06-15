@@ -16,6 +16,16 @@ def _lock_config():
     return tomllib.loads((PROJECT_ROOT / "uv.lock").read_text())
 
 
+def _makefile_targets():
+    targets = {}
+    for line in (PROJECT_ROOT / "Makefile").read_text().splitlines():
+        if not line or line.startswith(("\t", ".", "#")) or ":" not in line:
+            continue
+        target, dependencies = line.split(":", maxsplit=1)
+        targets[target] = tuple(dependencies.split())
+    return targets
+
+
 def _exact_direct_pins():
     pyproject = _project_config()
     dependencies = list(pyproject["project"]["dependencies"])
@@ -93,6 +103,12 @@ def test_tpu_extra_keeps_libtpu_explicitly_pinned():
     tpu_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["tpu"])
 
     assert "libtpu" in tpu_pins
+
+
+def test_tpu_verification_checks_lockfile_and_installed_dependencies_before_tests():
+    targets = _makefile_targets()
+
+    assert targets["verify-tpu"] == ("lock-check", "dependency-check", "pytest-tpu")
 
 
 def test_jax_runtime_surface_executes_jitted_cpu_work():

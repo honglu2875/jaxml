@@ -34,4 +34,4 @@ style: format lint
 
 verify-cpu: lock-check dependency-check lint format-check pytest-cpu
 
-verify-tpu: pytest-tpu
+verify-tpu: lock-check dependency-check pytest-tpu
