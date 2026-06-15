@@ -139,6 +139,116 @@ def test_attention_all_masked_rows_remain_finite():
     assert np.allclose(weights, np.array([[[[0.5, 0.5]]]], dtype=np.float32))
 
 
+def test_attention_mha_canonicalizes_integer_attention_mask():
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+    value_states = jnp.arange(3, dtype=jnp.float32).reshape(1, 3, 1, 1)
+    integer_mask = jnp.array([[1, 1, 0]], dtype=jnp.int32)
+    bool_mask = integer_mask.astype(bool)
+
+    output, weights = attn.apply(
+        {},
+        query_states,
+        key_states,
+        value_states,
+        attention_mask=integer_mask,
+        output_attentions=True,
+        method=Attention.mha,
+    )
+    expected, expected_weights = attn.apply(
+        {},
+        query_states,
+        key_states,
+        value_states,
+        attention_mask=bool_mask,
+        output_attentions=True,
+        method=Attention.mha,
+    )
+
+    assert np.allclose(output, expected)
+    assert np.allclose(weights, expected_weights)
+
+
+@pytest.mark.parametrize(
+    "attention_mask,exception,match",
+    [
+        (jnp.ones((1, 2), dtype=bool), ValueError, "attention_mask shape must match"),
+        (jnp.ones((1, 3), dtype=jnp.float32), TypeError, "attention_mask must be boolean or integer"),
+    ],
+)
+def test_attention_mha_rejects_invalid_attention_mask(attention_mask, exception, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+    value_states = jnp.arange(3, dtype=jnp.float32).reshape(1, 3, 1, 1)
+
+    with pytest.raises(exception, match=match):
+        attn.apply(
+            {},
+            query_states,
+            key_states,
+            value_states,
+            attention_mask=attention_mask,
+            method=Attention.mha,
+        )
+
+
+@pytest.mark.parametrize(
+    "sliding_window,exception,match",
+    [
+        (True, TypeError, "sliding_window must be an integer"),
+        (1.5, TypeError, "sliding_window must be an integer"),
+        (0, ValueError, "sliding_window must be positive"),
+    ],
+)
+def test_attention_mha_rejects_invalid_sliding_window(sliding_window, exception, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+    value_states = jnp.arange(3, dtype=jnp.float32).reshape(1, 3, 1, 1)
+
+    with pytest.raises(exception, match=match):
+        attn.apply(
+            {},
+            query_states,
+            key_states,
+            value_states,
+            sliding_window=sliding_window,
+            method=Attention.mha,
+        )
+
+
 @pytest.mark.parametrize(
     "model_type,with_rope",
     [

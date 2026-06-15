@@ -18,6 +18,7 @@
 # This file has been modified from its original version
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/attentions.py
 
+import operator
 from typing import Any, Callable, Optional
 
 import jax
@@ -31,6 +32,20 @@ from ..outputs import AttentionOutput
 from .linear import DenseGeneral
 from .module import Block
 from .position import RotaryEmbedding
+
+
+def _normalize_optional_count(name: str, value: int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer when set, got {type(value)}.")
+    try:
+        value = operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer when set, got {type(value)}.") from e
+    if value <= 0:
+        raise ValueError(f"{name} must be positive when set, got {value}.")
+    return value
 
 
 class Attention(Block):
@@ -175,10 +190,22 @@ class Attention(Block):
         softmax_fp32: bool = True,
         output_attentions: bool = False,
     ):
+        sliding_window = _normalize_optional_count("sliding_window", sliding_window)
         x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) * self.attn_scale
 
         _, _, q_len, k_len = x.shape
         dtype = query_states.dtype
+
+        if attention_mask is not None:
+            attention_mask = jnp.asarray(attention_mask)
+            if attention_mask.shape != (query_states.shape[0], k_len):
+                raise ValueError(
+                    "attention_mask shape must match attention batch and key length, "
+                    f"got {attention_mask.shape} and {(query_states.shape[0], k_len)}."
+                )
+            if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
+                raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
+            attention_mask = attention_mask.astype(bool)
 
         if alibi_slope is not None:
             # bias: (head_dim, 1, k_len)
