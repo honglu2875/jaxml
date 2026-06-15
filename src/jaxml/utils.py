@@ -212,6 +212,8 @@ def torch_to_jax_states(
         states = input
     else:
         raise TypeError(f"Expected input to be either a PyTorch module or a mapping, got {type(input)}.")
+    if not states:
+        raise ValueError("PyTorch state dict must contain at least one tensor.")
 
     jax_states = {"params": {}}
 

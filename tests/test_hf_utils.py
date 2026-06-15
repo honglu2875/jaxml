@@ -75,6 +75,16 @@ def test_to_llama_jax_params_rejects_invalid_state_dict_surface(model, exception
         to_llama_jax_params(model, dtype=torch.float32)
 
 
+def test_to_llama_jax_params_rejects_empty_state_dict():
+    model = SimpleNamespace(
+        config=SimpleNamespace(hidden_size=8, num_attention_heads=2),
+        state_dict=lambda: {},
+    )
+
+    with pytest.raises(ValueError, match="state dict must contain at least one tensor"):
+        to_llama_jax_params(model, dtype=torch.float32)
+
+
 @pytest.mark.parametrize(
     ("head_dim", "exception", "match"),
     [

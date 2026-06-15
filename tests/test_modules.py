@@ -690,6 +690,16 @@ def test_torch_to_jax_states_rejects_non_mapping_inputs():
         torch_to_jax_states([("weight", torch.ones(1))], dtype=torch.float32)
 
 
+def test_torch_to_jax_states_rejects_empty_mapping_state_dicts():
+    with pytest.raises(ValueError, match="state dict must contain at least one tensor"):
+        torch_to_jax_states({}, dtype=torch.float32)
+
+
+def test_torch_to_jax_states_rejects_empty_module_state_dicts():
+    with pytest.raises(ValueError, match="state dict must contain at least one tensor"):
+        torch_to_jax_states(torch.nn.Identity(), dtype=torch.float32)
+
+
 @pytest.mark.parametrize("head_dim", [True, np.bool_(True), 1.5])
 def test_torch_to_jax_states_rejects_non_integer_head_dim(head_dim):
     with pytest.raises(TypeError, match="head_dim must be an integer"):
