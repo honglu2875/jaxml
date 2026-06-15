@@ -1,5 +1,8 @@
 import re
+from operator import index
 from typing import Literal
+
+import numpy as np
 
 from jaxml.models.gemma3 import GemmaModelWithHead
 from jaxml.models.gpt_neox import GPTNeoXModelWithHead
@@ -8,11 +11,28 @@ from jaxml.models.llama import LlamaModelWithHead
 from .utils import torch_to_jax_states
 
 
+def _normalize_hf_count(name: str, value) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        normalized = index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+    if normalized <= 0:
+        raise ValueError(f"{name} must be positive.")
+    return normalized
+
+
 def _config_head_dim(config):
     head_dim = getattr(config, "head_dim", None)
     if head_dim is not None:
-        return head_dim
-    return config.hidden_size // config.num_attention_heads
+        return _normalize_hf_count("head_dim", head_dim)
+
+    hidden_size = _normalize_hf_count("hidden_size", config.hidden_size)
+    num_attention_heads = _normalize_hf_count("num_attention_heads", config.num_attention_heads)
+    if hidden_size % num_attention_heads != 0:
+        raise ValueError("hidden_size must be divisible by num_attention_heads when head_dim is not set.")
+    return hidden_size // num_attention_heads
 
 
 def to_llama_jax_params(model, dtype: str = "float16"):
