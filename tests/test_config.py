@@ -145,6 +145,8 @@ def test_model_config_rejects_non_boolean_flags(overrides, match):
         ({"num_kv_heads": 4}, "divisible"),
         ({"sliding_window": 0}, "sliding_window"),
         ({"sliding_window_pattern": 0}, "sliding_window_pattern"),
+        ({"sliding_window": 32}, "sliding_window and sliding_window_pattern"),
+        ({"sliding_window_pattern": 2}, "sliding_window and sliding_window_pattern"),
         ({"attn_scale": 0.0}, "attn_scale"),
         ({"use_alibi": True, "use_rope": True}, "AliBi and RoPE"),
         ({"rope_theta": 0.0}, "rope_theta"),
@@ -399,6 +401,27 @@ def test_model_config_from_hf_rejects_boolean_gemma_sliding_window_pattern():
     hf_config.sliding_window_pattern = True
 
     with pytest.raises(TypeError, match="sliding_window_pattern must be an integer"):
+        ModelConfig.from_hf(hf_config)
+
+
+def test_model_config_from_hf_rejects_incomplete_gemma_sliding_window_pair():
+    from transformers import Gemma3TextConfig
+
+    hf_config = Gemma3TextConfig(
+        hidden_size=64,
+        head_dim=8,
+        intermediate_size=144,
+        num_hidden_layers=4,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+        sliding_window=32,
+        sliding_window_pattern=2,
+    )
+    hf_config.sliding_window_pattern = None
+
+    with pytest.raises(ValueError, match="sliding_window and sliding_window_pattern"):
         ModelConfig.from_hf(hf_config)
 
 

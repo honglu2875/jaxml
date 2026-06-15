@@ -154,6 +154,8 @@ class ModelConfig:
                 "sliding_window_pattern",
                 _normalize_count("sliding_window_pattern", self.sliding_window_pattern),
             )
+        if (self.sliding_window is None) != (self.sliding_window_pattern is None):
+            raise ValueError("sliding_window and sliding_window_pattern must both be set or both be None.")
         if self.sliding_window_pattern is not None and self.sliding_window_pattern <= 0:
             raise ValueError(f"sliding_window_pattern must be positive when set, got {self.sliding_window_pattern}.")
         if self.attn_scale is None:
