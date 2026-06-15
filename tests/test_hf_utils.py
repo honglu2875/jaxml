@@ -286,6 +286,36 @@ def test_direct_hf_loader_rejects_mismatched_model_type_before_param_conversion(
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "loader,converter,match",
+    [
+        (load_llama_from_hf, "jaxml.hf_utils.to_llama_jax_params", "Llama model to expose a config"),
+        (load_neox_from_hf, "jaxml.hf_utils.to_neox_jax_params", "GPT-NeoX model to expose a config"),
+    ],
+)
+def test_direct_hf_loader_rejects_missing_config_before_param_conversion(monkeypatch, loader, converter, match):
+    calls = []
+
+    class FakeAutoModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return SimpleNamespace(state_dict=lambda: {})
+
+    def fake_to_params(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("parameter conversion should not run without a model config.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoModelForCausalLM", FakeAutoModel)
+    monkeypatch.setattr(converter, fake_to_params)
+
+    with pytest.raises(ValueError, match=match):
+        loader("some/model")
+
+    assert calls == []
+
+
 def test_gemma_hf_loader_rejects_mismatched_wrapper_model_type_before_language_model_access(monkeypatch):
     class FakeAutoModel:
         @classmethod
@@ -314,6 +344,25 @@ def test_gemma_hf_loader_rejects_missing_language_model(monkeypatch):
         load_gemma_from_hf("some/model")
 
 
+def test_gemma_hf_loader_rejects_missing_wrapper_config_before_language_model_access(monkeypatch):
+    class ExplodingWrapper:
+        @property
+        def language_model(self):
+            raise AssertionError("language_model should not be accessed without a wrapper config.")
+
+    class FakeAutoModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return ExplodingWrapper()
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoModelForCausalLM", FakeAutoModel)
+
+    with pytest.raises(ValueError, match="Gemma model to expose a config"):
+        load_gemma_from_hf("some/model")
+
+
 def test_gemma_hf_loader_rejects_mismatched_text_model_type_before_param_conversion(monkeypatch):
     calls = []
 
@@ -333,6 +382,30 @@ def test_gemma_hf_loader_rejects_mismatched_text_model_type_before_param_convers
     monkeypatch.setattr("jaxml.hf_utils.to_gemma_jax_params", fake_to_params)
 
     with pytest.raises(ValueError, match="Gemma text model_type"):
+        load_gemma_from_hf("some/model")
+
+    assert calls == []
+
+
+def test_gemma_hf_loader_rejects_missing_text_config_before_param_conversion(monkeypatch):
+    calls = []
+
+    class FakeAutoModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            language_model = SimpleNamespace(state_dict=lambda: {})
+            return SimpleNamespace(config=SimpleNamespace(model_type="gemma3"), language_model=language_model)
+
+    def fake_to_params(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("parameter conversion should not run without a Gemma text config.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoModelForCausalLM", FakeAutoModel)
+    monkeypatch.setattr("jaxml.hf_utils.to_gemma_jax_params", fake_to_params)
+
+    with pytest.raises(ValueError, match="Gemma text model to expose a config"):
         load_gemma_from_hf("some/model")
 
     assert calls == []

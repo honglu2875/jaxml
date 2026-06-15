@@ -194,9 +194,10 @@ def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
     from jaxml.config import ModelConfig
 
     _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
-    _validate_hf_model_type(_model.config, ("llama",), "Llama")
+    _config = _hf_model_config(_model, "Llama")
+    _validate_hf_model_type(_config, ("llama",), "Llama")
     params = to_llama_jax_params(_model, dtype=dtype)
-    config = ModelConfig.from_hf(_model.config)
+    config = ModelConfig.from_hf(_config)
     model = LlamaModelWithHead(config)
     return model, params
 
@@ -214,9 +215,10 @@ def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwarg
     from jaxml.config import ModelConfig
 
     _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
-    _validate_hf_model_type(_model.config, ("gpt_neox",), "GPT-NeoX")
+    _config = _hf_model_config(_model, "GPT-NeoX")
+    _validate_hf_model_type(_config, ("gpt_neox",), "GPT-NeoX")
     params = to_neox_jax_params(_model, dtype=dtype)
-    config = ModelConfig.from_hf(_model.config)
+    config = ModelConfig.from_hf(_config)
     model = GPTNeoXModelWithHead(config)
     return model, params
 
@@ -234,13 +236,15 @@ def load_gemma_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
     from jaxml.config import ModelConfig
 
     _wrapper = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
-    _validate_hf_model_type(_wrapper.config, ("gemma3",), "Gemma")
+    _wrapper_config = _hf_model_config(_wrapper, "Gemma")
+    _validate_hf_model_type(_wrapper_config, ("gemma3",), "Gemma")
     try:
         _model = _wrapper.language_model
     except AttributeError as e:
         raise ValueError("Expected Hugging Face Gemma model to expose a language_model module.") from e
-    _validate_hf_model_type(_model.config, ("gemma3_text",), "Gemma text")
+    _model_config = _hf_model_config(_model, "Gemma text")
+    _validate_hf_model_type(_model_config, ("gemma3_text",), "Gemma text")
     params = to_gemma_jax_params(_model, dtype=dtype)
-    config = ModelConfig.from_hf(_model.config)
+    config = ModelConfig.from_hf(_model_config)
     model = GemmaModelWithHead(config)
     return model, params
