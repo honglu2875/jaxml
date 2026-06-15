@@ -2,8 +2,15 @@ from typing import Any, Callable, Tuple
 
 import flax.linen as nn
 import jax.numpy as jnp
+import numpy as np
 
 from ..config import ModelConfig
+
+
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
 class Module(nn.Module):
@@ -16,10 +23,12 @@ class Module(nn.Module):
     with_logical_partitioning: bool = True
 
     def setup(self):
+        with_logical_partitioning = _normalize_bool("with_logical_partitioning", self.with_logical_partitioning)
+
         # wrap over init function in order to receive in_axis and out_axis
         def init_fn(key: jnp.ndarray, shape: tuple, dtype: Any, in_axis: int, out_axis: int):
             fn = self.kernel_init(*self.kernel_init_args, in_axis=in_axis, out_axis=out_axis)
-            if self.with_logical_partitioning:
+            if with_logical_partitioning:
                 if not self.kernel_axes:
                     raise ValueError("with_logical_partitioning is True. Kernel axes must be specified.")
                 fn = nn.with_logical_partitioning(fn, self.kernel_axes)

@@ -24,6 +24,12 @@ def _contains_tracer(x: Any) -> bool:
     return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
 class Embed(Module):
     """A parameterized function from integers [0, n) to d-dimensional vectors.
 
@@ -59,6 +65,7 @@ class Embed(Module):
         """
         num_embeddings = _normalize_count("num_embeddings", self.num_embeddings)
         features = _normalize_count("features", self.features)
+        one_hot = _normalize_bool("one_hot", self.one_hot)
         if num_embeddings <= 0:
             raise ValueError(f"num_embeddings must be positive, got {num_embeddings}.")
         if features <= 0:
@@ -80,7 +87,7 @@ class Embed(Module):
                 raise ValueError("Input token ids must be non-negative.")
             if bool(jnp.any(inputs >= num_embeddings)):
                 raise ValueError(f"Input token ids must be less than num_embeddings={num_embeddings}.")
-        if self.one_hot:
+        if one_hot:
             iota = lax.iota(jnp.int32, num_embeddings)
             one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
             output = jnp.dot(one_hot, jnp.asarray(embedding, self.dtype))

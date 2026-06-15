@@ -147,6 +147,24 @@ def test_embed_accepts_numpy_integer_shape_parameters(one_hot):
     assert y.shape == (2, 4)
 
 
+def test_embed_rejects_non_boolean_one_hot():
+    embed = Embed(num_embeddings=8, features=4, one_hot=1)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="one_hot must be a boolean"):
+        embed.init(jax.random.PRNGKey(0), x)
+
+
+def test_embed_accepts_numpy_boolean_one_hot():
+    embed = Embed(num_embeddings=8, features=4, one_hot=np.bool_(True))
+    x = jnp.array([0, 1], dtype=jnp.int32)
+
+    params = embed.init(jax.random.PRNGKey(0), x)
+    y = embed.apply(params, x)
+
+    assert y.shape == (2, 4)
+
+
 @pytest.mark.parametrize("one_hot", [False, True])
 @pytest.mark.parametrize(
     "x,match",
@@ -215,6 +233,33 @@ def test_dense_general_accepts_numpy_integer_axis():
     assert y.shape == (1, 2, 4)
 
 
+def test_dense_general_rejects_non_boolean_with_logical_partitioning():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+        with_logical_partitioning=1,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="with_logical_partitioning must be a boolean"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_accepts_numpy_boolean_with_logical_partitioning():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        with_logical_partitioning=np.bool_(False),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.shape == (1, 2, 4)
+
+
 @pytest.mark.parametrize(
     "features,exception,match",
     [
@@ -252,6 +297,34 @@ def test_dense_general_accepts_numpy_integer_features():
     y = dense.apply(params, x)
 
     assert y.shape == (1, 2, 4, 2)
+
+
+def test_dense_general_rejects_non_boolean_use_bias():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+        use_bias=1,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="use_bias must be a boolean"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_accepts_numpy_boolean_use_bias():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+        use_bias=np.bool_(True),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.shape == (1, 2, 4)
 
 
 def test_layer_norm_without_bias_matches_zero_bias_torch_layer_norm():

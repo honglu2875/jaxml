@@ -65,6 +65,12 @@ def _normalize_shape_dims(name: str, values: Iterable[int]) -> Tuple[int, ...]:
     return tuple(normalized)
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
 def _canonicalize_tuple(x):
     if isinstance(x, Iterable):
         return tuple(x)
@@ -121,6 +127,7 @@ class DenseGeneral(Module):
 
         inputs = jnp.asarray(inputs, self.dtype)
         axis = _normalize_axes(axis, inputs.ndim)
+        use_bias = _normalize_bool("use_bias", self.use_bias)
 
         kernel_shape = tuple(inputs.shape[ax] for ax in axis) + features
         kernel_in_axis = np.arange(len(axis))
@@ -137,7 +144,7 @@ class DenseGeneral(Module):
 
         contract_ind = tuple(range(0, len(axis)))
         output = compute_dot_general(inputs, kernel, axis, contract_ind)
-        if self.use_bias:
+        if use_bias:
             bias_axes = self.kernel_axes[-len(features) :]
             bias_shape = kernel_shape[-len(features) :]
             bias = self.param(
