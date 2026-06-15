@@ -75,9 +75,11 @@ def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
             f"eval_fn logits must have shape input_tokens.shape + (vocab_size,), got {logits.shape} "
             f"for input shape {expected_prefix}."
         )
-    if logits.shape[:-1] != expected_prefix:
+    last_token_prefix = (input_tokens.shape[0], 1)
+    if logits.shape[:-1] not in (expected_prefix, last_token_prefix):
         raise ValueError(
-            f"eval_fn logits leading shape must match input_tokens shape; got {logits.shape[:-1]} " f"and {expected_prefix}."
+            f"eval_fn logits leading shape must match input_tokens shape or last-token shape; got {logits.shape[:-1]} "
+            f"for input shape {expected_prefix}."
         )
     if logits.shape[-1] <= 0:
         raise ValueError(f"eval_fn logits must have a non-empty vocabulary axis, got shape {logits.shape}.")

@@ -246,6 +246,36 @@ def test_generate_skip_prefill_accepts_prefilled_kv_caches(monkeypatch):
     assert output.kv_caches == kv_caches
 
 
+def test_generate_prefill_accepts_last_token_logits_for_long_prompt(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros((tokens.shape[0], 1, 10), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 3), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash="last-token-logits",
+        sampling_method=RngSamplingMethod(),
+        max_new_tokens=1,
+    )
+
+    assert output.tokens.shape == (1, 1)
+
+
 def test_generate_rejects_non_callable_eval_fn_before_prefill():
     with pytest.raises(TypeError, match="eval_fn must be callable"):
         generate(
