@@ -284,16 +284,21 @@ def generate(
                 use_cache=True,
             )
             first_generated_logit, kv_caches = _unpack_eval_output(eval_output, prompt_tokens)
-            first_generated_tok = sample_fn(rng, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature)
+            rng, subkey = jax.random.split(rng)
+            first_generated_tok = sample_fn(subkey, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature)
             first_generated_tok = _validate_sampled_tokens(first_generated_tok, first_generated_logit[:, -1:])
             return (
                 first_generated_tok,
                 kv_caches,
+                rng,
             )
 
-        first_generated_tok, kv_caches = _prefill(
-            params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature
-        )
+        prefill_output = _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature)
+        if len(prefill_output) == 2:
+            first_generated_tok, kv_caches = prefill_output
+            rng, _ = jax.random.split(rng)
+        else:
+            first_generated_tok, kv_caches, rng = prefill_output
 
     decode_steps = max_new_tokens if skip_prefill else max_new_tokens - 1
 

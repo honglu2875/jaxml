@@ -593,10 +593,84 @@ def test_generate_returns_rng_for_decoding_continuation(monkeypatch):
     )
 
     expected_rng = initial_rng
-    for _ in range(2):
+    for _ in range(3):
         expected_rng, _ = jax.random.split(expected_rng)
 
     assert output.tokens.shape == (1, 3)
+    assert np.array_equal(np.array(output.rng), np.array(expected_rng))
+
+
+def test_generate_advances_rng_after_single_prefill_token(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+    initial_rng = jnp.array([0, 7], dtype=jnp.uint32)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash="single-prefill-rng",
+        sampling_method=RngSamplingMethod(),
+        rng=initial_rng,
+        max_new_tokens=1,
+    )
+
+    expected_rng, _ = jax.random.split(initial_rng)
+    assert output.tokens.shape == (1, 1)
+    assert not np.array_equal(np.array(output.rng), np.array(initial_rng))
+    assert np.array_equal(np.array(output.rng), np.array(expected_rng))
+
+
+def test_generate_advances_rng_when_cached_prefill_returns_legacy_pair(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del hash, log
+
+        def decorator(fn):
+            if name != "prefill":
+                return fn
+
+            def legacy_prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature):
+                del params, attention_mask, rng, top_p, min_p, temperature
+                return jnp.zeros(prompt_tokens.shape, dtype=jnp.int32), kv_caches
+
+            return legacy_prefill
+
+        return decorator
+
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("legacy cached prefill should replace eval_fn.")
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+    initial_rng = jnp.array([0, 7], dtype=jnp.uint32)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash="legacy-prefill-rng",
+        sampling_method=RngSamplingMethod(),
+        rng=initial_rng,
+        max_new_tokens=1,
+    )
+
+    expected_rng, _ = jax.random.split(initial_rng)
+    assert output.tokens.shape == (1, 1)
     assert np.array_equal(np.array(output.rng), np.array(expected_rng))
 
 
