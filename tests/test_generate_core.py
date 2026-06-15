@@ -539,6 +539,30 @@ def test_generate_zero_new_tokens_returns_without_prefill(include_prompt, expect
     assert np.array_equal(np.array(output.rng), np.array(rng))
 
 
+def test_generate_zero_new_tokens_accepts_traced_attention_mask():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called when max_new_tokens is zero.")
+
+    @jax.jit
+    def generate_with_mask(attention_mask):
+        output = generate(
+            {},
+            eval_fn,
+            jnp.array([[3, 4]], dtype=jnp.int32),
+            attention_mask=attention_mask,
+            kv_caches=(),
+            call_hash="zero-new-traced-mask",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=0,
+            include_prompt=True,
+        )
+        return output.tokens
+
+    tokens = generate_with_mask(jnp.array([[1, 1]], dtype=jnp.int32))
+
+    assert np.array_equal(np.array(tokens), np.array([[3, 4]], dtype=np.int32))
+
+
 def test_generate_returns_rng_for_decoding_continuation(monkeypatch):
     def fake_load_if_exists(name, hash, log=True):
         del name, hash, log

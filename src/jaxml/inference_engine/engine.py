@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 GENERATION_AOT_CACHE_VERSION = "generate_v6"
 
 
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
+
+
 def _normalize_count(name: str, value: int) -> int:
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
@@ -368,7 +372,7 @@ class Engine:
                 f"attention_mask shape must match prompt_tokens shape; got {attention_mask.shape} and {prompt_tokens.shape}."
             )
         attention_mask = attention_mask.astype(bool)
-        if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+        if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
         return prompt_tokens, attention_mask

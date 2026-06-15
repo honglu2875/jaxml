@@ -775,6 +775,20 @@ def test_prepare_generation_inputs_canonicalizes_integer_attention_mask():
     assert np.array_equal(np.array(prepared_mask), np.array([[True, True, False, False]]))
 
 
+def test_prepare_generation_inputs_accepts_traced_attention_mask():
+    input_ids = jnp.arange(4, dtype=jnp.int32)
+
+    @jax.jit
+    def prepare(attention_mask):
+        _, prepared_mask = Engine._prepare_generation_inputs(input_ids, attention_mask)
+        return prepared_mask
+
+    prepared_mask = prepare(jnp.array([1, 1, 0, 0], dtype=jnp.int32))
+
+    assert prepared_mask.dtype == jnp.bool_
+    assert np.array_equal(np.array(prepared_mask), np.array([[True, True, False, False]]))
+
+
 @pytest.mark.parametrize(
     "input_ids,match",
     [

@@ -16,7 +16,7 @@
 import functools
 import logging
 import operator
-from typing import Optional
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
@@ -29,6 +29,10 @@ from jaxml.outputs import GenerationOutput
 from jaxml.utils import load_if_exists
 
 logger = logging.getLogger(__name__)
+
+
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -245,7 +249,7 @@ def generate(
                 f"attention_mask shape must match prompt_tokens shape; got {attention_mask.shape} and {prompt_tokens.shape}."
             )
         attention_mask = attention_mask.astype(bool)
-        if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+        if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
 
     if max_new_tokens == 0:
