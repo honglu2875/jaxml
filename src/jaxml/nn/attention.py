@@ -64,6 +64,10 @@ def _normalize_dtype(name: str, value: Any):
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
 
 
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
+
+
 def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarray, value_states: jnp.ndarray):
     for name, states in (("query_states", query_states), ("key_states", key_states), ("value_states", value_states)):
         if states.ndim != 4:
@@ -347,6 +351,9 @@ class Attention(Block):
                 )
             if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
                 raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
+            if jnp.issubdtype(attention_mask.dtype, jnp.integer) and not _contains_tracer(attention_mask):
+                if bool(jnp.any((attention_mask != 0) & (attention_mask != 1))):
+                    raise ValueError("attention_mask integer values must be 0 or 1.")
             attention_mask = attention_mask.astype(bool)
 
         if alibi_slope is not None:

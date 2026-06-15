@@ -151,6 +151,9 @@ def _normalize_tokenizer_arrays(input_ids, attention_mask):
         raise ValueError(
             f"tokenizer attention_mask shape must match input_ids shape; got {attention_mask.shape} and {input_ids.shape}."
         )
+    if jnp.issubdtype(attention_mask.dtype, jnp.integer):
+        if bool(jnp.any((attention_mask != 0) & (attention_mask != 1))):
+            raise ValueError("tokenizer attention_mask integer values must be 0 or 1.")
     attention_mask = attention_mask.astype(bool)
     if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
         raise ValueError("tokenizer attention_mask must contain at least one valid token per batch row.")

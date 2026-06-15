@@ -360,6 +360,8 @@ def test_models_reject_invalid_input_ids(request, fixture_name, input_ids, excep
         (jnp.ones((1, 2, 1), dtype=bool), ValueError, "attention_mask must be a 2D array"),
         (jnp.ones((1, 3), dtype=bool), ValueError, "attention_mask shape must match"),
         (jnp.ones((1, 4), dtype=jnp.float32), TypeError, "attention_mask must be boolean or integer"),
+        (jnp.array([[1, 2, 1, 1]], dtype=jnp.int32), ValueError, "integer values must be 0 or 1"),
+        (jnp.array([[1, -1, 1, 1]], dtype=jnp.int32), ValueError, "integer values must be 0 or 1"),
     ],
 )
 def test_models_reject_invalid_attention_mask(request, fixture_name, attention_mask, exception, match):

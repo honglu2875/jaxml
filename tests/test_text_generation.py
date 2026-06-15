@@ -400,6 +400,11 @@ def test_generate_text_rejects_non_mapping_decode_kwargs_before_generation():
             ValueError,
             "at least one valid token",
         ),
+        (
+            {"input_ids": np.ones((1, 2), dtype=np.int32), "attention_mask": np.array([[1, 2]], dtype=np.int32)},
+            ValueError,
+            "integer values must be 0 or 1",
+        ),
     ],
 )
 def test_generate_tokens_rejects_invalid_tokenizer_arrays_before_generation(encoded, exception, match):
@@ -450,6 +455,12 @@ def test_generate_tokens_rejects_missing_tokenizer_input_ids_before_generation(e
             np.zeros((1, 2), dtype=np.int32),
             ValueError,
             "at least one valid token",
+        ),
+        (
+            np.ones((1, 2), dtype=np.int32),
+            np.array([[1, 2]], dtype=np.int32),
+            ValueError,
+            "integer values must be 0 or 1",
         ),
     ],
 )

@@ -137,6 +137,9 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int, 
                 "attention_mask shape must match input_ids shape or populated KV cache mask shape; "
                 f"got {attention_mask.shape} and expected {expected_mask_shape}."
             )
+        if jnp.issubdtype(attention_mask.dtype, jnp.integer) and not _contains_tracer(attention_mask):
+            if bool(jnp.any((attention_mask != 0) & (attention_mask != 1))):
+                raise ValueError("attention_mask integer values must be 0 or 1.")
         attention_mask = attention_mask.astype(bool)
         if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")

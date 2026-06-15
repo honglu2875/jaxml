@@ -589,6 +589,7 @@ def test_attention_with_rope_rejects_invalid_cos_sin_pair(cos_sin, exception, ma
     [
         (jnp.ones((1, 2), dtype=bool), ValueError, "attention_mask shape must match"),
         (jnp.ones((1, 3), dtype=jnp.float32), TypeError, "attention_mask must be boolean or integer"),
+        (jnp.array([[1, 2, 1]], dtype=jnp.int32), ValueError, "integer values must be 0 or 1"),
     ],
 )
 def test_attention_mha_rejects_invalid_attention_mask(attention_mask, exception, match):
