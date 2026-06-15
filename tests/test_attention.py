@@ -24,6 +24,10 @@ from jaxml.nn.attention import Attention, AttentionWithRoPE
 from jaxml.test_utils.torch_utils import DummyPosEmb
 
 
+def _param_value(value):
+    return getattr(value, "value", value)
+
+
 def test_fused_qkv_rejects_mismatched_kv_heads():
     config = ModelConfig(
         head_dim=4,
@@ -41,6 +45,54 @@ def test_fused_qkv_rejects_mismatched_kv_heads():
 
     with pytest.raises(ValueError, match="fused_qkv"):
         attn.init(jax.random.PRNGKey(0), hidden_states)
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"dtype": None}, "dtype must be a valid JAX dtype"),
+        ({"dtype": "not-a-dtype"}, "dtype must be a valid JAX dtype"),
+        ({"weight_dtype": None}, "weight_dtype must be a valid JAX dtype"),
+        ({"weight_dtype": "not-a-dtype"}, "weight_dtype must be a valid JAX dtype"),
+        ({"with_logical_partitioning": 1}, "with_logical_partitioning must be a boolean"),
+    ],
+)
+def test_attention_rejects_invalid_projection_arguments(kwargs, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config, **kwargs)
+    hidden_states = jnp.zeros((1, 2, 1), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match=match):
+        attn.init(jax.random.PRNGKey(0), hidden_states)
+
+
+def test_attention_applies_weight_dtype_to_all_projections():
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config, dtype=np.float32, weight_dtype=jnp.bfloat16, with_logical_partitioning=np.bool_(False))
+    hidden_states = jnp.zeros((1, 2, 1), dtype=jnp.float32)
+
+    params = attn.init(jax.random.PRNGKey(0), hidden_states)
+
+    for name in ("q_proj", "k_proj", "v_proj", "o_proj"):
+        assert _param_value(params["params"][name]["kernel"]).dtype == jnp.bfloat16
 
 
 def test_sliding_window_decode_masks_old_keys():

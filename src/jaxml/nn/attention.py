@@ -55,6 +55,15 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarray, value_states: jnp.ndarray):
     for name, states in (("query_states", query_states), ("key_states", key_states), ("value_states", value_states)):
         if states.ndim != 4:
@@ -112,11 +121,14 @@ class Attention(Block):
     mm_precision: str = "high"
 
     def setup(self):
+        dtype = _normalize_dtype("dtype", self.dtype)
+        weight_dtype = _normalize_dtype("weight_dtype", self.weight_dtype)
+        with_logical_partitioning = _normalize_bool("with_logical_partitioning", self.with_logical_partitioning)
         self.num_key_value_heads = self.config.num_key_value_heads
 
         if self.config.use_alibi:
-            dtype = jnp.float32 if self.config.upcast_alibi else self.dtype
-            self.alibi_slope = 2 ** (jnp.arange(1, self.num_heads + 1, dtype=dtype) * (-8 / self.num_heads))
+            alibi_dtype = jnp.float32 if self.config.upcast_alibi else dtype
+            self.alibi_slope = 2 ** (jnp.arange(1, self.num_heads + 1, dtype=alibi_dtype) * (-8 / self.num_heads))
         else:
             self.alibi_slope = None
 
@@ -131,10 +143,10 @@ class Attention(Block):
                 axis=-1,
                 kernel_init=self.kernel_init,
                 kernel_init_args=self.kernel_init_args,
-                with_logical_partitioning=self.with_logical_partitioning,
+                with_logical_partitioning=with_logical_partitioning,
                 kernel_axes=("embed", "qkv", "heads", "head_states"),
-                dtype=self.dtype,
-                weight_dtype=self.weight_dtype,
+                dtype=dtype,
+                weight_dtype=weight_dtype,
                 name="qkv_proj",
                 use_bias=self.use_bias,
                 precision=self.mm_precision,
@@ -146,10 +158,10 @@ class Attention(Block):
                     axis=-1,
                     kernel_init=self.kernel_init,
                     kernel_init_args=self.kernel_init_args,
-                    with_logical_partitioning=self.with_logical_partitioning,
+                    with_logical_partitioning=with_logical_partitioning,
                     kernel_axes=("embed", "heads", "head_states"),
-                    dtype=self.dtype,
-                    weight_dtype=self.weight_dtype,
+                    dtype=dtype,
+                    weight_dtype=weight_dtype,
                     name=x[1],
                     use_bias=self.use_bias,
                     precision=self.mm_precision,
@@ -166,10 +178,11 @@ class Attention(Block):
 
         self.o_proj = DenseGeneral(
             features=self.hidden_size,
-            dtype=self.dtype,
+            dtype=dtype,
+            weight_dtype=weight_dtype,
             kernel_init=self.kernel_init,
             kernel_init_args=(),
-            with_logical_partitioning=True,
+            with_logical_partitioning=with_logical_partitioning,
             kernel_axes=("heads_merged", "embed"),
             name="o_proj",
             use_bias=self.use_bias,
