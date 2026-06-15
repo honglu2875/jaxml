@@ -1,9 +1,9 @@
 SHELL=/bin/bash
-LINT_PATHS=src/jaxml/ tests/
+LINT_PATHS=src/jaxml/ tests/ scripts/
 CPU_TESTS=JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
 CRITICAL_CPU_TESTS=JAX_PLATFORMS=cpu pytest -m "critical and not tpu" tests/
 
-.PHONY: pytest pytest-cpu pytest-critical-cpu pytest-tpu lint format format-check lock-check dependency-check style verify-critical-cpu verify-cpu verify-milestone-cpu verify-tpu
+.PHONY: pytest pytest-cpu pytest-critical-cpu pytest-tpu lint format format-check lock-check dependency-check dependency-drift style verify-critical-cpu verify-cpu verify-milestone-cpu verify-tpu
 
 pytest:
 	${CPU_TESTS}
@@ -34,6 +34,9 @@ lock-check:
 
 dependency-check:
 	uv pip check
+
+dependency-drift:
+	uv run --frozen --extra dev python scripts/check_dependency_drift.py
 
 style: format lint
 

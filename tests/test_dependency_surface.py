@@ -1,4 +1,5 @@
 import importlib.metadata as metadata
+import importlib.util
 import tomllib
 from pathlib import Path
 
@@ -43,6 +44,14 @@ def _makefile_recipes():
 
 def _workflow_config():
     return (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+
+def _dependency_drift_module():
+    path = PROJECT_ROOT / "scripts" / "check_dependency_drift.py"
+    spec = importlib.util.spec_from_file_location("check_dependency_drift", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _test_modules():
@@ -241,3 +250,29 @@ def test_torch_tensor_surface_interops_with_numpy():
 
     assert np.asarray(array).shape == (2, 2)
     assert array.tolist() == [[0.0, 1.0], [2.0, 3.0]]
+
+
+def test_dependency_drift_target_audits_direct_project_pins():
+    recipes = _makefile_recipes()
+
+    assert recipes["dependency-drift"] == ["uv run --frozen --extra dev python scripts/check_dependency_drift.py"]
+
+
+def test_dependency_drift_helper_filters_to_direct_project_pins():
+    drift = _dependency_drift_module()
+    direct_names = {"jax", "jaxlib", "flax", "transformers", "torch"}
+    outdated_packages = [
+        {"name": "jax", "version": "0.1.0", "latest_version": "0.2.0"},
+        {"name": "tokenizers", "version": "0.1.0", "latest_version": "0.2.0"},
+        {"name": "torch", "version": "1.0.0", "latest_version": "2.0.0"},
+    ]
+
+    direct_outdated = drift.direct_outdated_packages(outdated_packages, direct_names)
+
+    assert [package["name"] for package in direct_outdated] == ["jax", "torch"]
+
+
+def test_dependency_drift_helper_reports_current_direct_pins_cleanly():
+    drift = _dependency_drift_module()
+
+    assert drift.format_report([]) == "All direct pinned dependencies are current."
