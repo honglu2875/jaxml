@@ -70,6 +70,12 @@ class InferenceConfig:
             raise ValueError(f"dp_size must be positive, got {dp_size}.")
 
 
+def _normalize_inference_config(config: InferenceConfig) -> InferenceConfig:
+    if not isinstance(config, InferenceConfig):
+        raise TypeError(f"config must be an InferenceConfig, got {type(config)}.")
+    return config
+
+
 class Engine:
     """Wrap around a model class to do autoregressive generation."""
 
@@ -81,6 +87,7 @@ class Engine:
         dtype: Any = jnp.float32,
         cache_stride: int = 256,
     ):
+        config = _normalize_inference_config(config)
         dtype = _normalize_dtype("dtype", dtype)
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:

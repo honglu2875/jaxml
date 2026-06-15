@@ -773,6 +773,14 @@ def test_inference_config_accepts_numpy_integer_mesh_sizes():
     assert config.dp_size == 1
 
 
+@pytest.mark.parametrize("config", [None, {"tp_size": 1}, object()])
+def test_engine_rejects_invalid_inference_config(llama_model_with_head, config):
+    model, params = llama_model_with_head
+
+    with pytest.raises(TypeError, match="config must be an InferenceConfig"):
+        Engine(model, config, params)
+
+
 def test_engine_rejects_mesh_larger_than_available_devices(llama_model_with_head):
     model, params = llama_model_with_head
     config = InferenceConfig(tp_size=jax.device_count() + 1)
