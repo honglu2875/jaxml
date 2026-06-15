@@ -81,6 +81,10 @@ class Embed(Module):
         if features <= 0:
             raise ValueError(f"features must be positive, got {features}.")
 
+        inputs = jnp.asarray(inputs)
+        if inputs.size == 0:
+            raise ValueError("Embed inputs must contain at least one token id.")
+
         embedding = self.param(
             "embedding",
             self.wrapped_kernel_init,

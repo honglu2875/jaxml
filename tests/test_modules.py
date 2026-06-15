@@ -169,6 +169,15 @@ def test_embed_accepts_numpy_integer_shape_parameters(one_hot):
     assert y.shape == (2, 4)
 
 
+@pytest.mark.parametrize("one_hot", [False, True])
+def test_embed_accepts_array_like_input_ids(one_hot):
+    embed = Embed(num_embeddings=8, features=4, one_hot=one_hot)
+    params = embed.init(jax.random.PRNGKey(0), [0, 1])
+    y = embed.apply(params, [1, 2])
+
+    assert y.shape == (2, 4)
+
+
 def test_embed_rejects_non_boolean_one_hot():
     embed = Embed(num_embeddings=8, features=4, one_hot=1)
     x = jnp.array([0, 1], dtype=jnp.int32)
@@ -193,6 +202,21 @@ def test_embed_rejects_invalid_dtype(dtype):
     x = jnp.array([0, 1], dtype=jnp.int32)
 
     with pytest.raises(TypeError, match="dtype must be a valid JAX dtype"):
+        embed.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("one_hot", [False, True])
+@pytest.mark.parametrize(
+    "x",
+    [
+        jnp.array([], dtype=jnp.int32),
+        jnp.empty((1, 0), dtype=jnp.int32),
+    ],
+)
+def test_embed_rejects_empty_input_ids(one_hot, x):
+    embed = Embed(num_embeddings=8, features=4, one_hot=one_hot)
+
+    with pytest.raises(ValueError, match="at least one token id"):
         embed.init(jax.random.PRNGKey(0), x)
 
 
