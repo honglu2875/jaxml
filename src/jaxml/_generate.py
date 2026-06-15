@@ -97,6 +97,17 @@ def _validate_sampled_tokens(sampled_tokens, logits: jnp.ndarray):
     return sampled_tokens
 
 
+def _validate_kv_caches(kv_caches) -> tuple[KVCache, ...]:
+    try:
+        kv_caches = tuple(kv_caches)
+    except TypeError as e:
+        raise TypeError("kv_caches must be a sequence of KVCache instances.") from e
+    for idx, kv_cache in enumerate(kv_caches):
+        if not isinstance(kv_cache, KVCache):
+            raise TypeError(f"kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}.")
+    return kv_caches
+
+
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
 def _pad_to(x, length, axis=0):
     pad_shape = x.shape[:axis] + (length - x.shape[axis],) + x.shape[axis + 1 :]
@@ -208,6 +219,7 @@ def generate(
         raise ValueError("prompt_tokens must contain at least one token.")
     if max_new_tokens < 0:
         raise ValueError(f"max_new_tokens must be non-negative, got {max_new_tokens}.")
+    kv_caches = _validate_kv_caches(kv_caches)
     if attention_mask is not None:
         attention_mask = jnp.asarray(attention_mask)
         if attention_mask.ndim == 1:

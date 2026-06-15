@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from jaxml._generate import generate
+from jaxml.cache import KVCache
 
 
 class RngSamplingMethod:
@@ -139,6 +140,51 @@ def test_generate_rejects_non_integer_prompt_tokens_before_prefill():
             sampling_method=RngSamplingMethod(),
             max_new_tokens=1,
         )
+
+
+@pytest.mark.parametrize(
+    "kv_caches,match",
+    [
+        (None, "kv_caches must be a sequence"),
+        (object(), "kv_caches must be a sequence"),
+        ((object(),), "kv_caches entries must be KVCache"),
+    ],
+)
+def test_generate_rejects_invalid_kv_caches_before_prefill(kv_caches, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid kv_caches.")
+
+    with pytest.raises(TypeError, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=kv_caches,
+            call_hash="invalid-kv-caches",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=0,
+        )
+
+
+def test_generate_accepts_valid_initial_kv_caches_without_prefill():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called when max_new_tokens is zero.")
+
+    kv_caches = (KVCache.init(4),)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=kv_caches,
+        call_hash="valid-kv-caches",
+        sampling_method=RngSamplingMethod(),
+        max_new_tokens=0,
+    )
+
+    assert output.kv_caches == kv_caches
 
 
 def test_generate_rejects_non_callable_eval_fn_before_prefill():
