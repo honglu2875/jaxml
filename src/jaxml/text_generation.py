@@ -4,12 +4,13 @@ import operator
 from collections.abc import Mapping
 from collections.abc import Sequence as SequenceABC
 from dataclasses import dataclass, field
+from os import PathLike
 from typing import Any, Optional, Sequence
 
 import jax.numpy as jnp
 import numpy as np
 
-from jaxml.hf_utils import HFArchitecture, load_model_from_hf
+from jaxml.hf_utils import HFArchitecture, _normalize_hf_model_name, load_model_from_hf
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 
 
@@ -129,7 +130,7 @@ class TextGenerationPipeline:
     @classmethod
     def from_hf(
         cls,
-        name: str,
+        name: str | PathLike[str],
         architecture: HFArchitecture = "auto",
         model_dtype: str = "float32",
         engine_dtype: Any = jnp.float32,
@@ -141,6 +142,7 @@ class TextGenerationPipeline:
         model_kwargs: Optional[dict[str, Any]] = None,
     ):
         """Build a text-generation pipeline from a supported Hugging Face checkpoint."""
+        name = _normalize_hf_model_name(name)
         use_tpu = _normalize_bool("use_tpu", use_tpu)
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -351,6 +353,77 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     assert calls["load_model"] == ("some/model", "llama", "bfloat16", {"trust_remote_code": True})
     assert calls["engine_init"] == ("model", inference_config, {"params": "params"}, "engine-dtype", 128)
     assert calls["use_tpu"] is True
+
+
+@pytest.mark.parametrize(
+    "name,exception,match",
+    [
+        ("", ValueError, "non-empty"),
+        (123, TypeError, "string or path-like"),
+    ],
+)
+def test_from_hf_rejects_invalid_name_before_tokenizer_or_model_loading(monkeypatch, name, exception, match):
+    calls = []
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append(("tokenizer", args, kwargs))
+            raise AssertionError("AutoTokenizer.from_pretrained should not be called for invalid name.")
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append(("model", args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid name.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoTokenizer", FakeAutoTokenizer)
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(exception, match=match):
+        TextGenerationPipeline.from_hf(name)
+
+    assert calls == []
+
+
+def test_from_hf_normalizes_pathlike_name_for_tokenizer_and_model_loader(monkeypatch):
+    calls = {}
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, name, **kwargs):
+            calls["tokenizer"] = (name, kwargs)
+            return DummyTokenizer()
+
+    class FakeEngine:
+        def __init__(self, model, config, params, dtype, cache_stride):
+            calls["engine_init"] = (model, config, params, dtype, cache_stride)
+
+        def init_params(self, use_tpu):
+            calls["use_tpu"] = use_tpu
+
+    def fake_load_model_from_hf(name, architecture, dtype, **kwargs):
+        calls["load_model"] = (name, architecture, dtype, kwargs)
+        return "model", {"params": "params"}
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoTokenizer", FakeAutoTokenizer)
+    monkeypatch.setattr("jaxml.text_generation.Engine", FakeEngine)
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    pipeline = TextGenerationPipeline.from_hf(
+        Path("local-model"),
+        architecture="llama",
+        tokenizer_kwargs={"local_files_only": True},
+        model_kwargs={"trust_remote_code": True},
+    )
+
+    assert isinstance(pipeline.tokenizer, DummyTokenizer)
+    assert calls["tokenizer"] == ("local-model", {"local_files_only": True})
+    assert calls["load_model"] == ("local-model", "llama", "float32", {"trust_remote_code": True})
+    assert calls["engine_init"][0] == "model"
+    assert calls["use_tpu"] is False
 
 
 def test_from_hf_rejects_non_boolean_use_tpu_before_loading(monkeypatch):
