@@ -56,3 +56,19 @@ def test_engine_reinit_params_on_tpu():
     array_leaves = [leaf for leaf in jax.tree.leaves(engine.params) if hasattr(leaf, "addressable_shards")]
     assert array_leaves
     assert all(shard.device.platform == "tpu" for leaf in array_leaves for shard in leaf.addressable_shards)
+
+
+def test_engine_prepare_input_places_arrays_on_tpu_shards():
+    devices = _tpu_devices()
+    engine = Engine(
+        object(),
+        InferenceConfig(tp_size=1, dp_size=len(devices)),
+        {},
+    )
+    input_ids = jnp.arange(len(devices) * 2, dtype=jnp.int32).reshape(len(devices), 2)
+
+    prepared = engine.prepare_input({"input_ids": input_ids}, dtype=jnp.float32)
+
+    assert prepared["input_ids"].shape == input_ids.shape
+    assert prepared["input_ids"].dtype == jnp.float32
+    assert all(shard.device.platform == "tpu" for shard in prepared["input_ids"].addressable_shards)
