@@ -140,6 +140,11 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int, 
         attention_mask = attention_mask.astype(bool)
         if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
+        has_valid_negative_placeholder = False
+        if attention_mask.shape == input_ids.shape and not _contains_tracer((input_ids, attention_mask)):
+            has_valid_negative_placeholder = bool(jnp.any(attention_mask & (input_ids < 0)))
+        if has_valid_negative_placeholder:
+            raise ValueError("attention_mask must not mark negative placeholder input_ids as valid.")
 
     return input_ids, attention_mask, kv_caches
 

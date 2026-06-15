@@ -68,6 +68,31 @@ def test_prepare_model_inputs_accepts_negative_mask_placeholder_ids_with_vocab_s
     assert kv_caches is None
 
 
+def test_prepare_model_inputs_accepts_masked_negative_placeholder_ids():
+    input_ids, attention_mask, kv_caches = prepare_model_inputs(
+        jnp.array([[-100, 1]], dtype=jnp.int32),
+        jnp.array([[0, 1]], dtype=jnp.int32),
+        None,
+        num_layers=1,
+        vocab_size=4,
+    )
+
+    assert input_ids.tolist() == [[-100, 1]]
+    assert attention_mask.tolist() == [[False, True]]
+    assert kv_caches is None
+
+
+def test_prepare_model_inputs_rejects_valid_negative_placeholder_ids():
+    with pytest.raises(ValueError, match="must not mark negative placeholder"):
+        prepare_model_inputs(
+            jnp.array([[-100, 1]], dtype=jnp.int32),
+            jnp.array([[1, 1]], dtype=jnp.int32),
+            None,
+            num_layers=1,
+            vocab_size=4,
+        )
+
+
 @pytest.mark.parametrize(
     "vocab_size,exception,match",
     [
@@ -360,6 +385,29 @@ def test_models_accept_negative_mask_placeholder_ids(request, fixture_name):
         output = model.apply(params, input_ids)
 
     assert output.last_hidden_state.shape[:2] == input_ids.shape
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_accept_masked_negative_placeholder_ids(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.array([[-100, 1]], dtype=jnp.int32)
+        attention_mask = jnp.array([[0, 1]], dtype=jnp.int32)
+
+        output = model.apply(params, input_ids, attention_mask=attention_mask)
+
+    assert output.last_hidden_state.shape[:2] == input_ids.shape
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_valid_negative_placeholder_ids(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.array([[-100, 1]], dtype=jnp.int32)
+        attention_mask = jnp.array([[1, 1]], dtype=jnp.int32)
+
+        with pytest.raises(ValueError, match="must not mark negative placeholder"):
+            model.apply(params, input_ids, attention_mask=attention_mask)
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
