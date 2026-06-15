@@ -103,6 +103,14 @@ def _validate_hf_dtype(dtype: str):
     return dtype
 
 
+def _validate_hf_model_type(config, expected_model_types: tuple[str, ...], architecture_name: str):
+    model_type = getattr(config, "model_type", None)
+    if model_type not in expected_model_types:
+        raise ValueError(
+            f"Expected Hugging Face {architecture_name} model_type to be one of {expected_model_types}, got {model_type!r}."
+        )
+
+
 def _infer_hf_architecture(name: str, **config_kwargs) -> str:
     try:
         from transformers import AutoConfig
@@ -117,6 +125,8 @@ def _infer_hf_architecture(name: str, **config_kwargs) -> str:
         case "gpt_neox":
             return "neox"
         case "gemma3":
+            return "gemma"
+        case "gemma3_text":
             return "gemma"
         case _:
             raise ValueError(f"Unsupported Hugging Face model type {model_type!r}.")
@@ -159,6 +169,7 @@ def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
     from jaxml.config import ModelConfig
 
     _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
+    _validate_hf_model_type(_model.config, ("llama",), "Llama")
     params = to_llama_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = LlamaModelWithHead(config)
@@ -178,6 +189,7 @@ def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwarg
     from jaxml.config import ModelConfig
 
     _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
+    _validate_hf_model_type(_model.config, ("gpt_neox",), "GPT-NeoX")
     params = to_neox_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = GPTNeoXModelWithHead(config)
@@ -196,7 +208,13 @@ def load_gemma_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
 
     from jaxml.config import ModelConfig
 
-    _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs).language_model
+    _wrapper = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
+    _validate_hf_model_type(_wrapper.config, ("gemma3",), "Gemma")
+    try:
+        _model = _wrapper.language_model
+    except AttributeError as e:
+        raise ValueError("Expected Hugging Face Gemma model to expose a language_model module.") from e
+    _validate_hf_model_type(_model.config, ("gemma3_text",), "Gemma text")
     params = to_gemma_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model.config)
     model = GemmaModelWithHead(config)
