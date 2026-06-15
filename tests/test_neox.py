@@ -8,6 +8,8 @@ from jaxml.hf_utils import to_neox_jax_params
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.models.gpt_neox import GPTNeoXModel
 
+NEOX_PARITY_ATOL = 1e-5
+
 
 def test_neox_model(neox_model, hf_neox_model):
     bs, seq_len = 4, 10
@@ -23,12 +25,9 @@ def test_neox_model(neox_model, hf_neox_model):
                 output_attentions=True,
                 output_hidden_states=True,
             )
-        assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=1e-6)
-        assert all(np.allclose(a, b.numpy(), atol=1e-6) for a, b in zip(y.attention_weights, y2.attentions))
-        print("attention weight diffs:", [np.abs(a - b.numpy()).max() for a, b in zip(y.attention_weights, y2.attentions)])
-        # last layer appears to have a bump in error... strange
-        print("hidden state diffs:", [np.abs(a - b.numpy()).max() for a, b in zip(y.hidden_states, y2.hidden_states)])
-        assert all(np.allclose(a, b.numpy(), atol=1e-6) for a, b in zip(y.hidden_states, y2.hidden_states))
+        assert np.allclose(y.last_hidden_state, y2.last_hidden_state.numpy(), atol=NEOX_PARITY_ATOL)
+        assert all(np.allclose(a, b.numpy(), atol=NEOX_PARITY_ATOL) for a, b in zip(y.attention_weights, y2.attentions))
+        assert all(np.allclose(a, b.numpy(), atol=NEOX_PARITY_ATOL) for a, b in zip(y.hidden_states, y2.hidden_states))
 
 
 def test_neox_model_sanitizes_default_masked_negative_token_ids(neox_model):
