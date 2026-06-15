@@ -13,8 +13,20 @@ NEG_INF = float("-inf")
 logger = logging.getLogger(__name__)
 
 
+def _validate_logits(logits):
+    logits = jnp.asarray(logits)
+    if logits.ndim == 0:
+        raise ValueError("logits must have at least one dimension for the vocabulary axis.")
+    if logits.shape[-1] <= 0:
+        raise ValueError(f"logits must have a non-empty vocabulary axis, got shape {logits.shape}.")
+    if not jnp.issubdtype(logits.dtype, jnp.floating):
+        raise TypeError(f"logits must contain floating point values, got dtype {logits.dtype}.")
+    return logits
+
+
 @functools.partial(jax.jit, static_argnames=("top_k",))
 def top_k_filtering(rng, logits, top_k, *args):
+    logits = _validate_logits(logits)
     if top_k <= 0:
         return logits
     top_k = min(top_k, logits.shape[-1])
@@ -24,6 +36,7 @@ def top_k_filtering(rng, logits, top_k, *args):
 
 
 def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
+    logits = _validate_logits(logits)
     if top_p >= 1.0:
         return logits
     if top_p <= 0.0:
@@ -43,12 +56,14 @@ def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
 
 
 def min_p_filtering(rng, logits, top_k, top_p, min_p, *args):
+    logits = _validate_logits(logits)
     mask = jax.nn.softmax(logits, axis=-1) >= min_p
     has_allowed_token = jnp.any(mask, axis=-1, keepdims=True)
     return jnp.where(has_allowed_token, jnp.where(mask, logits, NEG_INF), logits)
 
 
 def greedy_fn(rng, logits, *args):
+    logits = _validate_logits(logits)
     return logits.argmax(-1)
 
 
@@ -129,6 +144,7 @@ class SamplingMethod:
             pipeline.append(top_p_filtering)
 
         def _sampling_fn(rng, logits, top_k, top_p, min_p, temp):
+            logits = _validate_logits(logits)
             for fn in pipeline:
                 logits = fn(rng, logits, top_k, top_p, min_p, temp)
             return jax.random.categorical(rng, logits / temp)

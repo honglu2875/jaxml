@@ -5,6 +5,7 @@ import pytest
 
 from jaxml.inference_engine.sampling import (
     SamplingMethod,
+    greedy_fn,
     min_p_filtering,
     normalize_sampling_params,
     top_k_filtering,
@@ -89,6 +90,22 @@ def test_top_k_filtering_is_noop_when_disabled():
     filtered = top_k_filtering(rng, logits, 0, 1.0, 0.0, 1.0)
 
     assert np.array_equal(np.array(filtered), np.array(logits))
+
+
+@pytest.mark.parametrize(
+    "logits,exception,match",
+    [
+        (jnp.array(1.0, dtype=jnp.float32), ValueError, "vocabulary axis"),
+        (jnp.ones((1, 1, 0), dtype=jnp.float32), ValueError, "non-empty vocabulary"),
+        (jnp.ones((1, 1, 4), dtype=jnp.int32), TypeError, "floating point"),
+    ],
+)
+@pytest.mark.parametrize("filter_fn", [top_k_filtering, top_p_filtering, min_p_filtering, greedy_fn])
+def test_sampling_functions_reject_invalid_logits(filter_fn, logits, exception, match):
+    rng = jax.random.PRNGKey(0)
+
+    with pytest.raises(exception, match=match):
+        filter_fn(rng, logits, 2, 0.9, 0.1, 1.0)
 
 
 def test_top_p_filtering_uses_sorted_cutoff_per_batch_row():
@@ -179,3 +196,11 @@ def test_sampling_method_pipeline_handles_top_k_larger_than_vocab():
 
     assert sampled.shape == (1, 1)
     assert 0 <= int(sampled[0, 0]) < logits.shape[-1]
+
+
+def test_sampling_method_pipeline_rejects_invalid_logits():
+    rng = jax.random.PRNGKey(0)
+    sampling_fn = SamplingMethod.from_values(top_k=2, top_p=0.9, min_p=0.0, temp=1.0).get_sampling_fn()
+
+    with pytest.raises(TypeError, match="floating point"):
+        sampling_fn(rng, jnp.ones((1, 1, 4), dtype=jnp.int32), 2, 0.9, 0.0, 1.0)
