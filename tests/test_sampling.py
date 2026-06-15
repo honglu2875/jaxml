@@ -83,6 +83,24 @@ def test_top_k_filtering_caps_k_to_vocab_size():
     assert np.array_equal(_is_kept(filtered), np.array([[[True, True, True, True]]]))
 
 
+def test_top_k_filtering_accepts_numpy_integer_k():
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+
+    filtered = top_k_filtering(rng, logits, np.int64(2), 1.0, 0.0, 1.0)
+
+    assert np.array_equal(_is_kept(filtered), np.array([[[False, False, True, True]]]))
+
+
+@pytest.mark.parametrize("top_k", [True, np.bool_(True), 1.5])
+def test_top_k_filtering_rejects_non_integer_k(top_k):
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+
+    with pytest.raises(TypeError, match="top_k must be an integer"):
+        top_k_filtering(rng, logits, top_k, 1.0, 0.0, 1.0)
+
+
 def test_top_k_filtering_is_noop_when_disabled():
     rng = jax.random.PRNGKey(0)
     logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])

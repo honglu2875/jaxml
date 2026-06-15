@@ -27,6 +27,7 @@ def _validate_logits(logits):
 @functools.partial(jax.jit, static_argnames=("top_k",))
 def top_k_filtering(rng, logits, top_k, *args):
     logits = _validate_logits(logits)
+    top_k = _normalize_top_k(top_k)
     if top_k <= 0:
         return logits
     top_k = min(top_k, logits.shape[-1])
