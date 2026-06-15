@@ -13,6 +13,21 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_kernel_axes(kernel_axes, shape: tuple) -> Tuple[str | None, ...]:
+    if isinstance(kernel_axes, str):
+        raise TypeError("kernel_axes must be a tuple of axis names, not a string.")
+    try:
+        kernel_axes = tuple(kernel_axes)
+    except TypeError as e:
+        raise TypeError(f"kernel_axes must be an iterable of axis names, got {type(kernel_axes)}.") from e
+    if len(kernel_axes) != len(shape):
+        raise ValueError(f"kernel_axes must contain one axis name per kernel dimension, got {kernel_axes} for shape {shape}.")
+    for axis_name in kernel_axes:
+        if axis_name is not None and not isinstance(axis_name, str):
+            raise TypeError(f"kernel_axes entries must be strings or None, got {type(axis_name)}.")
+    return kernel_axes
+
+
 class Module(nn.Module):
     """A thin wrapper over nn.Module where init functions are automatically applied to logically
     partitioned axes."""
@@ -31,7 +46,7 @@ class Module(nn.Module):
             if with_logical_partitioning:
                 if not self.kernel_axes:
                     raise ValueError("with_logical_partitioning is True. Kernel axes must be specified.")
-                fn = nn.with_logical_partitioning(fn, self.kernel_axes)
+                fn = nn.with_logical_partitioning(fn, _normalize_kernel_axes(self.kernel_axes, shape))
             return fn(key, shape, dtype)
 
         self.wrapped_kernel_init = init_fn

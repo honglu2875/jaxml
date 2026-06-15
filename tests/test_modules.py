@@ -267,6 +267,58 @@ def test_dense_general_rejects_non_boolean_with_logical_partitioning():
         dense.init(jax.random.PRNGKey(0), x)
 
 
+def test_dense_general_rejects_missing_kernel_axes_with_logical_partitioning():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=(),
+        with_logical_partitioning=True,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="Kernel axes must be specified"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_rejects_kernel_axes_rank_mismatch():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed",),
+        with_logical_partitioning=True,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="one axis name per kernel dimension"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_rejects_string_kernel_axes():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes="embed",
+        with_logical_partitioning=True,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="kernel_axes must be a tuple"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_rejects_non_string_kernel_axis_entries():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", 1),
+        with_logical_partitioning=True,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="kernel_axes entries"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
 def test_dense_general_accepts_numpy_boolean_with_logical_partitioning():
     dense = DenseGeneral(
         features=4,
