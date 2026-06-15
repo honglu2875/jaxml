@@ -426,6 +426,8 @@ class AttentionWithRoPE(Attention):
     ) -> AttentionOutput:
         output_attentions = _normalize_bool("output_attentions", output_attentions)
         use_flash = _normalize_bool("use_flash", use_flash)
+        if cos_sin is None:
+            raise ValueError("AttentionWithRoPE requires cos_sin.")
         query_states, key_states, value_states = self.qkv(hidden_states)
 
         if attention_mask is None:
@@ -437,15 +439,14 @@ class AttentionWithRoPE(Attention):
             else:
                 position_ids = jnp.repeat(jnp.arange(key_states.shape[1])[None], key_states.shape[0], axis=0)
 
-        if cos_sin is not None:
-            cos, sin = cos_sin
-            query_states, key_states = RotaryEmbedding.apply_rotary_pos_emb(
-                query_states,
-                key_states,
-                cos,
-                sin,
-                position_ids,
-            )
+        cos, sin = cos_sin
+        query_states, key_states = RotaryEmbedding.apply_rotary_pos_emb(
+            query_states,
+            key_states,
+            cos,
+            sin,
+            position_ids,
+        )
         key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
             key_states, value_states, attention_mask, kv_cache
         )

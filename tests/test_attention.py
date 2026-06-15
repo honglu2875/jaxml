@@ -24,6 +24,14 @@ from jaxml.nn.attention import Attention, AttentionWithRoPE
 from jaxml.test_utils.torch_utils import DummyPosEmb
 
 
+def _identity_cos_sin(config: ModelConfig, seq_len: int, dtype=jnp.float32):
+    rotary_dim = int(config.head_dim * config.rotary_pct)
+    return (
+        jnp.ones((seq_len, rotary_dim), dtype=dtype),
+        jnp.zeros((seq_len, rotary_dim), dtype=dtype),
+    )
+
+
 def _param_value(value):
     return getattr(value, "value", value)
 
@@ -324,8 +332,8 @@ def test_attention_mha_rejects_non_boolean_flags(kwargs, match):
 )
 def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, match):
     config = ModelConfig(
-        head_dim=1,
-        hidden_size=1,
+        head_dim=2 if use_rope else 1,
+        hidden_size=2 if use_rope else 1,
         num_heads=1,
         num_layers=1,
         max_position_embeddings=8,
@@ -334,11 +342,12 @@ def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, ma
         use_rope=use_rope,
     )
     attn = attn_cls(config)
-    hidden_states = jnp.zeros((1, 2, 1), dtype=jnp.float32)
-    params = attn.init(jax.random.PRNGKey(0), hidden_states)
+    hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    call_kwargs = {"cos_sin": _identity_cos_sin(config, hidden_states.shape[1])} if use_rope else {}
+    params = attn.init(jax.random.PRNGKey(0), hidden_states, **call_kwargs)
 
     with pytest.raises(TypeError, match=match):
-        attn.apply(params, hidden_states, **kwargs)
+        attn.apply(params, hidden_states, **call_kwargs, **kwargs)
 
 
 @pytest.mark.parametrize(
@@ -350,8 +359,8 @@ def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, ma
 )
 def test_attention_call_rejects_non_kv_cache(attn_cls, use_rope):
     config = ModelConfig(
-        head_dim=1,
-        hidden_size=1,
+        head_dim=2 if use_rope else 1,
+        hidden_size=2 if use_rope else 1,
         num_heads=1,
         num_layers=1,
         max_position_embeddings=8,
@@ -360,11 +369,32 @@ def test_attention_call_rejects_non_kv_cache(attn_cls, use_rope):
         use_rope=use_rope,
     )
     attn = attn_cls(config)
-    hidden_states = jnp.zeros((1, 2, 1), dtype=jnp.float32)
-    params = attn.init(jax.random.PRNGKey(0), hidden_states)
+    hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    call_kwargs = {"cos_sin": _identity_cos_sin(config, hidden_states.shape[1])} if use_rope else {}
+    params = attn.init(jax.random.PRNGKey(0), hidden_states, **call_kwargs)
 
     with pytest.raises(TypeError, match="kv_cache must be a KVCache"):
-        attn.apply(params, hidden_states, kv_cache=object())
+        attn.apply(params, hidden_states, **call_kwargs, kv_cache=object())
+
+
+def test_attention_with_rope_requires_cos_sin():
+    config = ModelConfig(
+        head_dim=2,
+        hidden_size=2,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=2**-0.5,
+        use_rope=True,
+    )
+    attn = AttentionWithRoPE(config)
+    hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    cos_sin = _identity_cos_sin(config, hidden_states.shape[1])
+    params = attn.init(jax.random.PRNGKey(0), hidden_states, cos_sin=cos_sin)
+
+    with pytest.raises(ValueError, match="requires cos_sin"):
+        attn.apply(params, hidden_states)
 
 
 @pytest.mark.parametrize(

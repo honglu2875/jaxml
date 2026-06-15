@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import inspect
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -24,6 +26,14 @@ from jaxml.models.llama import LlamaMLP as LlamaMLPJAX
 from jaxml.models.llama import LlamaModel, LlamaModelWithHead
 from jaxml.nn.attention import Attention, AttentionWithRoPE
 from jaxml.nn.position import RotaryEmbedding
+
+
+def identity_cos_sin(config: ModelConfig, seq_len: int, dtype=jnp.float32):
+    rotary_dim = int(config.head_dim * config.rotary_pct)
+    return (
+        jnp.ones((seq_len, rotary_dim), dtype=dtype),
+        jnp.zeros((seq_len, rotary_dim), dtype=dtype),
+    )
 
 
 # ---------- Configs ---------- #
@@ -134,7 +144,10 @@ def get_layer_and_param(cls, config, discrete=False, fused_qkv=False, use_hidden
     else:
         x = jnp.zeros((2, 10, config.num_heads * config.head_dim), dtype=jnp.float32)
     key = jax.random.PRNGKey(0)
-    params = layer.init(key, x)
+    init_kwargs = {}
+    if "cos_sin" in inspect.signature(layer.__call__).parameters:
+        init_kwargs["cos_sin"] = identity_cos_sin(config, x.shape[1], x.dtype)
+    params = layer.init(key, x, **init_kwargs)
     return layer, params
 
 
