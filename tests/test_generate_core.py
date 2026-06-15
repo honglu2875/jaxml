@@ -499,6 +499,43 @@ def test_generate_rejects_invalid_sampling_arguments_before_prefill(kwargs, exce
         )
 
 
+@pytest.mark.parametrize("call_hash", [None, True, np.bool_(True), object()])
+def test_generate_rejects_invalid_call_hash_before_prefill_or_sampling(call_hash):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid call_hash.")
+
+    with pytest.raises(TypeError, match="AOT cache hash"):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash=call_hash,
+            sampling_method=MissingGetSamplingFn(),
+            max_new_tokens=1,
+        )
+
+
+def test_generate_zero_new_tokens_does_not_require_call_hash():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called when max_new_tokens is zero.")
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash=None,
+        sampling_method=MissingGetSamplingFn(),
+        max_new_tokens=0,
+        include_prompt=True,
+    )
+
+    assert output.tokens.shape == (1, 1)
+
+
 def test_generate_accepts_numpy_scalar_control_arguments():
     def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
         del params, attention_mask, use_cache

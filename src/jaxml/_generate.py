@@ -26,7 +26,7 @@ import tqdm
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
-from jaxml.utils import load_if_exists
+from jaxml.utils import _validate_cache_key_part, load_if_exists
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +294,8 @@ def generate(
         else:
             tokens = jnp.empty((prompt_tokens.shape[0], 0), dtype=prompt_tokens.dtype)
         return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=rng)
+
+    call_hash = _validate_cache_key_part(call_hash, "hash", allow_integer=True)
 
     if skip_prefill:
         _validate_prefilled_kv_caches(kv_caches)
