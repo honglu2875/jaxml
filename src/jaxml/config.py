@@ -52,15 +52,60 @@ def _infer_hf_head_dim(config) -> int:
     return hidden_size // num_attention_heads
 
 
-def _infer_hf_rope_scale(config) -> float:
+def _infer_hf_rope_parameters(config, attention_kind: str | None = None) -> Mapping:
+    rope_parameters = getattr(config, "rope_parameters", None)
+    if rope_parameters is None:
+        return {}
+    if not isinstance(rope_parameters, Mapping):
+        raise TypeError(f"rope_parameters must be a mapping when set, got {type(rope_parameters)}.")
+    if attention_kind is None:
+        return rope_parameters
+    attention_parameters = rope_parameters.get(attention_kind, {})
+    if not isinstance(attention_parameters, Mapping):
+        raise TypeError(f"rope_parameters[{attention_kind!r}] must be a mapping when set, got {type(attention_parameters)}.")
+    return attention_parameters
+
+
+def _infer_hf_rope_theta(config, *, fallback_attr: str = "rope_theta", attention_kind: str | None = None) -> float:
+    rope_parameters = _infer_hf_rope_parameters(config, attention_kind=attention_kind)
+    if "rope_theta" in rope_parameters:
+        return _normalize_float("rope_theta", rope_parameters["rope_theta"])
+    if not hasattr(config, fallback_attr):
+        raise ValueError(f"{config.__class__.__name__} must expose rope_theta.")
+    return _normalize_float("rope_theta", getattr(config, fallback_attr))
+
+
+def _infer_hf_rope_scale(config, *, attention_kind: str | None = None) -> float:
     rope_scaling = getattr(config, "rope_scaling", None)
-    if rope_scaling is None:
-        return 1.0
-    if not isinstance(rope_scaling, Mapping):
+    if rope_scaling is not None and not isinstance(rope_scaling, Mapping):
         raise TypeError(f"rope_scaling must be a mapping when set, got {type(rope_scaling)}.")
-    if "factor" not in rope_scaling:
-        raise ValueError("rope_scaling must include a factor when set.")
-    return _normalize_float("rope_scaling factor", rope_scaling["factor"])
+    if isinstance(rope_scaling, Mapping):
+        rope_scaling_for_attention = rope_scaling
+        if attention_kind is not None and attention_kind in rope_scaling:
+            rope_scaling_for_attention = rope_scaling[attention_kind]
+            if not isinstance(rope_scaling_for_attention, Mapping):
+                raise TypeError(
+                    f"rope_scaling[{attention_kind!r}] must be a mapping when set, got {type(rope_scaling_for_attention)}."
+                )
+        if "factor" in rope_scaling_for_attention:
+            return _normalize_float("rope_scaling factor", rope_scaling_for_attention["factor"])
+        if rope_scaling_for_attention.get("rope_type") not in (None, "default"):
+            raise ValueError("rope_scaling must include a factor when set.")
+
+    rope_parameters = _infer_hf_rope_parameters(config, attention_kind=attention_kind)
+    if "factor" in rope_parameters:
+        return _normalize_float("rope_parameters factor", rope_parameters["factor"])
+    return 1.0
+
+
+def _infer_hf_rotary_pct(config) -> float:
+    rotary_pct = getattr(config, "rotary_pct", None)
+    if rotary_pct is not None:
+        return _normalize_float("rotary_pct", rotary_pct)
+    rope_parameters = _infer_hf_rope_parameters(config)
+    if "partial_rotary_factor" in rope_parameters:
+        return _normalize_float("rotary_pct", rope_parameters["partial_rotary_factor"])
+    return 1.0
 
 
 @struct.dataclass
@@ -225,7 +270,7 @@ class ModelConfig:
         if config_type == "llama":
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
-            rope_theta = config.rope_theta
+            rope_theta = _infer_hf_rope_theta(config)
             rope_scale = _infer_hf_rope_scale(config)
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
@@ -235,10 +280,10 @@ class ModelConfig:
         elif config_type == "gpt_neox":
             norm_eps = config.layer_norm_eps
             num_kv_heads = num_heads
-            rope_theta = float(config.rotary_emb_base)
+            rope_theta = _infer_hf_rope_theta(config, fallback_attr="rotary_emb_base")
             rope_scale = 1.0  # NeoX was born before RoPE scaling
             use_parallel_residual = config.use_parallel_residual
-            rotary_pct = config.rotary_pct
+            rotary_pct = _infer_hf_rotary_pct(config)
             use_bias = True
             sliding_window = None
             sliding_window_pattern = None
@@ -249,8 +294,8 @@ class ModelConfig:
             attn_scale = query_pre_attn_scalar**-0.5
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
-            rope_theta = config.rope_theta
-            rope_scale = _infer_hf_rope_scale(config)
+            rope_theta = _infer_hf_rope_theta(config, attention_kind="full_attention")
+            rope_scale = _infer_hf_rope_scale(config, attention_kind="full_attention")
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False

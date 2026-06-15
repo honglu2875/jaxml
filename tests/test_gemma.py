@@ -41,7 +41,7 @@ def test_gemma_decoder(gemma_decoder, hf_gemma_decoder, hf_gemma_decoder_global,
         decoder, init_param = gemma_decoder
 
         key = jax.random.PRNGKey(0)
-        x = jax.random.uniform(key, (bs, seq_len, 64), dtype=jnp.float32)
+        x = jax.random.uniform(key, (bs, seq_len, decoder.config.hidden_size), dtype=jnp.float32)
 
         decoder.use_sliding = sliding
         cos_sin = cos_sin_local if sliding else cos_sin_global
@@ -59,14 +59,11 @@ def test_gemma_decoder(gemma_decoder, hf_gemma_decoder, hf_gemma_decoder_global,
                     ),
                     diagonal=1,
                 )[None, None].repeat(bs, 1, 1, 1),
-                position_embeddings_global=tuple(map(lambda x: torch.tensor(np.array(x[None, :seq_len])), cos_sin_global)),
-                position_embeddings_local=tuple(map(lambda x: torch.tensor(np.array(x[None, :seq_len])), cos_sin_local)),
-                output_attentions=True,
+                position_embeddings=tuple(map(lambda x: torch.tensor(np.array(x[None, :seq_len])), cos_sin)),
                 cache_position=torch.arange(seq_len)[None],
             )
 
-        assert np.allclose(y.hidden_states, y2[0].numpy(), atol=1e-5)
-        assert np.allclose(y.attention_weight, y2[1].numpy(), atol=1e-5)
+        assert np.allclose(y.hidden_states, y2.numpy(), atol=1e-5)
 
 
 def test_gemma_model(gemma_model, hf_gemma_model):

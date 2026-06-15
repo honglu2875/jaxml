@@ -201,7 +201,7 @@ def test_model_config_from_hf_accepts_integer_like_head_dim():
         num_attention_heads=6,
         num_key_value_heads=3,
     )
-    hf_config.head_dim = np.int64(8)
+    object.__setattr__(hf_config, "head_dim", np.int64(8))
 
     config = ModelConfig.from_hf(hf_config)
 
@@ -230,7 +230,7 @@ def test_model_config_from_hf_rejects_invalid_head_dim(head_dim, exception, matc
         num_attention_heads=6,
         num_key_value_heads=3,
     )
-    hf_config.head_dim = head_dim
+    object.__setattr__(hf_config, "head_dim", head_dim)
 
     with pytest.raises(exception, match=match):
         ModelConfig.from_hf(hf_config)
@@ -240,16 +240,17 @@ def test_model_config_from_hf_rejects_non_divisible_head_dim_fallback():
     from transformers import LlamaConfig
 
     hf_config = LlamaConfig(
-        hidden_size=50,
-        intermediate_size=150,
+        hidden_size=48,
+        intermediate_size=144,
         num_hidden_layers=2,
         max_position_embeddings=256,
         vocab_size=1024,
         num_attention_heads=6,
         num_key_value_heads=3,
     )
-    if hasattr(hf_config, "head_dim"):
-        del hf_config.head_dim
+    object.__setattr__(hf_config, "hidden_size", 50)
+    object.__setattr__(hf_config, "intermediate_size", 150)
+    object.__setattr__(hf_config, "head_dim", None)
 
     with pytest.raises(ValueError, match="hidden_size must be divisible"):
         ModelConfig.from_hf(hf_config)
@@ -276,8 +277,8 @@ def test_model_config_from_hf_rejects_invalid_shared_sizes_before_ratio_derivati
         num_attention_heads=6,
         num_key_value_heads=3,
     )
-    hf_config.head_dim = 8
-    setattr(hf_config, field, value)
+    object.__setattr__(hf_config, "head_dim", 8)
+    object.__setattr__(hf_config, field, value)
 
     with pytest.raises(exception, match=match):
         ModelConfig.from_hf(hf_config)
@@ -295,7 +296,11 @@ def test_model_config_from_hf_accepts_integer_like_rope_scaling_factor():
         num_attention_heads=6,
         num_key_value_heads=3,
     )
-    hf_config.rope_scaling = {"factor": np.float64(2.0), "rope_type": "linear"}
+    hf_config.__dict__["rope_parameters"] = {
+        "factor": np.float64(2.0),
+        "rope_theta": 10000.0,
+        "rope_type": "linear",
+    }
 
     config = ModelConfig.from_hf(hf_config)
 
@@ -306,7 +311,7 @@ def test_model_config_from_hf_accepts_integer_like_rope_scaling_factor():
     ("rope_scaling", "exception", "match"),
     [
         ({"rope_type": "linear"}, ValueError, "rope_scaling must include a factor"),
-        ("linear", TypeError, "rope_scaling must be a mapping"),
+        ("linear", TypeError, "rope_parameters must be a mapping"),
         ({"factor": True}, TypeError, "rope_scaling factor must be a real number"),
         ({"factor": float("nan")}, ValueError, "rope_scaling factor must be finite"),
         ({"factor": 0.5}, ValueError, "rope_scale must be greater than or equal to 1.0"),
@@ -324,7 +329,9 @@ def test_model_config_from_hf_rejects_invalid_rope_scaling_factor(rope_scaling, 
         num_attention_heads=6,
         num_key_value_heads=3,
     )
-    hf_config.rope_scaling = rope_scaling
+    if isinstance(rope_scaling, dict):
+        rope_scaling = {"rope_theta": 10000.0} | rope_scaling
+    hf_config.__dict__["rope_parameters"] = rope_scaling
 
     with pytest.raises(exception, match=match):
         ModelConfig.from_hf(hf_config)
@@ -359,7 +366,7 @@ def test_model_config_from_hf_maps_gemma3_specific_fields():
     from transformers import Gemma3TextConfig
 
     hf_config = Gemma3TextConfig(
-        hidden_size=64,
+        hidden_size=48,
         head_dim=8,
         intermediate_size=144,
         num_hidden_layers=4,
@@ -374,7 +381,7 @@ def test_model_config_from_hf_maps_gemma3_specific_fields():
 
     config = ModelConfig.from_hf(hf_config)
 
-    assert config.hidden_size == 64
+    assert config.hidden_size == 48
     assert config.head_dim == 8
     assert config.num_key_value_heads == 3
     assert config.rope_scale == 8.0
@@ -387,7 +394,7 @@ def test_model_config_from_hf_rejects_boolean_gemma_sliding_window_pattern():
     from transformers import Gemma3TextConfig
 
     hf_config = Gemma3TextConfig(
-        hidden_size=64,
+        hidden_size=48,
         head_dim=8,
         intermediate_size=144,
         num_hidden_layers=4,
@@ -398,7 +405,7 @@ def test_model_config_from_hf_rejects_boolean_gemma_sliding_window_pattern():
         sliding_window=32,
         sliding_window_pattern=2,
     )
-    hf_config.sliding_window_pattern = True
+    object.__setattr__(hf_config, "sliding_window_pattern", True)
 
     with pytest.raises(TypeError, match="sliding_window_pattern must be an integer"):
         ModelConfig.from_hf(hf_config)
@@ -408,7 +415,7 @@ def test_model_config_from_hf_rejects_incomplete_gemma_sliding_window_pair():
     from transformers import Gemma3TextConfig
 
     hf_config = Gemma3TextConfig(
-        hidden_size=64,
+        hidden_size=48,
         head_dim=8,
         intermediate_size=144,
         num_hidden_layers=4,
@@ -419,7 +426,7 @@ def test_model_config_from_hf_rejects_incomplete_gemma_sliding_window_pair():
         sliding_window=32,
         sliding_window_pattern=2,
     )
-    hf_config.sliding_window_pattern = None
+    object.__setattr__(hf_config, "sliding_window_pattern", None)
 
     with pytest.raises(ValueError, match="sliding_window and sliding_window_pattern"):
         ModelConfig.from_hf(hf_config)
@@ -442,7 +449,7 @@ def test_model_config_from_hf_rejects_invalid_gemma_query_pre_attn_scalar(
     from transformers import Gemma3TextConfig
 
     hf_config = Gemma3TextConfig(
-        hidden_size=64,
+        hidden_size=48,
         head_dim=8,
         intermediate_size=144,
         num_hidden_layers=4,
@@ -453,7 +460,7 @@ def test_model_config_from_hf_rejects_invalid_gemma_query_pre_attn_scalar(
         sliding_window=32,
         sliding_window_pattern=2,
     )
-    hf_config.query_pre_attn_scalar = query_pre_attn_scalar
+    object.__setattr__(hf_config, "query_pre_attn_scalar", query_pre_attn_scalar)
 
     with pytest.raises(exception, match=match):
         ModelConfig.from_hf(hf_config)

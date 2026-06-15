@@ -97,8 +97,7 @@ def hf_gemma_config():
     from transformers import Gemma3TextConfig
 
     return Gemma3TextConfig(
-        # hidden is larger than 6*8=48
-        hidden_size=64,
+        hidden_size=48,
         head_dim=8,
         # rotary is 1M global/10k local, omitted
         intermediate_size=144,
