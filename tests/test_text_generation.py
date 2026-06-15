@@ -701,6 +701,59 @@ def test_from_hf_rejects_non_boolean_use_tpu_before_loading(monkeypatch):
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "tokenizer,match",
+    [
+        (object(), "tokenizer must be callable"),
+        (TokenizerWithoutDecode(), "batch_decode"),
+    ],
+)
+def test_from_hf_rejects_invalid_supplied_tokenizer_before_model_loading(monkeypatch, tokenizer, match):
+    calls = []
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid tokenizer.")
+
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(TypeError, match=match):
+        TextGenerationPipeline.from_hf("some/model", tokenizer=tokenizer)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "tokenizer,match",
+    [
+        (object(), "tokenizer must be callable"),
+        (TokenizerWithoutDecode(), "batch_decode"),
+    ],
+)
+def test_from_hf_rejects_invalid_auto_tokenizer_before_model_loading(monkeypatch, tokenizer, match):
+    calls = []
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append(("tokenizer", args, kwargs))
+            return tokenizer
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append(("model", args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid tokenizer.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoTokenizer", FakeAutoTokenizer)
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(TypeError, match=match):
+        TextGenerationPipeline.from_hf("some/model")
+
+    assert [call[0] for call in calls] == ["tokenizer"]
+
+
 @pytest.mark.parametrize("inference_config", [{"tp_size": 1}, object()])
 def test_from_hf_rejects_invalid_inference_config_before_loading(monkeypatch, inference_config):
     calls = []

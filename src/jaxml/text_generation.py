@@ -52,6 +52,14 @@ def _normalize_optional_kwargs(name: str, value: Optional[dict[str, Any]]) -> di
     return dict(value)
 
 
+def _validate_tokenizer(tokenizer: Any):
+    if not callable(tokenizer):
+        raise TypeError(f"tokenizer must be callable, got {type(tokenizer)}.")
+    if not callable(getattr(tokenizer, "batch_decode", None)):
+        raise TypeError("tokenizer must provide a callable batch_decode method.")
+    return tokenizer
+
+
 @dataclass(frozen=True)
 class GenerationConfig:
     seed: int = 0
@@ -180,10 +188,7 @@ class TextGenerationPipeline:
     def __post_init__(self):
         if not callable(getattr(self.engine, "generate", None)):
             raise TypeError("engine must provide a callable generate method.")
-        if not callable(self.tokenizer):
-            raise TypeError(f"tokenizer must be callable, got {type(self.tokenizer)}.")
-        if not callable(getattr(self.tokenizer, "batch_decode", None)):
-            raise TypeError("tokenizer must provide a callable batch_decode method.")
+        self.tokenizer = _validate_tokenizer(self.tokenizer)
         self.default_tokenize_kwargs = _normalize_optional_kwargs("default_tokenize_kwargs", self.default_tokenize_kwargs)
         self.default_decode_kwargs = _normalize_optional_kwargs("default_decode_kwargs", self.default_decode_kwargs)
 
@@ -219,6 +224,7 @@ class TextGenerationPipeline:
             except ImportError as e:
                 raise ImportError("Please install transformers library.") from e
             tokenizer = AutoTokenizer.from_pretrained(name, **tokenizer_kwargs)
+        tokenizer = _validate_tokenizer(tokenizer)
 
         model, params = load_model_from_hf(
             name,
