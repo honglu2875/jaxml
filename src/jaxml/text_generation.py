@@ -259,10 +259,16 @@ class TextGenerationPipeline:
     def _get_encoded_field(encoded: Any, name: str, default: Any = ...):
         if isinstance(encoded, dict):
             if default is ...:
-                return encoded[name]
+                try:
+                    return encoded[name]
+                except KeyError as e:
+                    raise ValueError(f"tokenizer output must contain {name!r}.") from e
             return encoded.get(name, default)
         if default is ...:
-            return getattr(encoded, name)
+            try:
+                return getattr(encoded, name)
+            except AttributeError as e:
+                raise ValueError(f"tokenizer output must contain {name!r}.") from e
         return getattr(encoded, name, default)
 
     def generate_tokens(

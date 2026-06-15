@@ -90,6 +90,10 @@ class TokenizerWithoutDecode:
         return {"input_ids": np.ones((1, 1), dtype=np.int32)}
 
 
+class EncodedWithoutInputIds:
+    attention_mask = np.ones((1, 1), dtype=np.int32)
+
+
 @pytest.mark.parametrize("field_name", ["seed", "max_new_tokens", "top_k"])
 @pytest.mark.parametrize("value", [True, np.bool_(True), 1.5])
 def test_generation_config_rejects_non_integer_count_fields(field_name, value):
@@ -403,6 +407,20 @@ def test_generate_tokens_rejects_invalid_tokenizer_arrays_before_generation(enco
     pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
 
     with pytest.raises(exception, match=match):
+        pipeline.generate_tokens("hello")
+
+    assert tokenizer.encode_calls
+    assert tokenizer.decode_calls == []
+    assert engine.generate_calls == []
+
+
+@pytest.mark.parametrize("encoded", [{}, EncodedWithoutInputIds()])
+def test_generate_tokens_rejects_missing_tokenizer_input_ids_before_generation(encoded):
+    tokenizer = StaticTokenizer(encoded)
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(ValueError, match="tokenizer output must contain 'input_ids'"):
         pipeline.generate_tokens("hello")
 
     assert tokenizer.encode_calls
