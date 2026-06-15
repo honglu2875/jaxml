@@ -123,6 +123,22 @@ class Engine:
             raise ValueError(f"model.config.num_layers must be positive, got {num_layers}.")
         return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
 
+    def _model_vocab_size(self) -> int:
+        try:
+            vocab_size = self.model.config.vocab_size
+        except AttributeError as e:
+            raise TypeError("model must expose config.vocab_size to validate generation token ids.") from e
+        vocab_size = _normalize_count("model.config.vocab_size", vocab_size)
+        if vocab_size <= 0:
+            raise ValueError(f"model.config.vocab_size must be positive, got {vocab_size}.")
+        return vocab_size
+
+    @staticmethod
+    def _validate_token_ids_in_vocab(name: str, token_ids: jnp.ndarray, vocab_size: int) -> jnp.ndarray:
+        if not _contains_tracer(token_ids) and bool(jnp.any((token_ids < 0) | (token_ids >= vocab_size))):
+            raise ValueError(f"{name} token ids must be within [0, {vocab_size}).")
+        return token_ids
+
     @staticmethod
     def mesh_sharding(pspec: PartitionSpec, mesh: Optional[Mesh]) -> NamedSharding:
         if mesh is None:
@@ -400,6 +416,7 @@ class Engine:
         batch_size: int,
         max_new_tokens: int,
         expected_cache_count: int,
+        vocab_size: int,
     ) -> tuple[jnp.ndarray, tuple[KVCache, ...], jnp.ndarray]:
         if not isinstance(step_output, GenerationOutput):
             raise TypeError(f"Internal generation must return a GenerationOutput, got {type(step_output)}.")
@@ -415,6 +432,7 @@ class Engine:
             raise ValueError(f"Internal generation returned {tokens.shape[1]} tokens for a step limited to {max_new_tokens}.")
         if not jnp.issubdtype(tokens.dtype, jnp.integer):
             raise TypeError(f"Internal generation tokens must contain integer token ids, got dtype {tokens.dtype}.")
+        tokens = Engine._validate_token_ids_in_vocab("Internal generation", tokens, vocab_size)
 
         rng = step_output.rng
         if rng is None:
@@ -472,6 +490,8 @@ class Engine:
         include_prompt = _normalize_bool("include_prompt", include_prompt)
         prompt_tokens, attention_mask = self._prepare_generation_inputs(prompt_tokens, attention_mask)
         apply = self.wrapped_apply_fn
+        vocab_size = self._model_vocab_size()
+        prompt_tokens = self._validate_token_ids_in_vocab("prompt_tokens", prompt_tokens, vocab_size)
 
         from .._generate import generate
 
@@ -561,6 +581,7 @@ class Engine:
                 batch_size=prompt_tokens.shape[0],
                 max_new_tokens=new_token_count,
                 expected_cache_count=len(kv_caches),
+                vocab_size=vocab_size,
             )
             output_tokens.append(step_tokens)
             generated_count += step_tokens.shape[1]

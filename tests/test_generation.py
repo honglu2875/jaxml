@@ -751,6 +751,24 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
         ),
         (
             lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.array([[-1]], dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "within",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.array([[1_000_000]], dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "within",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
                 tokens=jnp.ones((1, 1), dtype=jnp.int32),
                 kv_caches=kv_caches,
                 rng=None,
@@ -948,6 +966,18 @@ def test_engine_generate_rejects_non_integer_prompt_tokens(llama_model_with_head
 
         with pytest.raises(TypeError, match="integer token ids"):
             engine.generate(jnp.ones((1, 4), dtype=jnp.float32), max_new_tokens=0)
+
+
+@pytest.mark.parametrize("token_id", [-1, "vocab_size"])
+def test_engine_generate_rejects_prompt_tokens_outside_model_vocab(llama_model_with_head, token_id):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        if token_id == "vocab_size":
+            token_id = model.config.vocab_size
+
+        with pytest.raises(ValueError, match=r"prompt_tokens token ids must be within"):
+            engine.generate(jnp.array([[token_id]], dtype=jnp.int32), max_new_tokens=0)
 
 
 def test_engine_generate_rejects_mismatched_attention_mask(llama_model_with_head):
