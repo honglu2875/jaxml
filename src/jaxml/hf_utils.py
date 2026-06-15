@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from operator import index
 from os import PathLike, fspath
 from typing import Literal
@@ -36,18 +37,35 @@ def _config_head_dim(config):
     return hidden_size // num_attention_heads
 
 
+def _hf_model_config(model, architecture_name: str):
+    try:
+        return model.config
+    except AttributeError as e:
+        raise ValueError(f"Expected Hugging Face {architecture_name} model to expose a config.") from e
+
+
+def _hf_model_state_dict(model, architecture_name: str) -> Mapping:
+    state_dict_fn = getattr(model, "state_dict", None)
+    if not callable(state_dict_fn):
+        raise TypeError(f"Expected Hugging Face {architecture_name} model to expose a callable state_dict method.")
+    state_dict = state_dict_fn()
+    if not isinstance(state_dict, Mapping):
+        raise TypeError(f"Hugging Face {architecture_name} state_dict must be a mapping, got {type(state_dict)}.")
+    return state_dict
+
+
 def to_llama_jax_params(model, dtype: str = "float16"):
-    llama_config = model.config
-    return torch_to_jax_states(model.state_dict(), head_dim=_config_head_dim(llama_config), dtype=dtype)
+    llama_config = _hf_model_config(model, "Llama")
+    return torch_to_jax_states(_hf_model_state_dict(model, "Llama"), head_dim=_config_head_dim(llama_config), dtype=dtype)
 
 
 def to_gemma_jax_params(model, dtype: str = "bfloat16"):
-    gemma_config = model.config
-    return torch_to_jax_states(model.state_dict(), head_dim=_config_head_dim(gemma_config), dtype=dtype)
+    gemma_config = _hf_model_config(model, "Gemma")
+    return torch_to_jax_states(_hf_model_state_dict(model, "Gemma"), head_dim=_config_head_dim(gemma_config), dtype=dtype)
 
 
 def to_neox_jax_params(model, dtype: str = "float16"):
-    neox_config = model.config
+    neox_config = _hf_model_config(model, "GPT-NeoX")
     # the substitution rules may be fragile, but we specifically target HF's neox
     _sub = {
         r"embed_in(.*)": r"embed_tokens\1",
@@ -61,7 +79,7 @@ def to_neox_jax_params(model, dtype: str = "float16"):
     }
     state_dict = {}
     state_sources = {}
-    for key, value in model.state_dict().items():
+    for key, value in _hf_model_state_dict(model, "GPT-NeoX").items():
         name = key
         for k, v in _sub.items():
             name = re.sub(k, v, name)

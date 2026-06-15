@@ -52,6 +52,29 @@ def test_to_llama_jax_params_accepts_integer_like_head_dim():
     assert params["params"]["q_proj"]["kernel"].shape == (8, 1, 4)
 
 
+def test_to_llama_jax_params_rejects_model_without_config():
+    model = SimpleNamespace(state_dict=lambda: {})
+
+    with pytest.raises(ValueError, match="Llama model to expose a config"):
+        to_llama_jax_params(model, dtype=torch.float32)
+
+
+@pytest.mark.parametrize(
+    "model,exception,match",
+    [
+        (SimpleNamespace(config=SimpleNamespace(hidden_size=8, num_attention_heads=2)), TypeError, "callable state_dict"),
+        (
+            SimpleNamespace(config=SimpleNamespace(hidden_size=8, num_attention_heads=2), state_dict=lambda: []),
+            TypeError,
+            "state_dict must be a mapping",
+        ),
+    ],
+)
+def test_to_llama_jax_params_rejects_invalid_state_dict_surface(model, exception, match):
+    with pytest.raises(exception, match=match):
+        to_llama_jax_params(model, dtype=torch.float32)
+
+
 @pytest.mark.parametrize(
     ("head_dim", "exception", "match"),
     [
