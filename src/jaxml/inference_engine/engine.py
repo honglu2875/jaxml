@@ -407,6 +407,14 @@ class Engine:
 
         return tokens, kv_caches, rng
 
+    @staticmethod
+    def _validate_prefilled_generation_caches(kv_caches: tuple[KVCache, ...]):
+        for idx, kv_cache in enumerate(kv_caches):
+            if kv_cache.k is None or kv_cache.v is None or kv_cache.mask is None or kv_cache.pos_id is None:
+                raise ValueError(
+                    f"Internal generation must return prefilled KV caches before continuation; got empty cache at index {idx}."
+                )
+
     def generate(
         self,
         prompt_tokens: jnp.ndarray,
@@ -516,6 +524,8 @@ class Engine:
             )
             output_tokens.append(step_tokens)
             generated_count += step_tokens.shape[1]
+            if generated_count < max_new_tokens:
+                self._validate_prefilled_generation_caches(kv_caches)
             next_input_tokens = step_tokens[:, -1:]
 
         if include_prompt:

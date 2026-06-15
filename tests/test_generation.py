@@ -28,6 +28,13 @@ class FakeCacheModel:
     config: object
 
 
+def _prefill_fake_caches(kv_caches, batch_size=1):
+    k = jnp.ones((batch_size, 1, 1, 2), dtype=jnp.float32)
+    return tuple(
+        cache if cache.k is not None else cache.update(k, k, mask=jnp.ones((batch_size, 1), dtype=bool)) for cache in kv_caches
+    )
+
+
 @pytest.mark.parametrize(
     "max_new_tokens,include_prompt,cache_stride,fuse_decoding,expected_length",
     [
@@ -327,7 +334,7 @@ def test_engine_generate_continues_rng_across_cache_resize_chunks(monkeypatch, l
         for _ in range(decode_steps):
             next_rng, _ = jax.random.split(next_rng)
         tokens = jnp.full((1, kwargs["max_new_tokens"]), len(calls), dtype=jnp.int32)
-        return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=next_rng)
+        return GenerationOutput(tokens=tokens, kv_caches=_prefill_fake_caches(kv_caches), rng=next_rng)
 
     monkeypatch.setattr("jaxml._generate.generate", fake_generate)
 
@@ -355,6 +362,36 @@ def test_engine_generate_continues_rng_across_cache_resize_chunks(monkeypatch, l
     assert np.array_equal(np.array(calls[1]["rng"]), np.array(expected_second_rng))
 
 
+def test_engine_generate_rejects_uninitialized_internal_caches_before_continuation(monkeypatch, llama_model_with_head):
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, call_hash, sampling_method
+        tokens = jnp.ones((1, kwargs["max_new_tokens"]), dtype=jnp.int32)
+        return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=kwargs["rng"])
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params, cache_stride=4)
+
+        with pytest.raises(ValueError, match="prefilled KV caches"):
+            engine.generate(
+                jnp.ones((1, 4), dtype=jnp.int32),
+                max_new_tokens=6,
+                temperature=0.0,
+                include_prompt=False,
+            )
+
+
 def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch, llama_model_with_head):
     calls = []
 
@@ -371,7 +408,11 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
         del params, eval_fn, call_hash, sampling_method
         calls.append((prompt_tokens, attention_mask, kwargs))
         tokens = jnp.full((prompt_tokens.shape[0], kwargs["max_new_tokens"]), len(calls), dtype=jnp.int32)
-        return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=kwargs["rng"])
+        return GenerationOutput(
+            tokens=tokens,
+            kv_caches=_prefill_fake_caches(kv_caches, batch_size=prompt_tokens.shape[0]),
+            rng=kwargs["rng"],
+        )
 
     monkeypatch.setattr("jaxml._generate.generate", fake_generate)
 
