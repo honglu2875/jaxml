@@ -15,10 +15,12 @@
 
 import functools
 import logging
+import operator
 from typing import Optional
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import tqdm
 
 from jaxml.cache import KVCache
@@ -27,6 +29,21 @@ from jaxml.outputs import GenerationOutput
 from jaxml.utils import load_if_exists
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_count(name: str, value: int) -> int:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be an integer, got {type(value)}.")
+    try:
+        return operator.index(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+
+
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
@@ -106,6 +123,12 @@ def generate(
             the completed token array (containing the prompt)
             the kv-caches
     """
+    seed = _normalize_count("seed", seed)
+    max_new_tokens = _normalize_count("max_new_tokens", max_new_tokens)
+    include_prompt = _normalize_bool("include_prompt", include_prompt)
+    fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
+    skip_prefill = _normalize_bool("skip_prefill", skip_prefill)
+
     prompt_tokens = jnp.array(prompt_tokens)
     if prompt_tokens.ndim == 1:
         prompt_tokens = prompt_tokens[None]

@@ -73,13 +73,54 @@ def test_engine_generate_rejects_non_integer_max_new_tokens(llama_model_with_hea
             engine.generate(input_ids, max_new_tokens=max_new_tokens)
 
 
-def test_engine_generate_accepts_numpy_integer_max_new_tokens(llama_model_with_head):
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"seed": True}, "seed must be an integer"),
+        ({"seed": np.bool_(True)}, "seed must be an integer"),
+        ({"seed": 1.5}, "seed must be an integer"),
+    ],
+)
+def test_engine_generate_rejects_non_integer_seed(llama_model_with_head, kwargs, match):
     with jax.default_device(jax.devices("cpu")[0]):
         model, params = llama_model_with_head
         engine = Engine(model, InferenceConfig(), params)
         input_ids = jnp.ones((1, 4), dtype=jnp.int32)
 
-        output = engine.generate(input_ids, max_new_tokens=np.int64(0), include_prompt=False)
+        with pytest.raises(TypeError, match=match):
+            engine.generate(input_ids, max_new_tokens=0, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"include_prompt": 1}, "include_prompt must be a boolean"),
+        ({"fuse_decoding": 1}, "fuse_decoding must be a boolean"),
+    ],
+)
+def test_engine_generate_rejects_non_boolean_control_flags(llama_model_with_head, kwargs, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+
+        with pytest.raises(TypeError, match=match):
+            engine.generate(input_ids, max_new_tokens=0, **kwargs)
+
+
+def test_engine_generate_accepts_numpy_scalar_control_arguments(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+
+        output = engine.generate(
+            input_ids,
+            seed=np.int64(0),
+            max_new_tokens=np.int64(0),
+            include_prompt=np.bool_(False),
+            fuse_decoding=np.bool_(False),
+        )
 
     assert output.shape == (1, 0)
 

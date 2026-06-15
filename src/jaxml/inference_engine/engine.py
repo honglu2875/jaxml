@@ -25,12 +25,18 @@ GENERATION_AOT_CACHE_VERSION = "generate_v3"
 
 
 def _normalize_count(name: str, value: int) -> int:
-    if isinstance(value, bool):
+    if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
     try:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+
+
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
 @struct.dataclass
@@ -316,7 +322,10 @@ class Engine:
         fuse_decoding: bool = False,
         include_prompt: bool = True,
     ):
+        seed = _normalize_count("seed", seed)
         max_new_tokens = _normalize_count("max_new_tokens", max_new_tokens)
+        fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
+        include_prompt = _normalize_bool("include_prompt", include_prompt)
         prompt_tokens, attention_mask = self._prepare_generation_inputs(prompt_tokens, attention_mask)
         apply = self.wrapped_apply_fn
 

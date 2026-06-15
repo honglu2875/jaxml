@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from jaxml._generate import generate
@@ -103,6 +104,62 @@ def test_generate_rejects_non_integer_prompt_tokens_before_prefill():
             sampling_method=RngSamplingMethod(),
             max_new_tokens=1,
         )
+
+
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"seed": True}, TypeError, "seed must be an integer"),
+        ({"seed": np.bool_(True)}, TypeError, "seed must be an integer"),
+        ({"seed": 1.5}, TypeError, "seed must be an integer"),
+        ({"max_new_tokens": True}, TypeError, "max_new_tokens must be an integer"),
+        ({"max_new_tokens": np.bool_(True)}, TypeError, "max_new_tokens must be an integer"),
+        ({"max_new_tokens": 1.5}, TypeError, "max_new_tokens must be an integer"),
+        ({"include_prompt": 1}, TypeError, "include_prompt must be a boolean"),
+        ({"fuse_decoding": 1}, TypeError, "fuse_decoding must be a boolean"),
+        ({"skip_prefill": 1}, TypeError, "skip_prefill must be a boolean"),
+    ],
+)
+def test_generate_rejects_invalid_control_arguments_before_prefill(kwargs, exception, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    generate_kwargs = {"max_new_tokens": 1, **kwargs}
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-input",
+            sampling_method=RngSamplingMethod(),
+            **generate_kwargs,
+        )
+
+
+def test_generate_accepts_numpy_scalar_control_arguments():
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=None,
+        kv_caches=(),
+        call_hash="numpy-scalar-controls",
+        sampling_method=RngSamplingMethod(),
+        seed=np.int64(0),
+        max_new_tokens=np.int64(1),
+        include_prompt=np.bool_(False),
+        fuse_decoding=np.bool_(False),
+        skip_prefill=np.bool_(False),
+    )
+
+    assert output.tokens.shape == (1, 1)
 
 
 @pytest.mark.parametrize(
