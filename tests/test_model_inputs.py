@@ -53,6 +53,39 @@ def test_prepare_model_inputs_accepts_numpy_integer_num_layers():
     assert kv_caches == (None,)
 
 
+def test_prepare_model_inputs_accepts_negative_mask_placeholder_ids_with_vocab_size():
+    input_ids, attention_mask, kv_caches = prepare_model_inputs(
+        jnp.array([[-100, 1]], dtype=jnp.int32),
+        None,
+        None,
+        num_layers=1,
+        vocab_size=np.int64(4),
+    )
+
+    assert input_ids.tolist() == [[-100, 1]]
+    assert attention_mask is None
+    assert kv_caches is None
+
+
+@pytest.mark.parametrize(
+    "vocab_size,exception,match",
+    [
+        (True, TypeError, "vocab_size must be an integer"),
+        (np.bool_(True), TypeError, "vocab_size must be an integer"),
+        (1.5, TypeError, "vocab_size must be an integer"),
+        (0, ValueError, "vocab_size must be positive"),
+    ],
+)
+def test_prepare_model_inputs_rejects_invalid_vocab_size(vocab_size, exception, match):
+    with pytest.raises(exception, match=match):
+        prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, None, num_layers=1, vocab_size=vocab_size)
+
+
+def test_prepare_model_inputs_rejects_input_ids_outside_vocab_size():
+    with pytest.raises(ValueError, match="less than vocab_size=4"):
+        prepare_model_inputs(jnp.array([[0, 4]], dtype=jnp.int32), None, None, num_layers=1, vocab_size=4)
+
+
 def test_prepare_model_inputs_validates_kv_cache_state():
     cache = KVCache(
         k=None,
@@ -287,6 +320,27 @@ def test_models_reject_attention_mask_without_valid_tokens(request, fixture_name
 
         with pytest.raises(ValueError, match="at least one valid token"):
             model.apply(params, input_ids, attention_mask=attention_mask)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_input_ids_at_or_above_vocab_size(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.array([[0, model.config.vocab_size]], dtype=jnp.int32)
+
+        with pytest.raises(ValueError, match="less than vocab_size"):
+            model.apply(params, input_ids)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_accept_negative_mask_placeholder_ids(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.array([[-100, 1]], dtype=jnp.int32)
+
+        output = model.apply(params, input_ids)
+
+    assert output.last_hidden_state.shape[:2] == input_ids.shape
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)

@@ -170,7 +170,13 @@ class GPTNeoXModel(Block):
             output_attentions,
             output_hidden_states,
         )
-        input_ids, attention_mask, kv_caches = prepare_model_inputs(input_ids, attention_mask, kv_caches, self.num_layers)
+        input_ids, attention_mask, kv_caches = prepare_model_inputs(
+            input_ids,
+            attention_mask,
+            kv_caches,
+            self.num_layers,
+            vocab_size=self.config.vocab_size,
+        )
         position_ids = prepare_position_ids(position_ids, input_ids)
 
         if attention_mask is None:

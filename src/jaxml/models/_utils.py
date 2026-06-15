@@ -77,10 +77,14 @@ def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_lo
     return hidden_states[:, -keep_last_n_logits:]
 
 
-def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
+def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int, vocab_size: int | None = None):
     num_layers = _normalize_count("num_layers", num_layers)
     if num_layers <= 0:
         raise ValueError(f"num_layers must be positive, got {num_layers}.")
+    if vocab_size is not None:
+        vocab_size = _normalize_count("vocab_size", vocab_size)
+        if vocab_size <= 0:
+            raise ValueError(f"vocab_size must be positive, got {vocab_size}.")
 
     input_ids = jnp.asarray(input_ids)
     if input_ids.ndim != 2:
@@ -91,6 +95,8 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
         raise ValueError("input_ids must contain at least one batch row.")
     if input_ids.shape[1] == 0:
         raise ValueError("input_ids must contain at least one token.")
+    if vocab_size is not None and not _contains_tracer(input_ids) and bool(jnp.any(input_ids >= vocab_size)):
+        raise ValueError(f"input_ids token ids must be less than vocab_size={vocab_size}.")
 
     if kv_caches is not None:
         try:
