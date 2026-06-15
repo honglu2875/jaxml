@@ -293,6 +293,85 @@ def test_generate_skip_prefill_accepts_prefilled_kv_caches(monkeypatch):
     assert output.kv_caches == kv_caches
 
 
+def test_generate_skip_prefill_accepts_populated_cache_attention_mask_shape(monkeypatch):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, attention_mask, use_cache
+        logits = jnp.zeros(tokens.shape + (10,), dtype=jnp.float32)
+        return logits, kv_caches
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+    k = jnp.ones((1, 1, 1, 2), dtype=jnp.float32)
+    kv_caches = (KVCache.init(4, k=k, v=k, mask=jnp.ones((1, 1), dtype=bool)),)
+
+    output = generate(
+        {},
+        eval_fn,
+        jnp.ones((1, 1), dtype=jnp.int32),
+        attention_mask=kv_caches[0].mask,
+        kv_caches=kv_caches,
+        call_hash="valid-skip-prefill-cache-mask",
+        sampling_method=RngSamplingMethod(),
+        max_new_tokens=1,
+        skip_prefill=True,
+    )
+
+    assert output.tokens.shape == (1, 1)
+    assert output.kv_caches == kv_caches
+
+
+def test_generate_skip_prefill_rejects_token_attention_mask_for_populated_cache():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid skip-prefill attention masks.")
+
+    k = jnp.ones((1, 1, 1, 2), dtype=jnp.float32)
+    kv_caches = (KVCache.init(4, k=k, v=k, mask=jnp.ones((1, 1), dtype=bool)),)
+
+    with pytest.raises(ValueError, match="skip-prefill KV cache mask shape"):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=jnp.ones((1, 1), dtype=bool),
+            kv_caches=kv_caches,
+            call_hash="invalid-skip-prefill-token-mask",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+            skip_prefill=True,
+        )
+
+
+def test_generate_skip_prefill_rejects_inconsistent_populated_cache_mask_shapes():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for inconsistent skip-prefill caches.")
+
+    k = jnp.ones((1, 1, 1, 2), dtype=jnp.float32)
+    kv_caches = (
+        KVCache.init(4, k=k, v=k, mask=jnp.ones((1, 1), dtype=bool)),
+        KVCache.init(5, k=k, v=k, mask=jnp.ones((1, 1), dtype=bool)),
+    )
+
+    with pytest.raises(ValueError, match="share attention mask shape"):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=kv_caches,
+            call_hash="invalid-skip-prefill-cache-mask-shapes",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+            skip_prefill=True,
+        )
+
+
 def test_generate_prefill_accepts_last_token_logits_for_long_prompt(monkeypatch):
     def fake_load_if_exists(name, hash, log=True):
         del name, hash, log

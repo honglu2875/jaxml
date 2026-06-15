@@ -162,6 +162,23 @@ def _validate_prefilled_kv_caches(kv_caches: tuple[KVCache, ...]):
             raise ValueError(f"skip_prefill=True requires kv_caches[{idx}] to be prefilled.")
 
 
+def _attention_mask_expected_shape(prompt_tokens, kv_caches: tuple[KVCache, ...], skip_prefill: bool):
+    if not skip_prefill:
+        return prompt_tokens.shape
+    populated_mask_shapes = tuple(kv_cache.mask.shape for kv_cache in kv_caches if kv_cache.mask is not None)
+    if not populated_mask_shapes:
+        return prompt_tokens.shape
+    expected_shape = populated_mask_shapes[0]
+    if any(mask_shape != expected_shape for mask_shape in populated_mask_shapes):
+        raise ValueError("skip_prefill=True requires kv_caches to share attention mask shape.")
+    if expected_shape[0] != prompt_tokens.shape[0]:
+        raise ValueError(
+            "skip_prefill=True requires kv_caches to share prompt_tokens batch size; "
+            f"got {expected_shape[0]} and {prompt_tokens.shape[0]}."
+        )
+    return expected_shape
+
+
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
 def _pad_to(x, length, axis=0):
     pad_shape = x.shape[:axis] + (length - x.shape[axis],) + x.shape[axis + 1 :]
@@ -272,6 +289,11 @@ def generate(
     if prompt_tokens.shape[1] == 0:
         raise ValueError("prompt_tokens must contain at least one token.")
     kv_caches = _validate_kv_caches(kv_caches)
+
+    if skip_prefill and max_new_tokens > 0:
+        _validate_prefilled_kv_caches(kv_caches)
+
+    expected_attention_mask_shape = _attention_mask_expected_shape(prompt_tokens, kv_caches, skip_prefill)
     if attention_mask is not None:
         attention_mask = jnp.asarray(attention_mask)
         if attention_mask.ndim == 1:
@@ -280,9 +302,10 @@ def generate(
             raise ValueError(f"attention_mask must be a 1D or 2D array, got shape {attention_mask.shape}.")
         if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
             raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
-        if attention_mask.shape != prompt_tokens.shape:
+        if attention_mask.shape != expected_attention_mask_shape:
             raise ValueError(
-                f"attention_mask shape must match prompt_tokens shape; got {attention_mask.shape} and {prompt_tokens.shape}."
+                "attention_mask shape must match prompt_tokens shape or skip-prefill KV cache mask shape; "
+                f"got {attention_mask.shape} and expected {expected_attention_mask_shape}."
             )
         attention_mask = attention_mask.astype(bool)
         if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
@@ -296,9 +319,6 @@ def generate(
         return GenerationOutput(tokens=tokens, kv_caches=kv_caches, rng=rng)
 
     call_hash = _validate_cache_key_part(call_hash, "hash", allow_integer=True)
-
-    if skip_prefill:
-        _validate_prefilled_kv_caches(kv_caches)
 
     eval_fn = _normalize_callable("eval_fn", eval_fn)
     sample_fn = _get_sampling_fn(sampling_method)
