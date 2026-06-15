@@ -9,6 +9,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SPECIFIER_OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<")
 _SUPPORTED_CI_PYTHON_VERSIONS = ("3.11", "3.12")
+_CPU_CADENCE_MARKERS = ("critical", "milestone")
 
 pytestmark = pytest.mark.critical
 
@@ -71,6 +72,11 @@ def _dependency_drift_module():
 
 def _test_modules():
     return sorted((PROJECT_ROOT / "tests").glob("test_*.py"))
+
+
+def _test_module_cadence_markers(path: Path):
+    text = path.read_text()
+    return tuple(marker for marker in _CPU_CADENCE_MARKERS if f"pytest.mark.{marker}" in text)
 
 
 def _exact_direct_pins():
@@ -197,16 +203,16 @@ def test_cpu_test_targets_use_expected_pytest_markers():
     assert recipes["pytest-cpu"] == ["${CPU_TESTS}"]
 
 
-def test_cpu_test_modules_are_assigned_to_cadence_markers():
-    unmarked = []
+def test_cpu_test_modules_are_assigned_to_exactly_one_cadence_marker():
+    incorrectly_marked = {}
     for path in _test_modules():
         if path.name == "test_tpu.py":
             continue
-        text = path.read_text()
-        if "pytest.mark.critical" not in text and "pytest.mark.milestone" not in text:
-            unmarked.append(path.name)
+        markers = _test_module_cadence_markers(path)
+        if len(markers) != 1:
+            incorrectly_marked[path.name] = markers
 
-    assert unmarked == []
+    assert incorrectly_marked == {}
 
 
 def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events():

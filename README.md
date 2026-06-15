@@ -55,6 +55,31 @@ Tests are split by cadence:
 - `milestone`: full CPU suite for model internals, conversion utilities, and broader regression coverage.
 - `tpu`: TPU-only checks for the local TPU runtime and JAX/libtpu setup.
 
+Current critical modules:
+
+- `tests/test_cache.py`
+- `tests/test_dependency_surface.py`
+- `tests/test_generate_core.py`
+- `tests/test_generation.py`
+- `tests/test_model_inputs.py`
+- `tests/test_public_api.py`
+- `tests/test_sampling.py`
+- `tests/test_text_generation.py`
+
+Current milestone modules:
+
+- `tests/test_aot_cache.py`
+- `tests/test_attention.py`
+- `tests/test_config.py`
+- `tests/test_experimental_rnn_discrete.py`
+- `tests/test_gemma.py`
+- `tests/test_hf_utils.py`
+- `tests/test_llama.py`
+- `tests/test_model_heads.py`
+- `tests/test_modules.py`
+- `tests/test_neox.py`
+- `tests/test_rope.py`
+
 Run the push gate before every commit or push:
 
 ```bash
@@ -64,7 +89,7 @@ uv run --frozen --extra dev make verify-critical-cpu
 Run the full CPU milestone suite before larger review points:
 
 ```bash
-uv run --frozen --extra dev make verify-cpu
+uv run --frozen --extra dev make verify-milestone-cpu
 ```
 
 TPU validation is intentionally split out because it requires a visible TPU runtime and `libtpu`:
