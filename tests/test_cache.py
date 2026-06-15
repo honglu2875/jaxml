@@ -27,6 +27,34 @@ def test_kv_cache_init_accepts_numpy_integer_capacity():
     assert cache.max_seq_len == 4
 
 
+def test_kv_cache_init_accepts_complete_initial_state():
+    k, v = _kv(seq_len=2)
+    mask = jnp.array([[1, 1], [1, 0]], dtype=jnp.int32)
+
+    cache = KVCache.init(4, k=k, v=v, mask=mask)
+
+    assert cache.k.shape == (2, 4, 1, 2)
+    assert cache.v.shape == (2, 4, 1, 2)
+    assert cache.mask.dtype == jnp.bool_
+    assert np.array_equal(np.array(cache.mask), np.array([[True, True, False, False], [True, False, False, False]]))
+    assert np.array_equal(np.array(cache.pos_id), np.array([[1], [0]]))
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"k": _kv(seq_len=1)[0]},
+        {"v": _kv(seq_len=1)[1]},
+        {"mask": jnp.ones((2, 1), dtype=bool)},
+        {"k": _kv(seq_len=1)[0], "mask": jnp.ones((2, 1), dtype=bool)},
+        {"v": _kv(seq_len=1)[1], "mask": jnp.ones((2, 1), dtype=bool)},
+    ],
+)
+def test_kv_cache_init_rejects_partial_initial_state(kwargs):
+    with pytest.raises(ValueError, match="requires both k and v"):
+        KVCache.init(4, **kwargs)
+
+
 def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     k, v = _kv(seq_len=2)
 

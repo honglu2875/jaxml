@@ -59,13 +59,17 @@ class KVCache(struct.PyTreeNode):
         max_seq_len = _normalize_count("max_seq_len", max_seq_len)
         if max_seq_len <= 0:
             raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
-        return cls(
-            k=k,
-            v=v,
-            max_seq_len=max_seq_len,
-            mask=mask,
-            dtype=dtype,
-        )
+        if k is None and v is None and mask is None:
+            return cls(
+                k=None,
+                v=None,
+                max_seq_len=max_seq_len,
+                mask=None,
+                dtype=dtype,
+            )
+        if k is None or v is None:
+            raise ValueError("Initial KVCache state requires both k and v when either is set.")
+        return cls(k=None, v=None, max_seq_len=max_seq_len, mask=None, dtype=dtype).update(k, v, mask)
 
     @property
     def next_pos_id(self):
