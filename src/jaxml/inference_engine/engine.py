@@ -99,8 +99,16 @@ class Engine:
         self.cache_stride = cache_stride
 
     def init_cache(self, max_seq_len: int) -> tuple[KVCache, ...]:
-        max_seq_len = max_seq_len
-        num_layers = self.model.config.num_layers
+        max_seq_len = _normalize_count("max_seq_len", max_seq_len)
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
+        try:
+            num_layers = self.model.config.num_layers
+        except AttributeError as e:
+            raise TypeError("model must expose config.num_layers to initialize KV caches.") from e
+        num_layers = _normalize_count("model.config.num_layers", num_layers)
+        if num_layers <= 0:
+            raise ValueError(f"model.config.num_layers must be positive, got {num_layers}.")
         return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
 
     @staticmethod

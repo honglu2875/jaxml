@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from flax import struct
 
 from jaxml.inference_engine.engine import Engine, InferenceConfig
 from jaxml.outputs import GenerationOutput
@@ -15,6 +16,16 @@ class FakeSharding:
 class InitShouldNotRunModel:
     def init(self, *args, **kwargs):
         raise AssertionError("model.init should not be called before rejecting invalid explicit weights.")
+
+
+@struct.dataclass
+class FakeModelConfig:
+    num_layers: object
+
+
+@struct.dataclass
+class FakeCacheModel:
+    config: object
 
 
 @pytest.mark.parametrize(
@@ -637,6 +648,54 @@ def test_engine_generate_rejects_attention_mask_without_valid_tokens(llama_model
 
         with pytest.raises(ValueError, match="at least one valid token"):
             engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
+
+
+def test_engine_init_cache_creates_one_cache_per_model_layer():
+    engine = Engine(FakeCacheModel(FakeModelConfig(num_layers=np.int64(2))), InferenceConfig(), {"params": {}})
+
+    caches = engine.init_cache(max_seq_len=np.int64(8))
+
+    assert len(caches) == 2
+    assert [cache.max_seq_len for cache in caches] == [8, 8]
+
+
+@pytest.mark.parametrize("max_seq_len", [True, 1.5])
+def test_engine_init_cache_rejects_non_integer_max_seq_len(max_seq_len):
+    engine = Engine(FakeCacheModel(FakeModelConfig(num_layers=1)), InferenceConfig(), {"params": {}})
+
+    with pytest.raises(TypeError, match="max_seq_len must be an integer"):
+        engine.init_cache(max_seq_len=max_seq_len)
+
+
+@pytest.mark.parametrize("max_seq_len", [0, -1])
+def test_engine_init_cache_rejects_non_positive_max_seq_len(max_seq_len):
+    engine = Engine(FakeCacheModel(FakeModelConfig(num_layers=1)), InferenceConfig(), {"params": {}})
+
+    with pytest.raises(ValueError, match="max_seq_len must be positive"):
+        engine.init_cache(max_seq_len=max_seq_len)
+
+
+def test_engine_init_cache_rejects_model_without_num_layers():
+    engine = Engine(FakeCacheModel(config=object()), InferenceConfig(), {"params": {}})
+
+    with pytest.raises(TypeError, match="config.num_layers"):
+        engine.init_cache(max_seq_len=8)
+
+
+@pytest.mark.parametrize("num_layers", [True, 1.5])
+def test_engine_init_cache_rejects_non_integer_model_num_layers(num_layers):
+    engine = Engine(FakeCacheModel(FakeModelConfig(num_layers=num_layers)), InferenceConfig(), {"params": {}})
+
+    with pytest.raises(TypeError, match="model.config.num_layers must be an integer"):
+        engine.init_cache(max_seq_len=8)
+
+
+@pytest.mark.parametrize("num_layers", [0, -1])
+def test_engine_init_cache_rejects_non_positive_model_num_layers(num_layers):
+    engine = Engine(FakeCacheModel(FakeModelConfig(num_layers=num_layers)), InferenceConfig(), {"params": {}})
+
+    with pytest.raises(ValueError, match="model.config.num_layers must be positive"):
+        engine.init_cache(max_seq_len=8)
 
 
 def test_engine_rejects_non_positive_cache_stride(llama_model_with_head):
