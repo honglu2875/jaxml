@@ -36,6 +36,24 @@ def test_rnn_discrete_forward_uses_custom_output_classes():
     assert logits.shape == (1, 3, 3)
 
 
+def test_rnn_discrete_config_accepts_numpy_scalar_values():
+    config = RNNDiscreteConfig(
+        num_classes=np.int64(8),
+        num_layers=np.int64(2),
+        hidden_dim=np.int64(6),
+        state_dim=np.int64(4),
+        num_output_classes=np.int64(3),
+        use_bias=np.bool_(True),
+    )
+
+    assert config.num_classes == 8
+    assert config.num_layers == 2
+    assert config.hidden_dim == 6
+    assert config.state_dim == 4
+    assert config.output_classes == 3
+    assert config.use_bias is True
+
+
 @pytest.mark.parametrize(
     "overrides,exception,match",
     [
@@ -45,6 +63,12 @@ def test_rnn_discrete_forward_uses_custom_output_classes():
         ({"state_dim": 0}, ValueError, "state_dim must be positive"),
         ({"num_output_classes": 0}, ValueError, "num_output_classes must be positive"),
         ({"num_classes": True}, TypeError, "num_classes must be an integer"),
+        ({"num_layers": np.bool_(True)}, TypeError, "num_layers must be an integer"),
+        ({"hidden_dim": 1.5}, TypeError, "hidden_dim must be an integer"),
+        ({"state_dim": "4"}, TypeError, "state_dim must be an integer"),
+        ({"num_output_classes": True}, TypeError, "num_output_classes must be an integer"),
+        ({"num_output_classes": np.bool_(True)}, TypeError, "num_output_classes must be an integer"),
+        ({"num_output_classes": 1.5}, TypeError, "num_output_classes must be an integer"),
         ({"use_bias": 1}, TypeError, "use_bias must be a boolean"),
     ],
 )
