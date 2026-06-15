@@ -114,13 +114,24 @@ def test_layer_norm_rejects_non_boolean_use_bias():
 
 
 @pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
+@pytest.mark.parametrize("dtype", [None, "not-a-dtype"])
+def test_norms_reject_invalid_dtype(norm_cls, dtype):
+    norm = norm_cls(hidden_size=4, dtype=dtype)
+    x = jnp.ones((1, 2, 4), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match="dtype must be a valid JAX dtype"):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
 def test_norms_accept_numpy_scalar_parameters(norm_cls):
-    norm = norm_cls(hidden_size=np.int64(4), eps=np.float64(1e-6), upcast=np.bool_(True))
+    norm = norm_cls(hidden_size=np.int64(4), eps=np.float64(1e-6), upcast=np.bool_(True), dtype=np.float32)
     x = jnp.ones((1, 2, 4), dtype=jnp.float32)
 
     params = norm.init(jax.random.PRNGKey(0), x)
     y = norm.apply(params, x)
 
+    assert params["params"]["weight"].value.dtype == jnp.float32
     assert y.shape == x.shape
 
 

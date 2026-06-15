@@ -51,6 +51,15 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_dtype(name: str, value):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: int):
     hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim == 0:
@@ -76,6 +85,7 @@ class RMSNorm(nn.Module):
         hidden_size = _normalize_count("hidden_size", self.hidden_size)
         eps = _normalize_float("eps", self.eps)
         _normalize_bool("upcast", self.upcast)
+        dtype = _normalize_dtype("dtype", self.dtype)
         if hidden_size <= 0:
             raise ValueError(f"hidden_size must be positive, got {hidden_size}.")
         if eps <= 0:
@@ -84,7 +94,7 @@ class RMSNorm(nn.Module):
             "weight",
             _init_with_ones(self.axis_name),
             (hidden_size,),
-            self.dtype,
+            dtype,
             axes=(self.axis_name,),
         )
 
@@ -114,6 +124,7 @@ class LayerNorm(nn.Module):
         eps = _normalize_float("eps", self.eps)
         _normalize_bool("upcast", self.upcast)
         use_bias = _normalize_bool("use_bias", self.use_bias)
+        dtype = _normalize_dtype("dtype", self.dtype)
         if hidden_size <= 0:
             raise ValueError(f"hidden_size must be positive, got {hidden_size}.")
         if eps <= 0:
@@ -122,7 +133,7 @@ class LayerNorm(nn.Module):
             "weight",
             _init_with_ones(self.axis_name),
             (hidden_size,),
-            self.dtype,
+            dtype,
             axes=(self.axis_name,),
         )
         if use_bias:
@@ -130,7 +141,7 @@ class LayerNorm(nn.Module):
                 "bias",
                 _init_with_ones(self.axis_name),
                 (hidden_size,),
-                self.dtype,
+                dtype,
                 axes=(self.axis_name,),
             )
 
