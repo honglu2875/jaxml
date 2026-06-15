@@ -159,6 +159,23 @@ def test_top_p_filtering_is_noop_at_or_above_one():
     assert np.array_equal(np.array(filtered), np.array(logits))
 
 
+@pytest.mark.parametrize(
+    "top_p,exception,match",
+    [
+        (True, TypeError, "top_p must be a real number"),
+        (np.bool_(True), TypeError, "top_p must be a real number"),
+        ("0.9", TypeError, "top_p must be a real number"),
+        (float("nan"), ValueError, "top_p must be finite"),
+    ],
+)
+def test_top_p_filtering_rejects_invalid_top_p(top_p, exception, match):
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+
+    with pytest.raises(exception, match=match):
+        top_p_filtering(rng, logits, 0, top_p, 0.0, 1.0)
+
+
 def test_top_p_filtering_keeps_max_logits_at_zero():
     rng = jax.random.PRNGKey(0)
     logits = jnp.array([[[0.0, 5.0, 5.0, 2.0]]])
@@ -166,6 +183,23 @@ def test_top_p_filtering_keeps_max_logits_at_zero():
     filtered = top_p_filtering(rng, logits, 0, 0.0, 0.0, 1.0)
 
     assert np.array_equal(_is_kept(filtered), np.array([[[False, True, True, False]]]))
+
+
+@pytest.mark.parametrize(
+    "min_p,exception,match",
+    [
+        (True, TypeError, "min_p must be a real number"),
+        (np.bool_(True), TypeError, "min_p must be a real number"),
+        ("0.1", TypeError, "min_p must be a real number"),
+        (float("nan"), ValueError, "min_p must be finite"),
+    ],
+)
+def test_min_p_filtering_rejects_invalid_min_p(min_p, exception, match):
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+
+    with pytest.raises(exception, match=match):
+        min_p_filtering(rng, logits, 0, 1.0, min_p, 1.0)
 
 
 def test_min_p_filtering_falls_back_per_batch_row_when_no_token_qualifies():
@@ -224,6 +258,15 @@ def test_sampling_method_pipeline_rejects_invalid_logits():
 
     with pytest.raises(TypeError, match="floating point"):
         sampling_fn(rng, jnp.ones((1, 1, 4), dtype=jnp.int32), 2, 0.9, 0.0, 1.0)
+
+
+def test_sampling_method_pipeline_rejects_non_positive_temperature_for_non_greedy_method():
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, 1.0, 5.0, 2.0]]])
+    sampling_fn = SamplingMethod(use_top_k=True, use_top_p=False, use_min_p=False, use_greedy=False).get_sampling_fn()
+
+    with pytest.raises(ValueError, match="temp must be positive"):
+        sampling_fn(rng, logits, 2, 1.0, 0.0, 0.0)
 
 
 def test_sampling_method_accepts_numpy_boolean_flags():

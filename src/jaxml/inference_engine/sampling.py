@@ -24,6 +24,10 @@ def _validate_logits(logits):
     return logits
 
 
+def _contains_tracer(x) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
+
+
 @functools.partial(jax.jit, static_argnames=("top_k",))
 def top_k_filtering(rng, logits, top_k, *args):
     logits = _validate_logits(logits)
@@ -38,6 +42,7 @@ def top_k_filtering(rng, logits, top_k, *args):
 
 def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
     logits = _validate_logits(logits)
+    top_p = _normalize_probability("top_p", top_p)
     if top_p >= 1.0:
         return logits
     if top_p <= 0.0:
@@ -58,6 +63,7 @@ def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
 
 def min_p_filtering(rng, logits, top_k, top_p, min_p, *args):
     logits = _validate_logits(logits)
+    min_p = _normalize_probability("min_p", min_p)
     mask = jax.nn.softmax(logits, axis=-1) >= min_p
     has_allowed_token = jnp.any(mask, axis=-1, keepdims=True)
     return jnp.where(has_allowed_token, jnp.where(mask, logits, NEG_INF), logits)
@@ -95,6 +101,21 @@ def _normalize_real(name: str, value: float) -> float:
     if not math.isfinite(value):
         raise ValueError(f"{name} must be finite, got {value}.")
     return value
+
+
+def _normalize_probability(name: str, value: float):
+    if _contains_tracer(value):
+        return value
+    return _clip_value(name, _normalize_real(name, value), 0.0, 1.0)
+
+
+def _normalize_sampling_temperature(temp: float):
+    if _contains_tracer(temp):
+        return temp
+    temp = _normalize_real("temp", temp)
+    if temp <= 0.0:
+        raise ValueError(f"temp must be positive for non-greedy sampling, got {temp}.")
+    return temp
 
 
 def _normalize_bool(name: str, value: bool) -> bool:
@@ -156,6 +177,7 @@ class SamplingMethod:
 
         def _sampling_fn(rng, logits, top_k, top_p, min_p, temp):
             logits = _validate_logits(logits)
+            temp = _normalize_sampling_temperature(temp)
             for fn in pipeline:
                 logits = fn(rng, logits, top_k, top_p, min_p, temp)
             return jax.random.categorical(rng, logits / temp)
