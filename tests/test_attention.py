@@ -181,6 +181,47 @@ def test_attention_mha_canonicalizes_integer_attention_mask():
 
 
 @pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"query_states": jnp.zeros((1, 1, 1), dtype=jnp.float32)}, ValueError, "query_states must be a 4D array"),
+        ({"key_states": jnp.zeros((1, 3, 1), dtype=jnp.float32)}, ValueError, "key_states must be a 4D array"),
+        ({"value_states": jnp.zeros((1, 3, 1), dtype=jnp.float32)}, ValueError, "value_states must be a 4D array"),
+        ({"query_states": jnp.zeros((1, 1, 1, 1), dtype=jnp.int32)}, TypeError, "query_states must contain floating"),
+        ({"key_states": jnp.zeros((1, 3, 1, 1), dtype=jnp.int32)}, TypeError, "key_states must contain floating"),
+        ({"value_states": jnp.zeros((1, 3, 1, 1), dtype=jnp.int32)}, TypeError, "value_states must contain floating"),
+        ({"value_states": jnp.zeros((1, 2, 1, 1), dtype=jnp.float32)}, ValueError, "key_states and value_states"),
+        ({"query_states": jnp.zeros((2, 1, 1, 1), dtype=jnp.float32)}, ValueError, "matching batch"),
+        ({"query_states": jnp.zeros((1, 1, 2, 1), dtype=jnp.float32)}, ValueError, "matching batch"),
+        ({"query_states": jnp.zeros((1, 1, 1, 2), dtype=jnp.float32)}, ValueError, "matching batch"),
+    ],
+)
+def test_attention_mha_rejects_invalid_attention_states(kwargs, exception, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    defaults = {
+        "query_states": jnp.zeros((1, 1, 1, 1), dtype=jnp.float32),
+        "key_states": jnp.zeros((1, 3, 1, 1), dtype=jnp.float32),
+        "value_states": jnp.zeros((1, 3, 1, 1), dtype=jnp.float32),
+    }
+
+    with pytest.raises(exception, match=match):
+        attn.apply(
+            {},
+            **(defaults | kwargs),
+            method=Attention.mha,
+        )
+
+
+@pytest.mark.parametrize(
     "attention_mask,exception,match",
     [
         (jnp.ones((1, 2), dtype=bool), ValueError, "attention_mask shape must match"),

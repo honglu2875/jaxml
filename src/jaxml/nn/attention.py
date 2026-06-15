@@ -49,6 +49,22 @@ def _normalize_optional_count(name: str, value: int | None) -> int | None:
     return value
 
 
+def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarray, value_states: jnp.ndarray):
+    for name, states in (("query_states", query_states), ("key_states", key_states), ("value_states", value_states)):
+        if states.ndim != 4:
+            raise ValueError(f"{name} must be a 4D array, got shape {states.shape}.")
+        if not jnp.issubdtype(states.dtype, jnp.floating):
+            raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
+
+    if key_states.shape != value_states.shape:
+        raise ValueError(f"key_states and value_states must have the same shape, got {key_states.shape} and {value_states.shape}.")
+    if query_states.shape[0] != key_states.shape[0] or query_states.shape[2:] != key_states.shape[2:]:
+        raise ValueError(
+            "query_states and key_states must have matching batch, head count, and head dimension, "
+            f"got {query_states.shape} and {key_states.shape}."
+        )
+
+
 class Attention(Block):
     """
     Flax base model of attention.
@@ -191,6 +207,10 @@ class Attention(Block):
         softmax_fp32: bool = True,
         output_attentions: bool = False,
     ):
+        query_states = jnp.asarray(query_states)
+        key_states = jnp.asarray(key_states)
+        value_states = jnp.asarray(value_states)
+        _validate_attention_states(query_states, key_states, value_states)
         sliding_window = _normalize_optional_count("sliding_window", sliding_window)
         x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) * self.attn_scale
 
