@@ -86,3 +86,46 @@ def test_generate_rejects_invalid_inputs_before_prefill(prompt_tokens, max_new_t
             sampling_method=RngSamplingMethod(),
             max_new_tokens=max_new_tokens,
         )
+
+
+def test_generate_rejects_non_integer_prompt_tokens_before_prefill():
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    with pytest.raises(TypeError, match="integer token ids"):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.float32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-input",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )
+
+
+@pytest.mark.parametrize(
+    "attention_mask,exception,match",
+    [
+        (jnp.ones((1, 1, 1), dtype=jnp.int32), ValueError, "attention_mask must be a 1D or 2D array"),
+        (jnp.ones((1, 2), dtype=jnp.int32), ValueError, "attention_mask shape must match"),
+        (jnp.ones((1, 1), dtype=jnp.float32), TypeError, "attention_mask must be boolean or integer"),
+        (jnp.zeros((1, 1), dtype=bool), ValueError, "at least one valid token"),
+    ],
+)
+def test_generate_rejects_invalid_attention_mask_before_prefill(attention_mask, exception, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=attention_mask,
+            kv_caches=(),
+            call_hash="invalid-input",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )

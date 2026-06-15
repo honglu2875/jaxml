@@ -276,6 +276,8 @@ class Engine:
             prompt_tokens = prompt_tokens[None]
         elif prompt_tokens.ndim != 2:
             raise ValueError(f"prompt_tokens must be a 1D or 2D array, got shape {prompt_tokens.shape}.")
+        if not jnp.issubdtype(prompt_tokens.dtype, jnp.integer):
+            raise TypeError(f"prompt_tokens must contain integer token ids, got dtype {prompt_tokens.dtype}.")
 
         if prompt_tokens.shape[1] == 0:
             raise ValueError("prompt_tokens must contain at least one token.")
@@ -288,11 +290,14 @@ class Engine:
             attention_mask = attention_mask[None]
         elif attention_mask.ndim != 2:
             raise ValueError(f"attention_mask must be a 1D or 2D array, got shape {attention_mask.shape}.")
+        if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
+            raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
 
         if attention_mask.shape != prompt_tokens.shape:
             raise ValueError(
                 f"attention_mask shape must match prompt_tokens shape; got {attention_mask.shape} and {prompt_tokens.shape}."
             )
+        attention_mask = attention_mask.astype(bool)
         if not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
 

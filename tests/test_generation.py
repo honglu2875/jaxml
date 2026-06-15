@@ -181,6 +181,17 @@ def test_engine_generate_accepts_unbatched_attention_mask(llama_model_with_head)
     assert output.shape == (1, 4)
 
 
+def test_prepare_generation_inputs_canonicalizes_integer_attention_mask():
+    input_ids = jnp.arange(4, dtype=jnp.int32)
+    attention_mask = jnp.array([1, 1, 0, 0], dtype=jnp.int32)
+
+    prepared_ids, prepared_mask = Engine._prepare_generation_inputs(input_ids, attention_mask)
+
+    assert prepared_ids.shape == (1, 4)
+    assert prepared_mask.dtype == jnp.bool_
+    assert np.array_equal(np.array(prepared_mask), np.array([[True, True, False, False]]))
+
+
 @pytest.mark.parametrize(
     "input_ids,match",
     [
@@ -197,6 +208,15 @@ def test_engine_generate_rejects_invalid_prompt_tokens(llama_model_with_head, in
             engine.generate(input_ids, max_new_tokens=0)
 
 
+def test_engine_generate_rejects_non_integer_prompt_tokens(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(TypeError, match="integer token ids"):
+            engine.generate(jnp.ones((1, 4), dtype=jnp.float32), max_new_tokens=0)
+
+
 def test_engine_generate_rejects_mismatched_attention_mask(llama_model_with_head):
     with jax.default_device(jax.devices("cpu")[0]):
         model, params = llama_model_with_head
@@ -205,6 +225,17 @@ def test_engine_generate_rejects_mismatched_attention_mask(llama_model_with_head
         attention_mask = jnp.ones((1, 4), dtype=bool)
 
         with pytest.raises(ValueError, match="attention_mask shape must match"):
+            engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
+
+
+def test_engine_generate_rejects_non_boolean_or_integer_attention_mask(llama_model_with_head):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+        input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+        attention_mask = jnp.ones((1, 4), dtype=jnp.float32)
+
+        with pytest.raises(TypeError, match="attention_mask must be boolean or integer"):
             engine.generate(input_ids, attention_mask=attention_mask, max_new_tokens=0)
 
 
