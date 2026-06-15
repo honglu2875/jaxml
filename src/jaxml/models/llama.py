@@ -144,6 +144,7 @@ class LlamaModel(Block):
             dim=self.head_dim,
             max_length=self.config.max_position_embeddings,
             base=self.config.rope_theta,
+            dtype=self.dtype,
             rotary_pct=self.config.rotary_pct,
             rope_scale=self.config.rope_scale,
         )

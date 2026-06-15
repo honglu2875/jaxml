@@ -4,9 +4,28 @@ import numpy as np
 import pytest
 
 from jaxml.cache import KVCache
+from jaxml.config import ModelConfig
 from jaxml.models._utils import prepare_model_inputs
+from jaxml.models.gemma3 import GemmaModel
+from jaxml.models.gpt_neox import GPTNeoXModel
+from jaxml.models.llama import LlamaModel
 
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
+
+
+def _small_model_config(**overrides):
+    kwargs = {
+        "hidden_size": 8,
+        "head_dim": 4,
+        "num_heads": 2,
+        "num_layers": 1,
+        "intermediate_ratio": (2, 1),
+        "max_position_embeddings": 8,
+        "vocab_size": 16,
+        "attn_scale": 4**-0.5,
+        "num_kv_heads": 2,
+    } | overrides
+    return ModelConfig(**kwargs)
 
 
 def test_prepare_model_inputs_accepts_numpy_integer_num_layers():
@@ -32,6 +51,35 @@ def test_prepare_model_inputs_rejects_non_integer_num_layers(num_layers):
 def test_prepare_model_inputs_rejects_non_positive_num_layers(num_layers):
     with pytest.raises(ValueError, match="num_layers must be positive"):
         prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, None, num_layers=num_layers)
+
+
+@pytest.mark.parametrize(
+    "model_cls,config",
+    [
+        (LlamaModel, _small_model_config(use_rope=True)),
+        (GPTNeoXModel, _small_model_config(use_rope=True, use_bias=True)),
+        (
+            GemmaModel,
+            _small_model_config(
+                hidden_size=8,
+                use_rope=True,
+                sliding_window=4,
+                sliding_window_pattern=2,
+            ),
+        ),
+    ],
+)
+def test_models_propagate_dtype_to_rotary_embedding_cache(model_cls, config):
+    model = model_cls(config, dtype=jnp.bfloat16)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+
+    params = model.init(jax.random.PRNGKey(0), input_ids)
+
+    assert params["cache"]["rotary_emb"]["cos_cached"].dtype == jnp.bfloat16
+    assert params["cache"]["rotary_emb"]["sin_cached"].dtype == jnp.bfloat16
+    if model_cls is GemmaModel:
+        assert params["cache"]["rotary_emb_local"]["cos_cached"].dtype == jnp.bfloat16
+        assert params["cache"]["rotary_emb_local"]["sin_cached"].dtype == jnp.bfloat16
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)

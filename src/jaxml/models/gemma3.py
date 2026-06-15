@@ -182,6 +182,7 @@ class GemmaModel(Block):
             dim=self.head_dim,
             max_length=self.config.max_position_embeddings,
             base=self.config.rope_theta,
+            dtype=self.dtype,
             rotary_pct=self.config.rotary_pct,
             rope_scale=self.config.rope_scale,
         )
@@ -192,6 +193,7 @@ class GemmaModel(Block):
             # I really do not think it is a good idea, and do not want to create an extra field
             # just for this quirk. All Gemma3 has it as 10000.0, thus hardcoding it.
             base=10000.0,
+            dtype=self.dtype,
             rotary_pct=self.config.rotary_pct,
             rope_scale=1.0,
         )
