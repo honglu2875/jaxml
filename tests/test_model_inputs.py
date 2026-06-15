@@ -141,6 +141,32 @@ def test_prepare_model_inputs_accepts_populated_cache_attention_mask_shape():
     assert kv_caches == (cache,)
 
 
+def test_prepare_model_inputs_rejects_negative_placeholder_ids_with_populated_cache_mask():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    with pytest.raises(ValueError, match="attention_mask is not token-shaped"):
+        prepare_model_inputs(
+            jnp.array([[-100]], dtype=jnp.int32),
+            cache.mask,
+            (cache,),
+            num_layers=1,
+        )
+
+
+def test_prepare_model_inputs_rejects_negative_placeholder_ids_with_populated_cache_without_mask():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    with pytest.raises(ValueError, match="using populated KV caches"):
+        prepare_model_inputs(
+            jnp.array([[-100]], dtype=jnp.int32),
+            None,
+            (cache,),
+            num_layers=1,
+        )
+
+
 def test_prepare_model_inputs_rejects_token_attention_mask_for_populated_cache():
     k, v = _kv(seq_len=2)
     cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
@@ -558,6 +584,41 @@ def test_models_accept_populated_cache_attention_mask_shape(request, fixture_nam
 
     assert output.last_hidden_state.shape[:2] == input_ids.shape
     assert output.kv_caches is not None
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_negative_placeholder_ids_with_populated_cache_mask(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        prompt_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+        kv_caches = tuple(KVCache.init(model.config.max_position_embeddings) for _ in range(model.num_layers))
+        prefill = model.apply(params, prompt_ids, kv_caches=kv_caches, use_cache=True)
+
+        with pytest.raises(ValueError, match="attention_mask is not token-shaped"):
+            model.apply(
+                params,
+                jnp.array([[-100]], dtype=jnp.int32),
+                attention_mask=prefill.kv_caches[0].mask,
+                kv_caches=prefill.kv_caches,
+                use_cache=True,
+            )
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_negative_placeholder_ids_with_populated_cache_without_mask(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        prompt_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+        kv_caches = tuple(KVCache.init(model.config.max_position_embeddings) for _ in range(model.num_layers))
+        prefill = model.apply(params, prompt_ids, kv_caches=kv_caches, use_cache=True)
+
+        with pytest.raises(ValueError, match="using populated KV caches"):
+            model.apply(
+                params,
+                jnp.array([[-100]], dtype=jnp.int32),
+                kv_caches=prefill.kv_caches,
+                use_cache=True,
+            )
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)

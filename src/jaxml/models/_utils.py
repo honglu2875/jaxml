@@ -149,6 +149,14 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int, 
         if has_valid_negative_placeholder:
             raise ValueError("attention_mask must not mark negative placeholder input_ids as valid.")
 
+    has_negative_input_ids = not _contains_tracer(input_ids) and bool(jnp.any(input_ids < 0))
+    has_non_token_attention_mask = attention_mask is not None and attention_mask.shape != input_ids.shape
+    has_populated_cache_without_mask = attention_mask is None and not should_use_default_attention_mask(kv_caches)
+    if has_negative_input_ids and has_non_token_attention_mask:
+        raise ValueError("input_ids must not contain negative placeholder ids when attention_mask is not token-shaped.")
+    if has_negative_input_ids and has_populated_cache_without_mask:
+        raise ValueError("input_ids must not contain negative placeholder ids when using populated KV caches.")
+
     return input_ids, attention_mask, kv_caches
 
 
