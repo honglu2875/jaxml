@@ -193,6 +193,22 @@ def test_kv_cache_update_rejects_non_4d_key_values(k, v):
         KVCache.init(4).update(k, v, mask=None)
 
 
+@pytest.mark.parametrize(
+    "shape,match",
+    [
+        ((0, 1, 1, 2), "batch axis must be non-empty"),
+        ((1, 0, 1, 2), "sequence axis must be non-empty"),
+        ((1, 1, 0, 2), "head axis must be non-empty"),
+        ((1, 1, 1, 0), "head_dim axis must be non-empty"),
+    ],
+)
+def test_kv_cache_update_rejects_empty_key_value_axes(shape, match):
+    k = jnp.zeros(shape, dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match=match):
+        KVCache.init(4).update(k, k, mask=None)
+
+
 def test_kv_cache_next_pos_id_rejects_uninitialized_cache():
     with pytest.raises(ValueError, match="before KV cache initialization"):
         _ = KVCache.init(4).next_pos_id
@@ -290,6 +306,17 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
         ),
         (
             KVCache(
+                k=jnp.zeros((0, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((0, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((0, 4), dtype=bool),
+                pos_id=jnp.zeros((0, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "batch axis must be non-empty",
+        ),
+        (
+            KVCache(
                 k=jnp.zeros((1, 3, 1, 2), dtype=jnp.float32),
                 v=jnp.zeros((1, 3, 1, 2), dtype=jnp.float32),
                 max_seq_len=4,
@@ -298,6 +325,28 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
             ),
             ValueError,
             "sequence axis must match",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 0, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 0, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "head axis must be non-empty",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 0), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 0), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            ValueError,
+            "head_dim axis must be non-empty",
         ),
         (
             KVCache(

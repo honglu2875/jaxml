@@ -101,6 +101,10 @@ class KVCache(struct.PyTreeNode):
             raise ValueError(f"k and v must have the same shape, got {k.shape} and {v.shape}.")
         if k.ndim != 4:
             raise ValueError(f"k and v must be 4D arrays with batch, sequence, head, and head_dim axes, got shape {k.shape}.")
+        axis_names = ("batch", "sequence", "head", "head_dim")
+        for axis_name, axis_size in zip(axis_names, k.shape):
+            if axis_size <= 0:
+                raise ValueError(f"k and v {axis_name} axis must be non-empty, got shape {k.shape}.")
         if not jnp.issubdtype(k.dtype, jnp.floating):
             raise TypeError(f"k must contain floating point values, got dtype {k.dtype}.")
         if not jnp.issubdtype(v.dtype, jnp.floating):
@@ -125,6 +129,10 @@ class KVCache(struct.PyTreeNode):
             raise ValueError(f"Cached k and v must have the same shape, got {self.k.shape} and {self.v.shape}.")
         if self.k.ndim != 4:
             raise ValueError(f"Cached k and v must be 4D arrays, got shape {self.k.shape}.")
+        axis_names = ("batch", "sequence", "head", "head_dim")
+        for axis_name, axis_size in zip(axis_names, self.k.shape):
+            if axis_size <= 0:
+                raise ValueError(f"Cached k/v {axis_name} axis must be non-empty, got shape {self.k.shape}.")
         if self.k.shape[1] != self.max_seq_len:
             raise ValueError(f"Cached k/v sequence axis must match max_seq_len={self.max_seq_len}, got {self.k.shape[1]}.")
         if not jnp.issubdtype(self.k.dtype, jnp.floating):
