@@ -181,6 +181,31 @@ def test_generate_tokens_rejects_prompt_batches_with_non_strings(prompts):
     assert engine.generate_calls == []
 
 
+def test_generate_tokens_rejects_invalid_generation_config_before_tokenizing():
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(TypeError, match="generation_config must be a GenerationConfig"):
+        pipeline.generate_tokens("hello", generation_config={"max_new_tokens": 1})
+
+    assert tokenizer.encode_calls == []
+    assert engine.generate_calls == []
+
+
+def test_generate_text_rejects_invalid_generation_config_before_tokenizing():
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(TypeError, match="generation_config must be a GenerationConfig"):
+        pipeline.generate_text("hello", generation_config={"max_new_tokens": 1})
+
+    assert tokenizer.encode_calls == []
+    assert tokenizer.decode_calls == []
+    assert engine.generate_calls == []
+
+
 def test_generate_tokens_rejects_non_mapping_tokenize_kwargs_before_tokenizing():
     tokenizer = DummyTokenizer()
     engine = DummyEngine()

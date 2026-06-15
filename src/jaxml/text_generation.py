@@ -75,6 +75,14 @@ class GenerationConfig:
         object.__setattr__(self, "include_prompt", _normalize_bool("include_prompt", self.include_prompt))
 
 
+def _normalize_generation_config(generation_config: Optional[GenerationConfig]) -> GenerationConfig:
+    if generation_config is None:
+        return GenerationConfig()
+    if not isinstance(generation_config, GenerationConfig):
+        raise TypeError(f"generation_config must be a GenerationConfig when set, got {type(generation_config)}.")
+    return generation_config
+
+
 @dataclass
 class TextGenerationPipeline:
     engine: Engine
@@ -161,6 +169,7 @@ class TextGenerationPipeline:
         tokenize_kwargs: Optional[dict[str, Any]] = None,
         **generation_kwargs,
     ) -> np.ndarray:
+        generation_config = _normalize_generation_config(generation_config)
         _, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
         return self._generate_tokens_from_arrays(
             input_ids,
@@ -176,7 +185,7 @@ class TextGenerationPipeline:
         generation_config: Optional[GenerationConfig] = None,
         **generation_kwargs,
     ) -> np.ndarray:
-        config = generation_config or GenerationConfig()
+        config = _normalize_generation_config(generation_config)
         kwargs = {
             "seed": config.seed,
             "max_new_tokens": config.max_new_tokens,
@@ -197,6 +206,7 @@ class TextGenerationPipeline:
         decode_kwargs: Optional[dict[str, Any]] = None,
         **generation_kwargs,
     ) -> str | list[str]:
+        generation_config = _normalize_generation_config(generation_config)
         decode_kwargs = _normalize_optional_kwargs("decode_kwargs", decode_kwargs)
         is_single_prompt, input_ids, attention_mask = self._encode(prompts, tokenize_kwargs=tokenize_kwargs)
         tokens = self._generate_tokens_from_arrays(
