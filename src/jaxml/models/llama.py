@@ -28,7 +28,13 @@ from ..nn.module import Block
 from ..nn.norms import RMSNorm
 from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
-from ._utils import normalize_model_output_flags, prepare_model_inputs, prepare_position_ids, slice_last_n_logits_hidden_states
+from ._utils import (
+    normalize_model_output_flags,
+    prepare_model_inputs,
+    prepare_position_ids,
+    slice_last_n_logits_hidden_states,
+    validate_attention_hidden_size,
+)
 
 
 class LlamaMLP(Block):
@@ -85,6 +91,7 @@ class LlamaMLP(Block):
 
 class LlamaDecoder(Block):
     def setup(self):
+        validate_attention_hidden_size(self.config, "Llama")
         if not self.config.use_rope:
             self.self_attn = Attention(self.config, dtype=self.dtype)
         else:
@@ -139,6 +146,7 @@ class LlamaDecoder(Block):
 
 class LlamaModel(Block):
     def setup(self):
+        validate_attention_hidden_size(self.config, "Llama")
         self.embed_tokens = Embed(num_embeddings=self.config.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.rotary_emb = RotaryEmbedding(
             dim=self.head_dim,

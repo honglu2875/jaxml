@@ -39,6 +39,15 @@ def normalize_model_output_flags(
     )
 
 
+def validate_attention_hidden_size(config, architecture_name: str):
+    expected_hidden_size = config.num_heads * config.head_dim
+    if config.hidden_size != expected_hidden_size:
+        raise ValueError(
+            f"{architecture_name} hidden_size must equal num_heads * head_dim; "
+            f"got hidden_size={config.hidden_size}, num_heads={config.num_heads}, head_dim={config.head_dim}."
+        )
+
+
 def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_logits: int) -> jnp.ndarray:
     hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim != 3:

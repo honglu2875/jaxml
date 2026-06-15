@@ -7,8 +7,8 @@ from jaxml.cache import KVCache
 from jaxml.config import ModelConfig
 from jaxml.models._utils import prepare_model_inputs, prepare_position_ids
 from jaxml.models.gemma3 import GemmaModel
-from jaxml.models.gpt_neox import GPTNeoXModel
-from jaxml.models.llama import LlamaModel
+from jaxml.models.gpt_neox import GPTNeoXDecoder, GPTNeoXModel
+from jaxml.models.llama import LlamaDecoder, LlamaModel
 
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
 
@@ -95,6 +95,45 @@ def test_models_propagate_dtype_to_rotary_embedding_cache(model_cls, config):
     if model_cls is GemmaModel:
         assert params["cache"]["rotary_emb_local"]["cos_cached"].dtype == jnp.bfloat16
         assert params["cache"]["rotary_emb_local"]["sin_cached"].dtype == jnp.bfloat16
+
+
+@pytest.mark.parametrize(
+    "model_cls,config,match",
+    [
+        (LlamaModel, _small_model_config(hidden_size=12, head_dim=4, num_heads=2), "Llama hidden_size"),
+        (LlamaDecoder, _small_model_config(hidden_size=12, head_dim=4, num_heads=2), "Llama hidden_size"),
+        (GPTNeoXModel, _small_model_config(hidden_size=12, head_dim=4, num_heads=2, use_bias=True), "GPT-NeoX hidden_size"),
+        (GPTNeoXDecoder, _small_model_config(hidden_size=12, head_dim=4, num_heads=2, use_bias=True), "GPT-NeoX hidden_size"),
+    ],
+)
+def test_classic_attention_architectures_reject_hidden_size_head_mismatch(model_cls, config, match):
+    module = model_cls(config, dtype=jnp.float32)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+    hidden_states = jnp.ones((1, 2, config.hidden_size), dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match=match):
+        if model_cls in (LlamaModel, GPTNeoXModel):
+            module.init(jax.random.PRNGKey(0), input_ids)
+        else:
+            module.init(jax.random.PRNGKey(0), hidden_states)
+
+
+def test_gemma_model_accepts_hidden_size_head_mismatch():
+    config = _small_model_config(
+        hidden_size=12,
+        head_dim=4,
+        num_heads=2,
+        use_rope=True,
+        sliding_window=4,
+        sliding_window_pattern=2,
+    )
+    model = GemmaModel(config, dtype=jnp.float32)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+
+    params = model.init(jax.random.PRNGKey(0), input_ids)
+    output = model.apply(params, input_ids)
+
+    assert output.last_hidden_state.shape == (1, 2, config.hidden_size)
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)

@@ -29,7 +29,13 @@ from ..nn.module import Block
 from ..nn.norms import LayerNorm
 from ..nn.position import RotaryEmbedding
 from ..outputs import AttentionOutput, BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
-from ._utils import normalize_model_output_flags, prepare_model_inputs, prepare_position_ids, slice_last_n_logits_hidden_states
+from ._utils import (
+    normalize_model_output_flags,
+    prepare_model_inputs,
+    prepare_position_ids,
+    slice_last_n_logits_hidden_states,
+    validate_attention_hidden_size,
+)
 
 
 class GPTNeoXMLP(Block):
@@ -77,6 +83,7 @@ class GPTNeoXMLP(Block):
 
 class GPTNeoXDecoder(Block):
     def setup(self):
+        validate_attention_hidden_size(self.config, "GPT-NeoX")
         if not self.config.use_rope:
             self.self_attn = Attention(self.config, fused_qkv=True, dtype=self.dtype, mm_precision="high")
         else:
@@ -136,6 +143,7 @@ class GPTNeoXDecoder(Block):
 
 class GPTNeoXModel(Block):
     def setup(self):
+        validate_attention_hidden_size(self.config, "GPT-NeoX")
         self.embed_tokens = Embed(num_embeddings=self.config.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.rotary_emb = RotaryEmbedding(
             dim=self.head_dim,
