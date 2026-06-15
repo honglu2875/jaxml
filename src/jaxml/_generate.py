@@ -66,6 +66,15 @@ def _get_sampling_fn(sampling_method: SamplingMethod):
     return sample_fn
 
 
+def _validate_rng(name: str, rng):
+    rng = jnp.asarray(rng)
+    if rng.shape != (2,):
+        raise ValueError(f"{name} must be a PRNG key with shape (2,), got shape {rng.shape}.")
+    if rng.dtype != jnp.uint32:
+        raise TypeError(f"{name} must contain uint32 key data, got dtype {rng.dtype}.")
+    return rng
+
+
 def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
     try:
         logits, kv_caches = eval_output
@@ -96,11 +105,37 @@ def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
 def _validate_sampled_tokens(sampled_tokens, logits: jnp.ndarray):
     sampled_tokens = jnp.asarray(sampled_tokens)
     expected_shape = logits.shape[:-1]
-    if sampled_tokens.shape != expected_shape:
-        raise ValueError(f"sample_fn must return token ids with shape {expected_shape}, got {sampled_tokens.shape}.")
-    if not jnp.issubdtype(sampled_tokens.dtype, jnp.integer):
-        raise TypeError(f"sample_fn must return integer token ids, got dtype {sampled_tokens.dtype}.")
-    return sampled_tokens
+    return _validate_token_ids("sample_fn", sampled_tokens, expected_shape)
+
+
+def _validate_token_ids(name: str, token_ids, expected_shape):
+    token_ids = jnp.asarray(token_ids)
+    expected_shape = tuple(expected_shape)
+    if token_ids.shape != expected_shape:
+        raise ValueError(f"{name} must return token ids with shape {expected_shape}, got {token_ids.shape}.")
+    if not jnp.issubdtype(token_ids.dtype, jnp.integer):
+        raise TypeError(f"{name} must return integer token ids, got dtype {token_ids.dtype}.")
+    return token_ids
+
+
+def _unpack_prefill_output(prefill_output, batch_size: int, fallback_rng: jnp.ndarray):
+    try:
+        prefill_output = tuple(prefill_output)
+    except TypeError as e:
+        raise TypeError("prefill must return a pair or triple containing token ids and KV caches.") from e
+
+    if len(prefill_output) == 2:
+        first_generated_tok, kv_caches = prefill_output
+        rng, _ = jax.random.split(fallback_rng)
+    elif len(prefill_output) == 3:
+        first_generated_tok, kv_caches, rng = prefill_output
+        rng = _validate_rng("prefill returned rng", rng)
+    else:
+        raise ValueError(f"prefill must return 2 or 3 values, got {len(prefill_output)}.")
+
+    first_generated_tok = _validate_token_ids("prefill", first_generated_tok, (batch_size, 1))
+    kv_caches = _validate_kv_caches(kv_caches)
+    return first_generated_tok, kv_caches, rng
 
 
 def _validate_kv_caches(kv_caches) -> tuple[KVCache, ...]:
@@ -216,11 +251,7 @@ def generate(
     if rng is None:
         rng = jax.random.PRNGKey(seed)
     else:
-        rng = jnp.asarray(rng)
-        if rng.shape != (2,):
-            raise ValueError(f"rng must be a PRNG key with shape (2,), got shape {rng.shape}.")
-        if rng.dtype != jnp.uint32:
-            raise TypeError(f"rng must contain uint32 key data, got dtype {rng.dtype}.")
+        rng = _validate_rng("rng", rng)
 
     prompt_tokens = jnp.array(prompt_tokens)
     if prompt_tokens.ndim == 1:
@@ -294,12 +325,11 @@ def generate(
                 rng,
             )
 
-        prefill_output = _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature)
-        if len(prefill_output) == 2:
-            first_generated_tok, kv_caches = prefill_output
-            rng, _ = jax.random.split(rng)
-        else:
-            first_generated_tok, kv_caches, rng = prefill_output
+        first_generated_tok, kv_caches, rng = _unpack_prefill_output(
+            _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature),
+            batch_size=prompt_tokens.shape[0],
+            fallback_rng=rng,
+        )
 
     decode_steps = max_new_tokens if skip_prefill else max_new_tokens - 1
 

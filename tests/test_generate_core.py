@@ -697,6 +697,60 @@ def test_generate_advances_rng_when_cached_prefill_returns_legacy_pair(monkeypat
 
 
 @pytest.mark.parametrize(
+    "prefill_output,exception,match",
+    [
+        (object(), TypeError, "prefill must return a pair or triple"),
+        ((), ValueError, "prefill must return 2 or 3 values"),
+        ((jnp.zeros((1,), dtype=jnp.int32), ()), ValueError, "prefill must return token ids with shape"),
+        ((jnp.zeros((1, 1), dtype=jnp.float32), ()), TypeError, "prefill must return integer token ids"),
+        ((jnp.zeros((1, 1), dtype=jnp.int32), object()), TypeError, "kv_caches must be a sequence"),
+        (
+            (jnp.zeros((1, 1), dtype=jnp.int32), (), jnp.ones((1, 2), dtype=jnp.uint32)),
+            ValueError,
+            "prefill returned rng must be a PRNG key",
+        ),
+        (
+            (jnp.zeros((1, 1), dtype=jnp.int32), (), jnp.ones((2,), dtype=jnp.int32)),
+            TypeError,
+            "prefill returned rng must contain uint32 key data",
+        ),
+    ],
+)
+def test_generate_rejects_invalid_cached_prefill_outputs(monkeypatch, prefill_output, exception, match):
+    def fake_load_if_exists(name, hash, log=True):
+        del hash, log
+
+        def decorator(fn):
+            if name != "prefill":
+                return fn
+
+            def cached_prefill(*args, **kwargs):
+                del args, kwargs
+                return prefill_output
+
+            return cached_prefill
+
+        return decorator
+
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("cached prefill should replace eval_fn.")
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-cached-prefill-output",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )
+
+
+@pytest.mark.parametrize(
     "rng,exception,match",
     [
         (jnp.ones((1, 2), dtype=jnp.uint32), ValueError, "shape"),
