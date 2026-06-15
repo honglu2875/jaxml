@@ -136,6 +136,8 @@ def _normalize_tokenizer_arrays(input_ids, attention_mask):
         raise ValueError("tokenizer input_ids must contain at least one batch row.")
     if input_ids.shape[1] == 0:
         raise ValueError("tokenizer input_ids must contain at least one token.")
+    if bool(jnp.any(input_ids < 0)):
+        raise ValueError("tokenizer input_ids token ids must be non-negative.")
 
     if attention_mask is None:
         return input_ids, None
@@ -161,6 +163,8 @@ def _normalize_generated_tokens(tokens) -> np.ndarray:
         raise ValueError(f"engine.generate must return a 2D token array, got shape {tokens.shape}.")
     if not np.issubdtype(tokens.dtype, np.integer):
         raise TypeError(f"engine.generate must return integer token ids, got dtype {tokens.dtype}.")
+    if bool(np.any(tokens < 0)):
+        raise ValueError("engine.generate token ids must be non-negative.")
     return tokens
 
 

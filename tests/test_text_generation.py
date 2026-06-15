@@ -379,6 +379,7 @@ def test_generate_text_rejects_non_mapping_decode_kwargs_before_generation():
         ({"input_ids": np.ones((1, 2), dtype=np.float32)}, TypeError, "integer token ids"),
         ({"input_ids": np.ones((0, 2), dtype=np.int32)}, ValueError, "at least one batch row"),
         ({"input_ids": np.ones((1, 0), dtype=np.int32)}, ValueError, "at least one token"),
+        ({"input_ids": np.array([[1, -1]], dtype=np.int32)}, ValueError, "token ids must be non-negative"),
         (
             {"input_ids": np.ones((1, 2), dtype=np.int32), "attention_mask": np.ones((2,), dtype=np.int32)},
             ValueError,
@@ -435,6 +436,7 @@ def test_generate_tokens_rejects_missing_tokenizer_input_ids_before_generation(e
         (np.ones((1, 2), dtype=np.float32), None, TypeError, "integer token ids"),
         (np.ones((0, 2), dtype=np.int32), None, ValueError, "at least one batch row"),
         (np.ones((1, 0), dtype=np.int32), None, ValueError, "at least one token"),
+        (np.array([[1, -1]], dtype=np.int32), None, ValueError, "token ids must be non-negative"),
         (np.ones((1, 2), dtype=np.int32), np.ones((2,), dtype=np.int32), ValueError, "attention_mask must be a 2D array"),
         (
             np.ones((1, 2), dtype=np.int32),
@@ -489,6 +491,7 @@ def test_generate_tokens_from_arrays_canonicalizes_integer_attention_mask():
     [
         (np.ones((3,), dtype=np.int32), ValueError, "2D token array"),
         (np.ones((1, 2), dtype=np.float32), TypeError, "integer token ids"),
+        (np.array([[-1]], dtype=np.int32), ValueError, "token ids must be non-negative"),
     ],
 )
 def test_generate_text_rejects_invalid_engine_tokens_before_decode(engine_output, exception, match):
