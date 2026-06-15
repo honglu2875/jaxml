@@ -119,6 +119,29 @@ def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
     assert not list(cache_entry.glob("*.tmp"))
 
 
+def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(
+        "jax.experimental.serialize_executable.deserialize_and_load",
+        lambda payload, in_tree, out_tree: (payload, in_tree, out_tree),
+    )
+    _load_compiled_fn_from_path.cache_clear()
+    cache_entry = compiled_fn_path("decode", "abc")
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(b"old-aot")
+    with (cache_entry / "in_out_spec").open("wb") as f:
+        pickle.dump(("old-in", "old-out"), f)
+
+    first = load_compiled_fn("decode", "abc", log=False)
+
+    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"new-aot", "new-in", "new-out"))
+    save_compiled_fn(object(), "decode", "abc", log=False)
+    second = load_compiled_fn("decode", "abc", log=False)
+
+    assert first == (b"old-aot", "old-in", "old-out")
+    assert second == (b"new-aot", "new-in", "new-out")
+
+
 def test_save_and_load_compiled_fn_round_trips_jax_executable(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     _load_compiled_fn_from_path.cache_clear()

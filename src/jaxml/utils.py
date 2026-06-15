@@ -346,6 +346,7 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     _write_bytes_atomically(fn_path, aot_fn)
     io_spec_bytes = pickle.dumps((in_tree, out_tree))
     _write_bytes_atomically(spec_path, io_spec_bytes)
+    _load_compiled_fn_from_path.cache_clear()
     return len(aot_fn) + len(io_spec_bytes)
 
 
