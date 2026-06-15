@@ -532,6 +532,31 @@ def test_torch_to_jax_states_accepts_numpy_integer_head_dim():
     assert params["params"]["q_proj"]["kernel"].shape == (8, 1, 4)
 
 
+def test_torch_to_jax_states_reshapes_fused_qkv_without_head_dim():
+    params = torch_to_jax_states(
+        {
+            "qkv_proj.weight": torch.arange(48, dtype=torch.float32).reshape(6, 8),
+            "qkv_proj.bias": torch.arange(6, dtype=torch.float32),
+        },
+        dtype=torch.float32,
+    )
+
+    assert params["params"]["qkv_proj"]["kernel"].shape == (8, 3, 2)
+    assert params["params"]["qkv_proj"]["bias"].shape == (3, 2)
+
+
+@pytest.mark.parametrize(
+    "state,match",
+    [
+        ({"qkv_proj.weight": torch.ones((5, 8))}, "Fused QKV projection output dimension"),
+        ({"qkv_proj.bias": torch.ones(5)}, "Fused QKV projection bias length"),
+    ],
+)
+def test_torch_to_jax_states_rejects_fused_qkv_without_head_dim_when_not_divisible_by_three(state, match):
+    with pytest.raises(ValueError, match=match):
+        torch_to_jax_states(state, dtype=torch.float32)
+
+
 @pytest.mark.parametrize(
     "state,match",
     [

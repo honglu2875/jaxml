@@ -212,8 +212,22 @@ def torch_to_jax_states(
 
     _dense_key_map = {"weight": ("kernel", lambda x: x.T)}
     if head_dim is None:
+
+        def _reshape_qkv_fused_weight_without_head_dim(x):
+            if x.shape[0] % 3 != 0:
+                raise ValueError(f"Fused QKV projection output dimension {x.shape[0]} must be divisible by 3.")
+            return x.T.reshape(x.shape[1], 3, -1)
+
+        def _reshape_qkv_fused_bias_without_head_dim(x):
+            if x.shape[0] % 3 != 0:
+                raise ValueError(f"Fused QKV projection bias length {x.shape[0]} must be divisible by 3.")
+            return x.reshape(3, -1)
+
         _qkv_separate_map = _dense_key_map
-        _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], 3, -1))}
+        _qkv_fused_map = {
+            "weight": ("kernel", _reshape_qkv_fused_weight_without_head_dim),
+            "bias": ("bias", _reshape_qkv_fused_bias_without_head_dim),
+        }
     else:
 
         def _reshape_qkv_separate_weight(x):
