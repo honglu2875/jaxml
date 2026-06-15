@@ -4,7 +4,13 @@ import numpy as np
 import pytest
 import torch
 
-from jaxml.hf_utils import to_gemma_jax_params, to_llama_jax_params, to_neox_jax_params
+from jaxml.hf_utils import (
+    load_llama_from_hf,
+    load_model_from_hf,
+    to_gemma_jax_params,
+    to_llama_jax_params,
+    to_neox_jax_params,
+)
 
 
 class FakeModel:
@@ -99,3 +105,45 @@ def test_to_neox_jax_params_does_not_mutate_state_dict_keys():
     assert "embed_tokens" in params["params"]["gpt_neox"]
     assert "norm" in params["params"]["gpt_neox"]
     assert set(model.states) == {"gpt_neox.embed_in.weight", "gpt_neox.final_layer_norm.weight"}
+
+
+@pytest.mark.parametrize(
+    "dtype,exception,match",
+    [
+        (np.float32, TypeError, "Expected dtype"),
+        ("bad", ValueError, "Unsupported dtype"),
+        (torch.int32, ValueError, "Unsupported dtype"),
+    ],
+)
+def test_load_model_from_hf_rejects_invalid_dtype_before_architecture_inference(monkeypatch, dtype, exception, match):
+    calls = []
+
+    def fake_infer(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("_infer_hf_architecture should not be called for invalid dtype.")
+
+    monkeypatch.setattr("jaxml.hf_utils._infer_hf_architecture", fake_infer)
+
+    with pytest.raises(exception, match=match):
+        load_model_from_hf("some/model", dtype=dtype)
+
+    assert calls == []
+
+
+def test_direct_hf_loader_rejects_invalid_dtype_before_model_loading(monkeypatch):
+    calls = []
+
+    class FakeAutoModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError("from_pretrained should not be called for invalid dtype.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoModelForCausalLM", FakeAutoModel)
+
+    with pytest.raises(TypeError, match="Expected dtype"):
+        load_llama_from_hf("some/model", dtype=np.float32)
+
+    assert calls == []

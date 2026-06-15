@@ -8,7 +8,7 @@ from jaxml.models.gemma3 import GemmaModelWithHead
 from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 from jaxml.models.llama import LlamaModelWithHead
 
-from .utils import torch_to_jax_states
+from .utils import _resolve_np_dtype, torch_to_jax_states
 
 
 def _normalize_hf_count(name: str, value) -> int:
@@ -85,6 +85,11 @@ def _normalize_hf_architecture(architecture: str) -> str:
             raise ValueError(f"Unsupported Hugging Face architecture {architecture!r}.")
 
 
+def _validate_hf_dtype(dtype: str):
+    _resolve_np_dtype(dtype)
+    return dtype
+
+
 def _infer_hf_architecture(name: str, **config_kwargs) -> str:
     try:
         from transformers import AutoConfig
@@ -111,6 +116,7 @@ def load_model_from_hf(
     **from_pretrained_kwargs,
 ):
     """Load a supported Hugging Face causal LM into a jaxml model and parameter tree."""
+    dtype = _validate_hf_dtype(dtype)
     architecture = _normalize_hf_architecture(architecture)
     if architecture == "auto":
         architecture = _infer_hf_architecture(name, **from_pretrained_kwargs)
@@ -129,6 +135,7 @@ def load_model_from_hf(
 def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[LlamaModelWithHead, dict]:
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
+    dtype = _validate_hf_dtype(dtype)
     try:
         from transformers import AutoModelForCausalLM
     except ImportError as e:
@@ -146,6 +153,7 @@ def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
 def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GPTNeoXModelWithHead, dict]:
     """Load Huggingface gpt-neox compatible models directly from either local path
     or the hf-hub identifier."""
+    dtype = _validate_hf_dtype(dtype)
     try:
         from transformers import AutoModelForCausalLM
     except ImportError as e:
@@ -163,6 +171,7 @@ def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwarg
 def load_gemma_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GemmaModelWithHead, dict]:
     """Load Huggingface gemma3 compatible models directly from either local path
     or the hf-hub identifier."""
+    dtype = _validate_hf_dtype(dtype)
     try:
         from transformers import AutoModelForCausalLM
     except ImportError as e:
