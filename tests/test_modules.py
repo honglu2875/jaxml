@@ -174,6 +174,26 @@ def test_embed_accepts_numpy_boolean_one_hot():
     assert y.shape == (2, 4)
 
 
+@pytest.mark.parametrize("dtype", [None, "not-a-dtype"])
+def test_embed_rejects_invalid_dtype(dtype):
+    embed = Embed(num_embeddings=8, features=4, dtype=dtype)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="dtype must be a valid JAX dtype"):
+        embed.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("one_hot", [False, True])
+def test_embed_accepts_numpy_dtype(one_hot):
+    embed = Embed(num_embeddings=8, features=4, dtype=np.float32, one_hot=one_hot)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+
+    params = embed.init(jax.random.PRNGKey(0), x)
+    y = embed.apply(params, x)
+
+    assert y.dtype == jnp.float32
+
+
 @pytest.mark.parametrize("one_hot", [False, True])
 @pytest.mark.parametrize(
     "x,match",

@@ -30,6 +30,15 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 class Embed(Module):
     """A parameterized function from integers [0, n) to d-dimensional vectors.
 
@@ -66,6 +75,7 @@ class Embed(Module):
         num_embeddings = _normalize_count("num_embeddings", self.num_embeddings)
         features = _normalize_count("features", self.features)
         one_hot = _normalize_bool("one_hot", self.one_hot)
+        dtype = _normalize_dtype("dtype", self.dtype)
         if num_embeddings <= 0:
             raise ValueError(f"num_embeddings must be positive, got {num_embeddings}.")
         if features <= 0:
@@ -75,7 +85,7 @@ class Embed(Module):
             "embedding",
             self.wrapped_kernel_init,
             (num_embeddings, features),
-            self.dtype,
+            dtype,
             0,
             1,
         )
@@ -89,8 +99,8 @@ class Embed(Module):
                 raise ValueError(f"Input token ids must be less than num_embeddings={num_embeddings}.")
         if one_hot:
             iota = lax.iota(jnp.int32, num_embeddings)
-            one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
-            output = jnp.dot(one_hot, jnp.asarray(embedding, self.dtype))
+            one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=dtype)
+            output = jnp.dot(one_hot, jnp.asarray(embedding, dtype))
         else:
-            output = jnp.asarray(embedding, self.dtype)[inputs]
+            output = jnp.asarray(embedding, dtype)[inputs]
         return output
