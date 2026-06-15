@@ -132,6 +132,40 @@ def test_generation_config_accepts_numpy_scalar_fields():
     assert config.include_prompt is False
 
 
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"default_tokenize_kwargs": ["padding"]}, "default_tokenize_kwargs must be a mapping"),
+        ({"default_decode_kwargs": ["skip_special_tokens"]}, "default_decode_kwargs must be a mapping"),
+    ],
+)
+def test_pipeline_rejects_non_mapping_default_kwargs(kwargs, match):
+    with pytest.raises(TypeError, match=match):
+        TextGenerationPipeline(engine=DummyEngine(), tokenizer=DummyTokenizer(), **kwargs)
+
+
+def test_pipeline_copies_default_kwargs_on_construction():
+    tokenize_kwargs = {"padding": True}
+    decode_kwargs = {"skip_special_tokens": True}
+    pipeline = TextGenerationPipeline(
+        engine=DummyEngine(),
+        tokenizer=DummyTokenizer(),
+        default_tokenize_kwargs=tokenize_kwargs,
+        default_decode_kwargs=decode_kwargs,
+    )
+    tokenize_kwargs["padding"] = "longest"
+    decode_kwargs["skip_special_tokens"] = False
+
+    text = pipeline.generate_text(
+        "hello",
+        generation_config=GenerationConfig(max_new_tokens=1, include_prompt=False),
+    )
+
+    assert text == "9"
+    assert pipeline.tokenizer.encode_calls[0][2] == {"padding": True}
+    assert pipeline.tokenizer.decode_calls[0][1] == {"skip_special_tokens": True}
+
+
 def test_generate_text_returns_string_for_single_prompt():
     tokenizer = DummyTokenizer()
     engine = DummyEngine()

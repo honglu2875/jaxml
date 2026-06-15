@@ -133,6 +133,10 @@ class TextGenerationPipeline:
     default_tokenize_kwargs: dict[str, Any] = field(default_factory=lambda: {"padding": True})
     default_decode_kwargs: dict[str, Any] = field(default_factory=lambda: {"skip_special_tokens": True})
 
+    def __post_init__(self):
+        self.default_tokenize_kwargs = _normalize_optional_kwargs("default_tokenize_kwargs", self.default_tokenize_kwargs)
+        self.default_decode_kwargs = _normalize_optional_kwargs("default_decode_kwargs", self.default_decode_kwargs)
+
     @classmethod
     def from_hf(
         cls,
