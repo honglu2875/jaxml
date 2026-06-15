@@ -46,6 +46,13 @@ def _normalize_dtype(name: str, value: Any):
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
 
 
+def _validate_right_padded_mask(name: str, mask: jnp.ndarray):
+    if _contains_tracer(mask) or mask.shape[1] <= 1:
+        return
+    if bool(jnp.any(mask[:, :-1] < mask[:, 1:])):
+        raise ValueError(f"{name} must be right padded: valid tokens cannot appear after masked positions.")
+
+
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
 
@@ -150,6 +157,7 @@ class KVCache(struct.PyTreeNode):
             raise TypeError(f"Cached mask must be boolean, got dtype {self.mask.dtype}.")
         if not _contains_tracer(self.mask) and not bool(jnp.all(jnp.any(self.mask, axis=1))):
             raise ValueError("Cached mask must contain at least one valid token per batch row.")
+        _validate_right_padded_mask("Cached mask", self.mask)
 
         if self.pos_id.shape != (self.k.shape[0], 1):
             raise ValueError(f"Cached pos_id shape must be {(self.k.shape[0], 1)}, got {self.pos_id.shape}.")
@@ -188,6 +196,7 @@ class KVCache(struct.PyTreeNode):
             mask = mask.astype(bool)
             if not _contains_tracer(mask) and not bool(jnp.all(jnp.any(mask, axis=1))):
                 raise ValueError("mask must contain at least one valid token per batch row.")
+            _validate_right_padded_mask("mask", mask)
             pos_id = get_default_pos_ids(mask)
             max_seq_len = self.max_seq_len
             k, v, mask = map(

@@ -229,6 +229,14 @@ def test_kv_cache_update_rejects_initial_mask_without_valid_tokens():
         KVCache.init(4).update(k, v, mask=mask)
 
 
+def test_kv_cache_update_rejects_non_contiguous_initial_mask():
+    k, v = _kv(batch=1, seq_len=3)
+    mask = jnp.array([[True, False, True]])
+
+    with pytest.raises(ValueError, match="right padded"):
+        KVCache.init(4).update(k, v, mask=mask)
+
+
 def test_kv_cache_update_rejects_invalid_decode_length():
     k, v = _kv(seq_len=2)
     cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
@@ -437,6 +445,17 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
             ),
             ValueError,
             "at least one valid token",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.array([[True, False, True, False]], dtype=bool),
+                pos_id=jnp.array([[2]], dtype=jnp.int32),
+            ),
+            ValueError,
+            "right padded",
         ),
         (
             KVCache(
