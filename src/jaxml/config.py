@@ -1,4 +1,5 @@
 import math
+from collections.abc import Mapping
 from numbers import Real
 import operator
 from dataclasses import fields
@@ -49,6 +50,17 @@ def _infer_hf_head_dim(config) -> int:
     if hidden_size % num_attention_heads != 0:
         raise ValueError("hidden_size must be divisible by num_attention_heads when head_dim is not set.")
     return hidden_size // num_attention_heads
+
+
+def _infer_hf_rope_scale(config) -> float:
+    rope_scaling = getattr(config, "rope_scaling", None)
+    if rope_scaling is None:
+        return 1.0
+    if not isinstance(rope_scaling, Mapping):
+        raise TypeError(f"rope_scaling must be a mapping when set, got {type(rope_scaling)}.")
+    if "factor" not in rope_scaling:
+        raise ValueError("rope_scaling must include a factor when set.")
+    return _normalize_float("rope_scaling factor", rope_scaling["factor"])
 
 
 @struct.dataclass
@@ -208,7 +220,7 @@ class ModelConfig:
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta
-            rope_scale = config.rope_scaling["factor"] if config.rope_scaling is not None else 1.0
+            rope_scale = _infer_hf_rope_scale(config)
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False
@@ -229,7 +241,7 @@ class ModelConfig:
             norm_eps = config.rms_norm_eps
             num_kv_heads = config.num_key_value_heads
             rope_theta = config.rope_theta
-            rope_scale = config.rope_scaling["factor"] if config.rope_scaling is not None else 1.0
+            rope_scale = _infer_hf_rope_scale(config)
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False

@@ -253,6 +253,53 @@ def test_model_config_from_hf_rejects_non_divisible_head_dim_fallback():
         ModelConfig.from_hf(hf_config)
 
 
+def test_model_config_from_hf_accepts_integer_like_rope_scaling_factor():
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    hf_config.rope_scaling = {"factor": np.float64(2.0), "rope_type": "linear"}
+
+    config = ModelConfig.from_hf(hf_config)
+
+    assert config.rope_scale == 2.0
+
+
+@pytest.mark.parametrize(
+    ("rope_scaling", "exception", "match"),
+    [
+        ({"rope_type": "linear"}, ValueError, "rope_scaling must include a factor"),
+        ("linear", TypeError, "rope_scaling must be a mapping"),
+        ({"factor": True}, TypeError, "rope_scaling factor must be a real number"),
+        ({"factor": float("nan")}, ValueError, "rope_scaling factor must be finite"),
+        ({"factor": 0.5}, ValueError, "rope_scale must be greater than or equal to 1.0"),
+    ],
+)
+def test_model_config_from_hf_rejects_invalid_rope_scaling_factor(rope_scaling, exception, match):
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    hf_config.rope_scaling = rope_scaling
+
+    with pytest.raises(exception, match=match):
+        ModelConfig.from_hf(hf_config)
+
+
 def test_model_config_from_hf_maps_neox_specific_fields():
     from transformers import GPTNeoXConfig
 
