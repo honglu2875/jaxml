@@ -163,6 +163,12 @@ def test_model_config_rejects_invalid_invariants(overrides, match):
         ModelConfig(**_valid_config_kwargs(**overrides))
 
 
+def test_model_config_allows_odd_head_dim_for_standalone_modules():
+    config = ModelConfig(**_valid_config_kwargs(head_dim=3, hidden_size=18, num_heads=6, use_rope=True))
+
+    assert config.head_dim == 3
+
+
 def test_model_config_from_hf_accepts_supported_config_subclasses():
     from transformers import LlamaConfig
 
@@ -437,6 +443,31 @@ def test_model_config_from_hf_maps_neox_specific_fields():
     assert config.rotary_pct == 0.5
     assert config.use_parallel_residual is False
     assert config.use_bias is True
+
+
+@pytest.mark.parametrize(
+    "hidden_size,rotary_pct,match",
+    [
+        (6, 0.5, "positive rotary dimension"),
+        (18, 1.0, "even rotary dimension"),
+    ],
+)
+def test_model_config_from_hf_rejects_invalid_rotary_dimension(hidden_size, rotary_pct, match):
+    from transformers import GPTNeoXConfig
+
+    hf_config = GPTNeoXConfig(
+        hidden_size=hidden_size,
+        intermediate_size=hidden_size * 3,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        rotary_emb_base=12345.0,
+        rotary_pct=rotary_pct,
+    )
+
+    with pytest.raises(ValueError, match=match):
+        ModelConfig.from_hf(hf_config)
 
 
 def test_model_config_from_hf_maps_gemma3_specific_fields():

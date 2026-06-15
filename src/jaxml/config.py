@@ -108,6 +108,20 @@ def _infer_hf_rotary_pct(config) -> float:
     return 1.0
 
 
+def _validate_rope_rotary_dim(head_dim: int, rotary_pct: float) -> int:
+    rotary_dim = head_dim if rotary_pct >= 1.0 else int(head_dim * rotary_pct)
+    if rotary_dim <= 0:
+        raise ValueError(
+            f"rotary_pct must produce a positive rotary dimension, got rotary_pct={rotary_pct} and head_dim={head_dim}."
+        )
+    if rotary_dim % 2:
+        raise ValueError(
+            f"rotary_pct must produce an even rotary dimension, got rotary_dim={rotary_dim}, "
+            f"rotary_pct={rotary_pct}, and head_dim={head_dim}."
+        )
+    return rotary_dim
+
+
 @struct.dataclass
 class ModelConfig:
     head_dim: int = struct.field(pytree_node=False)
@@ -315,6 +329,8 @@ class ModelConfig:
             use_bias = False
             sliding_window = config.sliding_window
             sliding_window_pattern = config.sliding_window_pattern
+
+        _validate_rope_rotary_dim(head_dim, rotary_pct)
 
         return cls(
             hidden_size=hidden_size,
