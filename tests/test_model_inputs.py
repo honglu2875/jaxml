@@ -5,12 +5,22 @@ import pytest
 
 from jaxml.cache import KVCache
 from jaxml.config import ModelConfig
-from jaxml.models._utils import prepare_model_inputs, prepare_position_ids
+from jaxml.models._utils import (
+    cached_sequence_length,
+    prepare_model_inputs,
+    prepare_position_ids,
+    should_use_default_attention_mask,
+)
 from jaxml.models.gemma3 import GemmaModel
 from jaxml.models.gpt_neox import GPTNeoXDecoder, GPTNeoXModel
 from jaxml.models.llama import LlamaDecoder, LlamaModel
 
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
+
+
+def _kv(batch=1, seq_len=2, value=1.0):
+    x = jnp.full((batch, seq_len, 1, 2), value, dtype=jnp.float32)
+    return x, x + 1
 
 
 def _small_model_config(**overrides):
@@ -66,6 +76,34 @@ def test_prepare_position_ids_accepts_broadcast_batch_axis():
     prepared = prepare_position_ids(position_ids, input_ids)
 
     assert prepared.shape == (1, 4)
+
+
+def test_default_attention_mask_uses_any_populated_cache_entry():
+    k, v = _kv(seq_len=2)
+    populated_cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    assert should_use_default_attention_mask(None) is True
+    assert should_use_default_attention_mask((None, KVCache.init(4))) is True
+    assert should_use_default_attention_mask((None, populated_cache)) is False
+
+
+def test_cached_sequence_length_uses_first_populated_cache_entry():
+    k, v = _kv(seq_len=2)
+    populated_cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    assert cached_sequence_length(None) is None
+    assert cached_sequence_length((None, KVCache.init(4))) is None
+    assert cached_sequence_length((None, populated_cache)) == 4
+
+
+def test_cached_sequence_length_rejects_inconsistent_populated_cache_lengths():
+    short_k, short_v = _kv(seq_len=2)
+    long_k, long_v = _kv(seq_len=3)
+    short_cache = KVCache.init(4).update(short_k, short_v, mask=jnp.ones((1, 2), dtype=bool))
+    long_cache = KVCache.init(6).update(long_k, long_v, mask=jnp.ones((1, 3), dtype=bool))
+
+    with pytest.raises(ValueError, match="share cached sequence length"):
+        cached_sequence_length((short_cache, long_cache))
 
 
 @pytest.mark.parametrize(

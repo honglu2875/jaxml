@@ -104,15 +104,26 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
 
 
 def should_use_default_attention_mask(kv_caches) -> bool:
-    first_cache = None if kv_caches is None else kv_caches[0]
-    return first_cache is None or first_cache.mask is None
+    if kv_caches is None:
+        return True
+    return not any(kv_cache is not None and kv_cache.mask is not None for kv_cache in kv_caches)
 
 
 def cached_sequence_length(kv_caches):
-    first_cache = None if kv_caches is None else kv_caches[0]
-    if first_cache is None or first_cache.k is None:
+    if kv_caches is None:
         return None
-    return first_cache.k.shape[1]
+    sequence_length = None
+    for idx, kv_cache in enumerate(kv_caches):
+        if kv_cache is None or kv_cache.k is None:
+            continue
+        if sequence_length is None:
+            sequence_length = kv_cache.k.shape[1]
+        elif kv_cache.k.shape[1] != sequence_length:
+            raise ValueError(
+                "kv_caches populated entries must share cached sequence length; "
+                f"got {sequence_length} and {kv_cache.k.shape[1]} at index {idx}."
+            )
+    return sequence_length
 
 
 def prepare_position_ids(position_ids, input_ids):
