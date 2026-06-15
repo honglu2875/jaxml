@@ -71,6 +71,19 @@ def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarra
         )
 
 
+def _validate_alibi_slope(alibi_slope, num_heads: int):
+    if alibi_slope is None:
+        return None
+    alibi_slope = jnp.asarray(alibi_slope)
+    if alibi_slope.ndim != 1:
+        raise ValueError(f"alibi_slope must be a 1D array with one value per attention head, got shape {alibi_slope.shape}.")
+    if alibi_slope.shape[0] != num_heads:
+        raise ValueError(f"alibi_slope must contain {num_heads} values, got {alibi_slope.shape[0]}.")
+    if not jnp.issubdtype(alibi_slope.dtype, jnp.floating):
+        raise TypeError(f"alibi_slope must contain floating point values, got dtype {alibi_slope.dtype}.")
+    return alibi_slope
+
+
 class Attention(Block):
     """
     Flax base model of attention.
@@ -221,6 +234,7 @@ class Attention(Block):
         causal = _normalize_bool("causal", causal)
         softmax_fp32 = _normalize_bool("softmax_fp32", softmax_fp32)
         output_attentions = _normalize_bool("output_attentions", output_attentions)
+        alibi_slope = _validate_alibi_slope(alibi_slope, query_states.shape[2])
         x = jnp.einsum("bshn,bthn->bhst", query_states, key_states, precision=self.mm_precision) * self.attn_scale
 
         _, _, q_len, k_len = x.shape

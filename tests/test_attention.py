@@ -360,6 +360,41 @@ def test_attention_mha_rejects_invalid_sliding_window(sliding_window, exception,
 
 
 @pytest.mark.parametrize(
+    "alibi_slope,exception,match",
+    [
+        (jnp.ones((1, 1), dtype=jnp.float32), ValueError, "1D array"),
+        (jnp.ones((2,), dtype=jnp.float32), ValueError, "contain 1 values"),
+        (jnp.ones((1,), dtype=jnp.int32), TypeError, "floating point"),
+    ],
+)
+def test_attention_mha_rejects_invalid_alibi_slope(alibi_slope, exception, match):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+    value_states = jnp.arange(3, dtype=jnp.float32).reshape(1, 3, 1, 1)
+
+    with pytest.raises(exception, match=match):
+        attn.apply(
+            {},
+            query_states,
+            key_states,
+            value_states,
+            alibi_slope=alibi_slope,
+            method=Attention.mha,
+        )
+
+
+@pytest.mark.parametrize(
     "model_type,with_rope",
     [
         ("llama", False),
