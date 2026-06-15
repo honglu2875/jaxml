@@ -233,6 +233,18 @@ def test_dense_general_accepts_numpy_integer_axis():
     assert y.shape == (1, 2, 4)
 
 
+def test_dense_general_rejects_non_floating_inputs():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="floating point"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
 def test_dense_general_rejects_non_boolean_with_logical_partitioning():
     dense = DenseGeneral(
         features=4,

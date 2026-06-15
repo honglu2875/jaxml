@@ -125,7 +125,10 @@ class DenseGeneral(Module):
         features = _normalize_shape_dims("features", _canonicalize_tuple(self.features))
         axis = _canonicalize_tuple(self.axis)
 
-        inputs = jnp.asarray(inputs, self.dtype)
+        inputs = jnp.asarray(inputs)
+        if not jnp.issubdtype(inputs.dtype, jnp.floating):
+            raise TypeError(f"DenseGeneral inputs must contain floating point values, got dtype {inputs.dtype}.")
+        inputs = inputs.astype(self.dtype)
         axis = _normalize_axes(axis, inputs.ndim)
         use_bias = _normalize_bool("use_bias", self.use_bias)
 
