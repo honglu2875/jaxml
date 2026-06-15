@@ -259,17 +259,27 @@ class ModelConfig:
 
         # head_dim is usually hidden_size // num_attention_heads, but it can specify a different number
         head_dim = _infer_hf_head_dim(config)
-        num_heads = config.num_attention_heads
-        num_layers = config.num_hidden_layers
-        max_position_embeddings = config.max_position_embeddings
-        vocab_size = config.vocab_size
+        num_heads = _normalize_count("num_attention_heads", config.num_attention_heads)
+        num_layers = _normalize_count("num_hidden_layers", config.num_hidden_layers)
+        max_position_embeddings = _normalize_count("max_position_embeddings", config.max_position_embeddings)
+        vocab_size = _normalize_count("vocab_size", config.vocab_size)
+        for name, value in (
+            ("num_attention_heads", num_heads),
+            ("num_hidden_layers", num_layers),
+            ("max_position_embeddings", max_position_embeddings),
+            ("vocab_size", vocab_size),
+        ):
+            if value <= 0:
+                raise ValueError(f"{name} must be positive, got {value}.")
         intermediate_ratio = (intermediate_size // factor, hidden_size // factor)
         attn_scale = head_dim**-0.5
 
         # Case-by-case.
         if config_type == "llama":
             norm_eps = config.rms_norm_eps
-            num_kv_heads = config.num_key_value_heads
+            num_kv_heads = _normalize_count("num_key_value_heads", config.num_key_value_heads)
+            if num_kv_heads <= 0:
+                raise ValueError(f"num_key_value_heads must be positive, got {num_kv_heads}.")
             rope_theta = _infer_hf_rope_theta(config)
             rope_scale = _infer_hf_rope_scale(config)
             # no impact
@@ -293,7 +303,9 @@ class ModelConfig:
                 raise ValueError(f"query_pre_attn_scalar must be positive, got {query_pre_attn_scalar}.")
             attn_scale = query_pre_attn_scalar**-0.5
             norm_eps = config.rms_norm_eps
-            num_kv_heads = config.num_key_value_heads
+            num_kv_heads = _normalize_count("num_key_value_heads", config.num_key_value_heads)
+            if num_kv_heads <= 0:
+                raise ValueError(f"num_key_value_heads must be positive, got {num_kv_heads}.")
             rope_theta = _infer_hf_rope_theta(config, attention_kind="full_attention")
             rope_scale = _infer_hf_rope_scale(config, attention_kind="full_attention")
             # no impact

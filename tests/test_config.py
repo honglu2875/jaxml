@@ -286,6 +286,80 @@ def test_model_config_from_hf_rejects_invalid_shared_sizes_before_ratio_derivati
         ModelConfig.from_hf(hf_config)
 
 
+@pytest.mark.parametrize(
+    "field,value,exception,match",
+    [
+        ("num_attention_heads", True, TypeError, "num_attention_heads must be an integer"),
+        ("num_attention_heads", 0, ValueError, "num_attention_heads must be positive"),
+        ("num_hidden_layers", np.bool_(True), TypeError, "num_hidden_layers must be an integer"),
+        ("num_hidden_layers", 0, ValueError, "num_hidden_layers must be positive"),
+        ("max_position_embeddings", 1.5, TypeError, "max_position_embeddings must be an integer"),
+        ("max_position_embeddings", 0, ValueError, "max_position_embeddings must be positive"),
+        ("vocab_size", "1024", TypeError, "vocab_size must be an integer"),
+        ("vocab_size", 0, ValueError, "vocab_size must be positive"),
+    ],
+)
+def test_model_config_from_hf_rejects_invalid_shared_count_fields(field, value, exception, match):
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    object.__setattr__(hf_config, "head_dim", 8)
+    object.__setattr__(hf_config, field, value)
+
+    with pytest.raises(exception, match=match):
+        ModelConfig.from_hf(hf_config)
+
+
+@pytest.mark.parametrize(
+    "config_factory,value,exception,match",
+    [
+        ("llama", True, TypeError, "num_key_value_heads must be an integer"),
+        ("llama", 0, ValueError, "num_key_value_heads must be positive"),
+        ("gemma", np.bool_(True), TypeError, "num_key_value_heads must be an integer"),
+        ("gemma", 0, ValueError, "num_key_value_heads must be positive"),
+    ],
+)
+def test_model_config_from_hf_rejects_invalid_key_value_head_count(config_factory, value, exception, match):
+    from transformers import Gemma3TextConfig, LlamaConfig
+
+    if config_factory == "llama":
+        hf_config = LlamaConfig(
+            hidden_size=48,
+            intermediate_size=144,
+            num_hidden_layers=2,
+            max_position_embeddings=256,
+            vocab_size=1024,
+            num_attention_heads=6,
+            num_key_value_heads=3,
+        )
+        object.__setattr__(hf_config, "head_dim", 8)
+    else:
+        hf_config = Gemma3TextConfig(
+            hidden_size=48,
+            head_dim=8,
+            intermediate_size=144,
+            num_hidden_layers=4,
+            max_position_embeddings=256,
+            vocab_size=1024,
+            num_attention_heads=6,
+            num_key_value_heads=3,
+            sliding_window=32,
+            sliding_window_pattern=2,
+        )
+    object.__setattr__(hf_config, "num_key_value_heads", value)
+
+    with pytest.raises(exception, match=match):
+        ModelConfig.from_hf(hf_config)
+
+
 def test_model_config_from_hf_accepts_integer_like_rope_scaling_factor():
     from transformers import LlamaConfig
 
