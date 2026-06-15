@@ -171,6 +171,8 @@ def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
         raise ValueError(f"State value for key {source_key!r} must not be empty.")
     if not torch.is_floating_point(tensor):
         raise TypeError(f"State value for key {source_key!r} must contain floating point values, got dtype {tensor.dtype}.")
+    if not bool(torch.all(torch.isfinite(tensor))):
+        raise ValueError(f"State value for key {source_key!r} must contain only finite values.")
     if tensor.dtype == torch.bfloat16:
         tensor = tensor.to(torch.float32)
     return tensor.numpy().astype(dtype)

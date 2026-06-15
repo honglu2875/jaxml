@@ -786,6 +786,12 @@ def test_torch_to_jax_states_rejects_non_floating_state_tensors(source_dtype):
         torch_to_jax_states({"weight": torch.ones((2, 3), dtype=source_dtype)}, dtype=torch.float32)
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_torch_to_jax_states_rejects_non_finite_state_tensors(value):
+    with pytest.raises(ValueError, match="must contain only finite values"):
+        torch_to_jax_states({"weight": torch.tensor([[0.0, value]], dtype=torch.float32)}, dtype=torch.float32)
+
+
 @pytest.mark.parametrize(
     "state",
     [
