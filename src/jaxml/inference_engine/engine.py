@@ -140,6 +140,13 @@ class Engine:
             platforms.add(jax.default_backend())
         return str((jax.__version__, jaxlib.__version__, jax.default_backend(), tuple(sorted(platforms))))
 
+    @staticmethod
+    def _validate_param_weights(weights: Any):
+        if not isinstance(weights, dict):
+            raise TypeError(f"weights must be a dict, got {type(weights)}.")
+        if "params" not in weights:
+            raise ValueError(f"The key 'params' was not found in weights. Got keys: {weights.keys()}.")
+
     @timeit(logger)
     def init_params(self, weights: Optional[FrozenDict] = None, use_tpu: bool = False, reinit_weight: bool = False):
         """
@@ -158,6 +165,8 @@ class Engine:
         dp_size = self.config.dp_size
         if weights is None:
             weights = self.params
+        if not reinit_weight:
+            self._validate_param_weights(weights)
         # whether: use 1 single TPU or CPU
         is_single_device = (tp_size * dp_size == 1) or not use_tpu
 
@@ -218,10 +227,7 @@ class Engine:
                 weights: FrozenVariableDict | dict = self.model.init(key, dummy_input)
 
         # Can assume weights is not None from now, and the goal is only to shard it.
-        if not isinstance(weights, dict):
-            raise TypeError(f"weights must be a dict, got {type(weights)}.")
-        if "params" not in weights:
-            raise ValueError(f"The key 'params' was not found in weights. Got keys: {weights.keys()}.")
+        self._validate_param_weights(weights)
         if not is_single_device:
             params = FrozenDict(
                 {

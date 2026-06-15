@@ -12,6 +12,11 @@ class FakeSharding:
         self.spec = spec
 
 
+class InitShouldNotRunModel:
+    def init(self, *args, **kwargs):
+        raise AssertionError("model.init should not be called before rejecting invalid explicit weights.")
+
+
 @pytest.mark.parametrize(
     "max_new_tokens,include_prompt,cache_stride,fuse_decoding,expected_length",
     [
@@ -150,6 +155,20 @@ def test_engine_init_params_rejects_empty_weights_mapping(llama_model_with_head)
 
         with pytest.raises(ValueError, match="'params'"):
             engine.init_params(weights={}, use_tpu=False)
+
+
+@pytest.mark.parametrize(
+    "weights,exception,match",
+    [
+        (("params", {}), TypeError, "weights must be a dict"),
+        ({}, ValueError, "'params'"),
+    ],
+)
+def test_engine_init_params_rejects_invalid_explicit_weights_before_model_init(weights, exception, match):
+    engine = Engine(InitShouldNotRunModel(), InferenceConfig(), {"params": {}})
+
+    with pytest.raises(exception, match=match):
+        engine.init_params(weights=weights, use_tpu=False)
 
 
 @pytest.mark.parametrize(
