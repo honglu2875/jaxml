@@ -3,8 +3,10 @@ import jax.numpy as jnp
 import numpy as np
 import torch
 
+from jaxml.config import ModelConfig
 from jaxml.hf_utils import to_neox_jax_params
 from jaxml.inference_engine.engine import Engine, InferenceConfig
+from jaxml.models.gpt_neox import GPTNeoXModel
 
 
 def test_neox_model(neox_model, hf_neox_model):
@@ -41,6 +43,28 @@ def test_neox_model_sanitizes_default_masked_negative_token_ids(neox_model):
 
     assert np.all(np.isfinite(np.array(y.last_hidden_state)))
     assert np.allclose(y.last_hidden_state, y2.last_hidden_state, atol=1e-6)
+
+
+def test_neox_final_norm_respects_model_dtype():
+    config = ModelConfig(
+        hidden_size=4,
+        head_dim=2,
+        num_heads=2,
+        num_layers=1,
+        intermediate_ratio=(2, 1),
+        max_position_embeddings=8,
+        vocab_size=16,
+        attn_scale=2**-0.5,
+        use_rope=False,
+        use_bias=True,
+    )
+    model = GPTNeoXModel(config, dtype=jnp.bfloat16)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+
+    params = model.init(jax.random.PRNGKey(0), input_ids)
+
+    assert params["params"]["norm"]["weight"].value.dtype == jnp.bfloat16
+    assert params["params"]["norm"]["bias"].value.dtype == jnp.bfloat16
 
 
 def test_neox_completion(neox_model_with_head, hf_neox_causal_model):

@@ -145,7 +145,7 @@ class GPTNeoXModel(Block):
             rope_scale=self.config.rope_scale,
         )
         self.layers = [GPTNeoXDecoder(self.config, dtype=self.dtype) for _ in range(self.num_layers)]
-        self.norm = LayerNorm(self.hidden_size, eps=self.norm_eps, use_bias=True)
+        self.norm = LayerNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, use_bias=True)
 
     def __call__(
         self,
