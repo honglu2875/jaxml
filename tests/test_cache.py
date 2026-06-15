@@ -173,6 +173,20 @@ def test_kv_cache_update_canonicalizes_integer_initial_mask():
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [0]]))
 
 
+@pytest.mark.parametrize(
+    "mask",
+    [
+        jnp.array([[1, 2, 0], [1, 0, 0]], dtype=jnp.int32),
+        jnp.array([[1, -1, 0], [1, 0, 0]], dtype=jnp.int32),
+    ],
+)
+def test_kv_cache_update_rejects_non_binary_integer_initial_mask(mask):
+    k, v = _kv(seq_len=3)
+
+    with pytest.raises(ValueError, match="mask integer values must be 0 or 1"):
+        KVCache.init(4).update(k, v, mask=mask)
+
+
 def test_kv_cache_update_rejects_float_initial_mask():
     k, v = _kv(seq_len=3)
     mask = jnp.ones((2, 3), dtype=jnp.float32)
@@ -271,6 +285,22 @@ def test_kv_cache_update_rejects_stale_decode_mask():
 
     with pytest.raises(ValueError, match="must match current cached mask state"):
         cache.update(next_k, next_v, mask=stale_mask)
+
+
+@pytest.mark.parametrize(
+    "mask",
+    [
+        jnp.array([[1, 2, 0, 0], [1, 0, 0, 0]], dtype=jnp.int32),
+        jnp.array([[1, -1, 0, 0], [1, 0, 0, 0]], dtype=jnp.int32),
+    ],
+)
+def test_kv_cache_update_rejects_non_binary_integer_decode_mask(mask):
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.array([[True, True], [True, False]]))
+    next_k, next_v = _kv(seq_len=1, value=3.0)
+
+    with pytest.raises(ValueError, match="Decode cache mask integer values must be 0 or 1"):
+        cache.update(next_k, next_v, mask=mask)
 
 
 def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():

@@ -53,6 +53,12 @@ def _validate_right_padded_mask(name: str, mask: jnp.ndarray):
         raise ValueError(f"{name} must be right padded: valid tokens cannot appear after masked positions.")
 
 
+def _validate_binary_integer_mask(name: str, mask: jnp.ndarray):
+    if jnp.issubdtype(mask.dtype, jnp.integer) and not _contains_tracer(mask):
+        if bool(jnp.any((mask != 0) & (mask != 1))):
+            raise ValueError(f"{name} integer values must be 0 or 1.")
+
+
 class KVCache(struct.PyTreeNode):
     """Simple pytree object for recording kv cache."""
 
@@ -193,6 +199,7 @@ class KVCache(struct.PyTreeNode):
                 raise ValueError(f"mask shape must match k/v batch and sequence axes, got {mask.shape} and {k.shape[:2]}.")
             if not (jnp.issubdtype(mask.dtype, jnp.bool_) or jnp.issubdtype(mask.dtype, jnp.integer)):
                 raise TypeError(f"mask must be boolean or integer, got dtype {mask.dtype}.")
+            _validate_binary_integer_mask("mask", mask)
             mask = mask.astype(bool)
             if not _contains_tracer(mask) and not bool(jnp.all(jnp.any(mask, axis=1))):
                 raise ValueError("mask must contain at least one valid token per batch row.")
@@ -214,6 +221,7 @@ class KVCache(struct.PyTreeNode):
                 )
             if not (jnp.issubdtype(mask.dtype, jnp.bool_) or jnp.issubdtype(mask.dtype, jnp.integer)):
                 raise TypeError(f"Decode cache mask must be boolean or integer, got dtype {mask.dtype}.")
+            _validate_binary_integer_mask("Decode cache mask", mask)
             mask = mask.astype(bool)
             if not _contains_tracer((mask, self.mask)) and not bool(jnp.array_equal(mask, self.mask)):
                 raise ValueError("Decode cache mask must match current cached mask state.")
