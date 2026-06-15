@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -108,6 +109,44 @@ def test_to_neox_jax_params_does_not_mutate_state_dict_keys():
 
 
 @pytest.mark.parametrize(
+    "name,exception,match",
+    [
+        ("", ValueError, "non-empty"),
+        (123, TypeError, "string or path-like"),
+    ],
+)
+def test_load_model_from_hf_rejects_invalid_name_before_architecture_inference(monkeypatch, name, exception, match):
+    calls = []
+
+    def fake_infer(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("_infer_hf_architecture should not be called for invalid name.")
+
+    monkeypatch.setattr("jaxml.hf_utils._infer_hf_architecture", fake_infer)
+
+    with pytest.raises(exception, match=match):
+        load_model_from_hf(name)
+
+    assert calls == []
+
+
+def test_load_model_from_hf_accepts_pathlike_name_before_dispatch(monkeypatch):
+    calls = []
+
+    def fake_load_llama(name, dtype, **kwargs):
+        calls.append((name, dtype, kwargs))
+        return "model", {"params": {}}
+
+    monkeypatch.setattr("jaxml.hf_utils.load_llama_from_hf", fake_load_llama)
+
+    model, params = load_model_from_hf(Path("local-model"), architecture="llama", dtype="float32", local_files_only=True)
+
+    assert model == "model"
+    assert params == {"params": {}}
+    assert calls == [("local-model", "float32", {"local_files_only": True})]
+
+
+@pytest.mark.parametrize(
     "dtype,exception,match",
     [
         (np.float32, TypeError, "Expected dtype"),
@@ -145,5 +184,31 @@ def test_direct_hf_loader_rejects_invalid_dtype_before_model_loading(monkeypatch
 
     with pytest.raises(TypeError, match="Expected dtype"):
         load_llama_from_hf("some/model", dtype=np.float32)
+
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "name,exception,match",
+    [
+        ("", ValueError, "non-empty"),
+        (123, TypeError, "string or path-like"),
+    ],
+)
+def test_direct_hf_loader_rejects_invalid_name_before_model_loading(monkeypatch, name, exception, match):
+    calls = []
+
+    class FakeAutoModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError("from_pretrained should not be called for invalid name.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoModelForCausalLM", FakeAutoModel)
+
+    with pytest.raises(exception, match=match):
+        load_llama_from_hf(name)
 
     assert calls == []

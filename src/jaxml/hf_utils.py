@@ -1,4 +1,5 @@
 import re
+from os import PathLike, fspath
 from operator import index
 from typing import Literal
 
@@ -85,6 +86,18 @@ def _normalize_hf_architecture(architecture: str) -> str:
             raise ValueError(f"Unsupported Hugging Face architecture {architecture!r}.")
 
 
+def _normalize_hf_model_name(name: str | PathLike[str]) -> str:
+    try:
+        normalized = fspath(name)
+    except TypeError as e:
+        raise TypeError(f"name must be a string or path-like object, got {type(name)}.") from e
+    if not isinstance(normalized, str):
+        raise TypeError(f"name must resolve to a string path, got {type(normalized)}.")
+    if not normalized:
+        raise ValueError("name must be non-empty.")
+    return normalized
+
+
 def _validate_hf_dtype(dtype: str):
     _resolve_np_dtype(dtype)
     return dtype
@@ -116,6 +129,7 @@ def load_model_from_hf(
     **from_pretrained_kwargs,
 ):
     """Load a supported Hugging Face causal LM into a jaxml model and parameter tree."""
+    name = _normalize_hf_model_name(name)
     dtype = _validate_hf_dtype(dtype)
     architecture = _normalize_hf_architecture(architecture)
     if architecture == "auto":
@@ -135,6 +149,7 @@ def load_model_from_hf(
 def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[LlamaModelWithHead, dict]:
     """Load Huggingface llama compatible models directly from either local path
     or the hf-hub identifier."""
+    name = _normalize_hf_model_name(name)
     dtype = _validate_hf_dtype(dtype)
     try:
         from transformers import AutoModelForCausalLM
@@ -153,6 +168,7 @@ def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
 def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GPTNeoXModelWithHead, dict]:
     """Load Huggingface gpt-neox compatible models directly from either local path
     or the hf-hub identifier."""
+    name = _normalize_hf_model_name(name)
     dtype = _validate_hf_dtype(dtype)
     try:
         from transformers import AutoModelForCausalLM
@@ -171,6 +187,7 @@ def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwarg
 def load_gemma_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GemmaModelWithHead, dict]:
     """Load Huggingface gemma3 compatible models directly from either local path
     or the hf-hub identifier."""
+    name = _normalize_hf_model_name(name)
     dtype = _validate_hf_dtype(dtype)
     try:
         from transformers import AutoModelForCausalLM
