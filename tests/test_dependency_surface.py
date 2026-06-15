@@ -62,6 +62,19 @@ def _workflow_python_versions(job_name: str) -> tuple[str, ...]:
     return tuple(re.findall(r'- "([^"]+)"', matrix_match.group("versions")))
 
 
+def _workflow_job_timeout(job_name: str) -> int:
+    workflow = _workflow_config()
+    job_match = re.search(
+        rf"^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)", workflow, re.MULTILINE | re.DOTALL
+    )
+    if job_match is None:
+        raise AssertionError(f"CI workflow does not define job {job_name!r}.")
+    timeout_match = re.search(r"^\s+timeout-minutes: (?P<minutes>\d+)$", job_match.group("body"), re.MULTILINE)
+    if timeout_match is None:
+        raise AssertionError(f"CI job {job_name!r} does not define timeout-minutes.")
+    return int(timeout_match.group("minutes"))
+
+
 def _dependency_drift_module():
     path = PROJECT_ROOT / "scripts" / "check_dependency_drift.py"
     spec = importlib.util.spec_from_file_location("check_dependency_drift", path)
@@ -241,6 +254,11 @@ def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events()
 @pytest.mark.parametrize("job_name", ["cpu", "milestone-cpu"])
 def test_ci_cpu_jobs_cover_supported_python_versions(job_name):
     assert _workflow_python_versions(job_name) == _SUPPORTED_CI_PYTHON_VERSIONS
+
+
+@pytest.mark.parametrize(("job_name", "timeout_minutes"), [("cpu", 20), ("milestone-cpu", 30)])
+def test_ci_cpu_jobs_have_explicit_timeouts(job_name, timeout_minutes):
+    assert _workflow_job_timeout(job_name) == timeout_minutes
 
 
 def test_jax_runtime_surface_executes_jitted_cpu_work():

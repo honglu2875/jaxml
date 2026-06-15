@@ -20,6 +20,7 @@ jobs:
   cpu:
     name: CPU tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       JAX_PLATFORMS: cpu
     strategy:
@@ -51,6 +52,7 @@ jobs:
     name: Milestone CPU tests (Python ${{ matrix.python-version }})
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       JAX_PLATFORMS: cpu
     strategy:
