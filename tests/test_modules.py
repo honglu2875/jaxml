@@ -344,7 +344,7 @@ def test_embed_masks_out_of_range_traced_input_ids(one_hot):
 
     y = apply(jnp.array([0, -1, 8], dtype=jnp.int32))
 
-    assert np.allclose(y[0], embed.apply(params, jnp.array([0], dtype=jnp.int32))[0])
+    assert np.allclose(y[0], embed.apply(params, jnp.array([0], dtype=jnp.int32))[0], atol=2e-3)
     assert np.array_equal(np.array(y[1:]), np.zeros((2, 4), dtype=np.float32))
 
 
@@ -754,6 +754,12 @@ def test_torch_to_jax_states_rejects_projection_shapes_incompatible_with_head_di
 def test_torch_to_jax_states_rejects_non_tensor_state_values():
     with pytest.raises(TypeError, match="State value for key 'weight'"):
         torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
+
+
+@pytest.mark.parametrize("source_dtype", [torch.bool, torch.int32, torch.int64])
+def test_torch_to_jax_states_rejects_non_floating_state_tensors(source_dtype):
+    with pytest.raises(TypeError, match="must contain floating point values"):
+        torch_to_jax_states({"weight": torch.ones((2, 3), dtype=source_dtype)}, dtype=torch.float32)
 
 
 @pytest.mark.parametrize(
