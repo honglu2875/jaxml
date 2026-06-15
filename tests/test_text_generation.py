@@ -44,6 +44,16 @@ class DummyEngine:
         return new_tokens
 
 
+class StaticEngine:
+    def __init__(self, output):
+        self.output = output
+        self.generate_calls = []
+
+    def generate(self, input_ids, attention_mask=None, **kwargs):
+        self.generate_calls.append((np.array(input_ids), None if attention_mask is None else np.array(attention_mask), kwargs))
+        return self.output
+
+
 class StaticTokenizer:
     def __init__(self, encoded):
         self.encoded = encoded
@@ -285,6 +295,25 @@ def test_generate_tokens_rejects_invalid_tokenizer_arrays_before_generation(enco
     assert tokenizer.encode_calls
     assert tokenizer.decode_calls == []
     assert engine.generate_calls == []
+
+
+@pytest.mark.parametrize(
+    "engine_output,exception,match",
+    [
+        (np.ones((3,), dtype=np.int32), ValueError, "2D token array"),
+        (np.ones((1, 2), dtype=np.float32), TypeError, "integer token ids"),
+    ],
+)
+def test_generate_text_rejects_invalid_engine_tokens_before_decode(engine_output, exception, match):
+    tokenizer = DummyTokenizer()
+    engine = StaticEngine(engine_output)
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(exception, match=match):
+        pipeline.generate_text("hello")
+
+    assert engine.generate_calls
+    assert tokenizer.decode_calls == []
 
 
 def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):

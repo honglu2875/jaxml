@@ -110,6 +110,15 @@ def _normalize_tokenizer_arrays(input_ids, attention_mask):
     return input_ids, attention_mask
 
 
+def _normalize_generated_tokens(tokens) -> np.ndarray:
+    tokens = np.asarray(tokens)
+    if tokens.ndim != 2:
+        raise ValueError(f"engine.generate must return a 2D token array, got shape {tokens.shape}.")
+    if not np.issubdtype(tokens.dtype, np.integer):
+        raise TypeError(f"engine.generate must return integer token ids, got dtype {tokens.dtype}.")
+    return tokens
+
+
 @dataclass
 class TextGenerationPipeline:
     engine: Engine
@@ -224,7 +233,7 @@ class TextGenerationPipeline:
             "fuse_decoding": config.fuse_decoding,
             "include_prompt": config.include_prompt,
         } | generation_kwargs
-        return np.array(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
+        return _normalize_generated_tokens(self.engine.generate(input_ids, attention_mask=attention_mask, **kwargs))
 
     def generate_text(
         self,
