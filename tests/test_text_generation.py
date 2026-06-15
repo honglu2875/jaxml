@@ -72,6 +72,16 @@ class StaticTokenizer:
         return ["decoded"]
 
 
+class StaticDecodeTokenizer(DummyTokenizer):
+    def __init__(self, decoded):
+        super().__init__()
+        self.decoded = decoded
+
+    def batch_decode(self, tokens, **kwargs):
+        self.decode_calls.append((np.array(tokens), kwargs))
+        return self.decoded
+
+
 class TokenizerWithoutDecode:
     def __call__(self, prompts, return_tensors, **kwargs):
         del prompts, return_tensors, kwargs
@@ -382,6 +392,26 @@ def test_generate_text_rejects_engine_token_batch_mismatch_before_decode():
 
     assert engine.generate_calls
     assert tokenizer.decode_calls == []
+
+
+@pytest.mark.parametrize(
+    "decoded,exception,match",
+    [
+        ("decoded", TypeError, "sequence of strings"),
+        (["first", "second"], ValueError, "output batch size must match token batch size"),
+        ([1], TypeError, "sequence of strings"),
+    ],
+)
+def test_generate_text_rejects_invalid_decoded_output(decoded, exception, match):
+    tokenizer = StaticDecodeTokenizer(decoded)
+    engine = StaticEngine(np.ones((1, 1), dtype=np.int32))
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(exception, match=match):
+        pipeline.generate_text("hello")
+
+    assert engine.generate_calls
+    assert tokenizer.decode_calls
 
 
 def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):

@@ -126,6 +126,20 @@ def _normalize_generated_tokens(tokens) -> np.ndarray:
     return tokens
 
 
+def _normalize_decoded_text(decoded, batch_size: int) -> list[str]:
+    if isinstance(decoded, (str, bytes)) or not isinstance(decoded, SequenceABC):
+        raise TypeError(f"tokenizer.batch_decode must return a sequence of strings, got {type(decoded)}.")
+    decoded = list(decoded)
+    decoded_batch_size = len(decoded)
+    if decoded_batch_size != batch_size:
+        raise ValueError(
+            f"tokenizer.batch_decode output batch size must match token batch size; got {decoded_batch_size} and {batch_size}."
+        )
+    if not all(isinstance(text, str) for text in decoded):
+        raise TypeError("tokenizer.batch_decode must return a sequence of strings.")
+    return decoded
+
+
 @dataclass
 class TextGenerationPipeline:
     engine: Engine
@@ -279,5 +293,8 @@ class TextGenerationPipeline:
             generation_config=generation_config,
             **generation_kwargs,
         )
-        decoded = self.tokenizer.batch_decode(tokens, **(self.default_decode_kwargs | decode_kwargs))
+        decoded = _normalize_decoded_text(
+            self.tokenizer.batch_decode(tokens, **(self.default_decode_kwargs | decode_kwargs)),
+            batch_size=tokens.shape[0],
+        )
         return decoded[0] if is_single_prompt else decoded
