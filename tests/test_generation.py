@@ -369,6 +369,40 @@ def test_engine_generate_hash_includes_prompt_token_dtype(monkeypatch, llama_mod
     assert call_hashes[0] != call_hashes[1]
 
 
+def test_engine_generate_hash_includes_kv_cache_signature(monkeypatch, llama_model_with_head):
+    call_hashes = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, sampling_method
+        call_hashes.append(call_hash)
+        return GenerationOutput(tokens=jnp.array([[1]], dtype=jnp.int32), kv_caches=kv_caches, rng=kwargs["rng"])
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        for dtype in (jnp.float32, jnp.bfloat16):
+            engine = Engine(model, InferenceConfig(), params, dtype=dtype)
+            engine.generate(
+                jnp.ones((1, 4), dtype=jnp.int32),
+                max_new_tokens=1,
+                temperature=0.0,
+                include_prompt=False,
+            )
+
+    assert len(call_hashes) == 2
+    assert call_hashes[0] != call_hashes[1]
+
+
 def test_engine_generate_continues_rng_across_cache_resize_chunks(monkeypatch, llama_model_with_head):
     calls = []
 
