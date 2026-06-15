@@ -372,6 +372,44 @@ def test_dense_general_accepts_numpy_integer_features():
     assert y.shape == (1, 2, 4, 2)
 
 
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"dtype": None}, "dtype must be a valid JAX dtype"),
+        ({"dtype": "not-a-dtype"}, "dtype must be a valid JAX dtype"),
+        ({"weight_dtype": None}, "weight_dtype must be a valid JAX dtype"),
+        ({"weight_dtype": "not-a-dtype"}, "weight_dtype must be a valid JAX dtype"),
+    ],
+)
+def test_dense_general_rejects_invalid_dtypes(kwargs, match):
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+        **kwargs,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    with pytest.raises(TypeError, match=match):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+def test_dense_general_accepts_numpy_dtypes():
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+        dtype=np.float32,
+        weight_dtype=np.float32,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.dtype == jnp.float32
+
+
 def test_dense_general_rejects_non_boolean_use_bias():
     dense = DenseGeneral(
         features=4,

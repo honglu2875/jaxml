@@ -71,6 +71,15 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 def _canonicalize_tuple(x):
     if isinstance(x, Iterable):
         return tuple(x)
@@ -124,11 +133,13 @@ class DenseGeneral(Module):
 
         features = _normalize_shape_dims("features", _canonicalize_tuple(self.features))
         axis = _canonicalize_tuple(self.axis)
+        dtype = _normalize_dtype("dtype", self.dtype)
+        weight_dtype = _normalize_dtype("weight_dtype", self.weight_dtype)
 
         inputs = jnp.asarray(inputs)
         if not jnp.issubdtype(inputs.dtype, jnp.floating):
             raise TypeError(f"DenseGeneral inputs must contain floating point values, got dtype {inputs.dtype}.")
-        inputs = inputs.astype(self.dtype)
+        inputs = inputs.astype(dtype)
         axis = _normalize_axes(axis, inputs.ndim)
         use_bias = _normalize_bool("use_bias", self.use_bias)
 
@@ -139,11 +150,11 @@ class DenseGeneral(Module):
             "kernel",
             self.wrapped_kernel_init,
             kernel_shape,
-            self.weight_dtype,
+            weight_dtype,
             kernel_in_axis,
             kernel_out_axis,
         )
-        kernel = jnp.asarray(kernel, self.dtype)
+        kernel = jnp.asarray(kernel, dtype)
 
         contract_ind = tuple(range(0, len(axis)))
         output = compute_dot_general(inputs, kernel, axis, contract_ind)
@@ -154,8 +165,8 @@ class DenseGeneral(Module):
                 "bias",
                 nn.with_logical_partitioning(self.bias_init, bias_axes),
                 bias_shape,
-                self.weight_dtype,
+                weight_dtype,
             )
-            bias = jnp.asarray(bias, self.dtype)
+            bias = jnp.asarray(bias, dtype)
             output += bias
         return output
