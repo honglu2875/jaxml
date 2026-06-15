@@ -318,6 +318,53 @@ class Engine:
 
         return prompt_tokens, attention_mask
 
+    @staticmethod
+    def _validate_generation_step_output(
+        step_output: GenerationOutput,
+        batch_size: int,
+        max_new_tokens: int,
+        expected_cache_count: int,
+    ) -> tuple[jnp.ndarray, tuple[KVCache, ...], jnp.ndarray]:
+        if not isinstance(step_output, GenerationOutput):
+            raise TypeError(f"Internal generation must return a GenerationOutput, got {type(step_output)}.")
+
+        tokens = jnp.asarray(step_output.tokens)
+        if tokens.ndim != 2:
+            raise ValueError(f"Internal generation tokens must be a 2D array, got shape {tokens.shape}.")
+        if tokens.shape[0] != batch_size:
+            raise ValueError(f"Internal generation token batch size must be {batch_size}, got {tokens.shape[0]}.")
+        if tokens.shape[1] <= 0:
+            raise ValueError("Internal generation must return at least one token per step.")
+        if tokens.shape[1] > max_new_tokens:
+            raise ValueError(
+                f"Internal generation returned {tokens.shape[1]} tokens for a step limited to {max_new_tokens}."
+            )
+        if not jnp.issubdtype(tokens.dtype, jnp.integer):
+            raise TypeError(f"Internal generation tokens must contain integer token ids, got dtype {tokens.dtype}.")
+
+        rng = step_output.rng
+        if rng is None:
+            raise ValueError("Internal generation did not return an RNG key for continuation.")
+        rng = jnp.asarray(rng)
+        if rng.shape != (2,):
+            raise ValueError(f"Internal generation RNG must be a PRNG key with shape (2,), got shape {rng.shape}.")
+        if not jnp.issubdtype(rng.dtype, jnp.integer):
+            raise TypeError(f"Internal generation RNG must contain integer key data, got dtype {rng.dtype}.")
+
+        try:
+            kv_caches = tuple(step_output.kv_caches)
+        except TypeError as e:
+            raise TypeError("Internal generation kv_caches must be a sequence of KVCache instances.") from e
+        if len(kv_caches) != expected_cache_count:
+            raise ValueError(
+                f"Internal generation returned {len(kv_caches)} KV caches, expected {expected_cache_count}."
+            )
+        for idx, kv_cache in enumerate(kv_caches):
+            if not isinstance(kv_cache, KVCache):
+                raise TypeError(f"Internal generation kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}.")
+
+        return tokens, kv_caches, rng
+
     def generate(
         self,
         prompt_tokens: jnp.ndarray,
@@ -419,13 +466,15 @@ class Engine:
                 include_prompt=False,
                 skip_prefill=(generated_count > 0),
             )
-            output_tokens.append(step_output.tokens)
-            kv_caches = step_output.kv_caches
-            if step_output.rng is None:
-                raise ValueError("Internal generation did not return an RNG key for continuation.")
-            rng = step_output.rng
-            generated_count += step_output.tokens.shape[1]
-            next_input_tokens = step_output.tokens[:, -1:]
+            step_tokens, kv_caches, rng = self._validate_generation_step_output(
+                step_output,
+                batch_size=prompt_tokens.shape[0],
+                max_new_tokens=new_token_count,
+                expected_cache_count=len(kv_caches),
+            )
+            output_tokens.append(step_tokens)
+            generated_count += step_tokens.shape[1]
+            next_input_tokens = step_tokens[:, -1:]
 
         if include_prompt:
             output_tokens.insert(0, prompt_tokens)

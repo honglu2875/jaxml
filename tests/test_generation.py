@@ -345,6 +345,141 @@ def test_engine_generate_only_passes_attention_mask_to_prefill_chunk(monkeypatch
 
 
 @pytest.mark.parametrize(
+    "step_output_factory,exception,match",
+    [
+        (lambda kwargs, kv_caches: object(), TypeError, "GenerationOutput"),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1,), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "2D array",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((2, 1), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "batch size",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 0), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "at least one token",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 2), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "step limited",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.float32),
+                kv_caches=kv_caches,
+                rng=kwargs["rng"],
+            ),
+            TypeError,
+            "integer token ids",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=None,
+            ),
+            ValueError,
+            "RNG key",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=jnp.ones((1, 2), dtype=jnp.uint32),
+            ),
+            ValueError,
+            "shape",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=kv_caches,
+                rng=jnp.ones((2,), dtype=jnp.float32),
+            ),
+            TypeError,
+            "integer key data",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=object(),
+                rng=kwargs["rng"],
+            ),
+            TypeError,
+            "kv_caches",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=(),
+                rng=kwargs["rng"],
+            ),
+            ValueError,
+            "KV caches",
+        ),
+        (
+            lambda kwargs, kv_caches: GenerationOutput(
+                tokens=jnp.ones((1, 1), dtype=jnp.int32),
+                kv_caches=tuple(object() for _ in kv_caches),
+                rng=kwargs["rng"],
+            ),
+            TypeError,
+            "KVCache instances",
+        ),
+    ],
+)
+def test_engine_generate_rejects_invalid_internal_step_output(
+    monkeypatch,
+    llama_model_with_head,
+    step_output_factory,
+    exception,
+    match,
+):
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, call_hash, sampling_method
+        return step_output_factory(kwargs, kv_caches)
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = llama_model_with_head
+        engine = Engine(model, InferenceConfig(), params)
+
+        with pytest.raises(exception, match=match):
+            engine.generate(jnp.ones((1, 4), dtype=jnp.int32), max_new_tokens=1, include_prompt=False)
+
+
+@pytest.mark.parametrize(
     "kwargs,exception,match",
     [
         ({"top_p": True}, TypeError, "top_p must be a real number"),
