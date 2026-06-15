@@ -124,6 +124,10 @@ class KVCache(struct.PyTreeNode):
             raise TypeError(f"Cached k must contain floating point values, got dtype {self.k.dtype}.")
         if not jnp.issubdtype(self.v.dtype, jnp.floating):
             raise TypeError(f"Cached v must contain floating point values, got dtype {self.v.dtype}.")
+        if self.k.dtype != self.dtype:
+            raise TypeError(f"Cached k dtype must match cache dtype {self.dtype}, got {self.k.dtype}.")
+        if self.v.dtype != self.dtype:
+            raise TypeError(f"Cached v dtype must match cache dtype {self.dtype}, got {self.v.dtype}.")
 
         if self.mask.shape != self.k.shape[:2]:
             raise ValueError(f"Cached mask shape must match cached k/v batch and sequence axes, got {self.mask.shape}.")

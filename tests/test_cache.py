@@ -279,6 +279,18 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
         (
             KVCache(
                 k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.bfloat16),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                dtype=jnp.bfloat16,
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            TypeError,
+            "Cached k dtype must match cache dtype",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
                 v=jnp.zeros((1, 4, 1, 2), dtype=jnp.int32),
                 max_seq_len=4,
                 mask=jnp.ones((1, 4), dtype=bool),
@@ -286,6 +298,18 @@ def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
             ),
             TypeError,
             "Cached v must contain floating",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.bfloat16),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=jnp.ones((1, 4), dtype=bool),
+                dtype=jnp.bfloat16,
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            TypeError,
+            "Cached v dtype must match cache dtype",
         ),
         (
             KVCache(
