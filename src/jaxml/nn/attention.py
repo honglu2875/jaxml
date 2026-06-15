@@ -140,6 +140,11 @@ def _validate_hidden_states(hidden_states: jnp.ndarray) -> jnp.ndarray:
     return hidden_states
 
 
+def _reject_flash_attention_if_requested(use_flash: bool):
+    if use_flash:
+        raise NotImplementedError("JAX flash attention is not enabled in jaxml yet.")
+
+
 def _validate_cos_sin(cos_sin):
     if cos_sin is None:
         raise ValueError("AttentionWithRoPE requires cos_sin.")
@@ -437,6 +442,7 @@ class Attention(Block):
         hidden_states = _validate_hidden_states(hidden_states)
         output_attentions = _normalize_bool("output_attentions", output_attentions)
         use_flash = _normalize_bool("use_flash", use_flash)
+        _reject_flash_attention_if_requested(use_flash)
         if position_ids is not None:
             raise NotImplementedError("MHA with given position_ids is not implemented.")
 
@@ -487,6 +493,7 @@ class AttentionWithRoPE(Attention):
         hidden_states = _validate_hidden_states(hidden_states)
         output_attentions = _normalize_bool("output_attentions", output_attentions)
         use_flash = _normalize_bool("use_flash", use_flash)
+        _reject_flash_attention_if_requested(use_flash)
         cos, sin = _validate_cos_sin(cos_sin)
         query_states, key_states, value_states = self.qkv(hidden_states)
 

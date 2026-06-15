@@ -423,6 +423,33 @@ def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, ma
 
 
 @pytest.mark.parametrize(
+    "attn_cls,use_rope,apply_kwargs",
+    [
+        (Attention, False, {"kv_cache": object()}),
+        (AttentionWithRoPE, True, {}),
+    ],
+)
+def test_attention_call_rejects_flash_before_deeper_validation(attn_cls, use_rope, apply_kwargs):
+    config = ModelConfig(
+        head_dim=2 if use_rope else 1,
+        hidden_size=2 if use_rope else 1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=use_rope,
+    )
+    attn = attn_cls(config)
+    hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    init_kwargs = {"cos_sin": _identity_cos_sin(config, hidden_states.shape[1])} if use_rope else {}
+    params = attn.init(jax.random.PRNGKey(0), hidden_states, **init_kwargs)
+
+    with pytest.raises(NotImplementedError, match="flash attention is not enabled"):
+        attn.apply(params, hidden_states, use_flash=True, **apply_kwargs)
+
+
+@pytest.mark.parametrize(
     "attn_cls,use_rope",
     [
         (Attention, False),
