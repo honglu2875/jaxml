@@ -390,6 +390,24 @@ def test_engine_prepare_input_rejects_empty_leaf_batch_before_device_put(monkeyp
     assert calls == []
 
 
+def test_engine_prepare_input_rejects_empty_leaf_tokens_before_device_put(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_device_put(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("device_put should not be called for an empty input token axis.")
+
+    monkeypatch.setattr(jax, "device_put", fake_device_put)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(ValueError, match="at least one token"):
+        engine.prepare_input({"input_ids": np.ones((1, 0), dtype=np.int32)})
+
+    assert calls == []
+
+
 def test_engine_prepare_input_rejects_mismatched_leaf_batch_sizes_before_device_put(
     monkeypatch,
     llama_model_with_head,

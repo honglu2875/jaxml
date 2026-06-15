@@ -330,6 +330,8 @@ class Engine:
                 raise ValueError(f"prepare_input leaves must be 2D arrays for data/model sharding, got shape {x.shape}.")
             if x.shape[0] == 0:
                 raise ValueError("prepare_input leaves must contain at least one batch row.")
+            if x.shape[1] == 0:
+                raise ValueError("prepare_input leaves must contain at least one token.")
             if x.shape[0] % self.config.dp_size != 0:
                 raise ValueError(
                     f"prepare_input batch size must be divisible by dp_size={self.config.dp_size}, got {x.shape[0]}."
