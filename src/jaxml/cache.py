@@ -141,6 +141,8 @@ class KVCache(struct.PyTreeNode):
         k = jnp.asarray(k)
         v = jnp.asarray(v)
         self._validate_kv_inputs(k, v)
+        k = k.astype(self.dtype)
+        v = v.astype(self.dtype)
         if self.k is None:
             if self.v is not None or self.mask is not None or self.pos_id is not None:
                 raise ValueError("KVCache has partial state: k is empty but v, mask, or pos_id is populated.")

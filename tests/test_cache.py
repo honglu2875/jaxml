@@ -54,6 +54,16 @@ def test_kv_cache_init_accepts_complete_initial_state():
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [0]]))
 
 
+def test_kv_cache_init_casts_complete_initial_state_to_cache_dtype():
+    k, v = _kv(seq_len=2)
+
+    cache = KVCache.init(4, k=k, v=v, mask=None, dtype=jnp.bfloat16)
+
+    assert cache.k.dtype == jnp.bfloat16
+    assert cache.v.dtype == jnp.bfloat16
+    assert cache.dtype == jnp.dtype(jnp.bfloat16)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -78,6 +88,15 @@ def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     assert cache.v.shape == (2, 4, 1, 2)
     assert np.array_equal(np.array(cache.mask), np.array([[True, True, False, False], [True, True, False, False]]))
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [1]]))
+
+
+def test_kv_cache_update_casts_initial_state_to_cache_dtype():
+    k, v = _kv(seq_len=2)
+
+    cache = KVCache.init(4, dtype=jnp.bfloat16).update(k, v, mask=None)
+
+    assert cache.k.dtype == jnp.bfloat16
+    assert cache.v.dtype == jnp.bfloat16
 
 
 def test_kv_cache_update_rejects_partial_empty_state():
@@ -346,6 +365,17 @@ def test_kv_cache_update_decode_extends_cached_mask(mask_arg):
         np.array([[True, True, True, False], [True, True, False, False]]),
     )
     assert np.array_equal(np.array(cache.pos_id), np.array([[2], [1]]))
+
+
+def test_kv_cache_update_casts_decode_state_to_cache_dtype():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4, dtype=jnp.bfloat16).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
+    next_k, next_v = _kv(seq_len=1, value=3.0)
+
+    cache = cache.update(next_k.astype(jnp.float32), next_v.astype(jnp.float32), mask=None)
+
+    assert cache.k.dtype == jnp.bfloat16
+    assert cache.v.dtype == jnp.bfloat16
 
 
 def test_kv_cache_rollback_rejects_past_beginning():
