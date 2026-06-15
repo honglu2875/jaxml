@@ -73,6 +73,15 @@ def test_norms_reject_scalar_inputs(norm_cls):
         norm.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm, GemmaRMSNorm])
+def test_norms_reject_non_floating_inputs(norm_cls):
+    norm = norm_cls(hidden_size=4)
+    x = jnp.ones((1, 2, 4), dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="floating point"):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
 @pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
 @pytest.mark.parametrize(
     "kwargs,exception,match",

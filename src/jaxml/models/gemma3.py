@@ -24,7 +24,7 @@ from ..nn.attention import AttentionWithRoPE
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
-from ..nn.norms import RMSNorm
+from ..nn.norms import RMSNorm, _validate_hidden_states_shape
 from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
 from ._utils import normalize_model_output_flags, prepare_model_inputs, slice_last_n_logits_hidden_states
@@ -88,6 +88,7 @@ class GemmaRMSNorm(RMSNorm):
     upcast = True
 
     def __call__(self, hidden_states):
+        hidden_states = _validate_hidden_states_shape("GemmaRMSNorm", hidden_states, self.hidden_size)
         input_dtype = hidden_states.dtype
         if not self.upcast:
             raise ValueError("GemmaRMSNorm requires upcast=True.")

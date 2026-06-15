@@ -52,12 +52,16 @@ def _normalize_bool(name: str, value: bool) -> bool:
 
 
 def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: int):
+    hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim == 0:
         raise ValueError(f"{module_name} input must have at least one dimension.")
+    if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
+        raise TypeError(f"{module_name} input must contain floating point values, got dtype {hidden_states.dtype}.")
     if hidden_states.shape[-1] != hidden_size:
         raise ValueError(
             f"{module_name} hidden dimension mismatch: got {hidden_states.shape[-1]} and expected {hidden_size}."
         )
+    return hidden_states
 
 
 class RMSNorm(nn.Module):
@@ -87,7 +91,7 @@ class RMSNorm(nn.Module):
         )
 
     def __call__(self, hidden_states):
-        _validate_hidden_states_shape("RMSNorm", hidden_states, self.hidden_size)
+        hidden_states = _validate_hidden_states_shape("RMSNorm", hidden_states, self.hidden_size)
         input_dtype = hidden_states.dtype
         if self.upcast:
             hidden_states = hidden_states.astype(jnp.float32)
@@ -133,7 +137,7 @@ class LayerNorm(nn.Module):
             )
 
     def __call__(self, hidden_states):
-        _validate_hidden_states_shape("LayerNorm", hidden_states, self.hidden_size)
+        hidden_states = _validate_hidden_states_shape("LayerNorm", hidden_states, self.hidden_size)
         input_dtype = hidden_states.dtype
         if self.upcast:
             hidden_states = hidden_states.astype(jnp.float32)
