@@ -96,6 +96,12 @@ def _normalize_real(name: str, value: float) -> float:
     return value
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
 @struct.dataclass
 class SamplingParams:
     top_k: int
@@ -119,6 +125,10 @@ class SamplingMethod:
     use_top_p: bool
     use_min_p: bool
     use_greedy: bool
+
+    def __post_init__(self):
+        for name in ("use_top_k", "use_top_p", "use_min_p", "use_greedy"):
+            object.__setattr__(self, name, _normalize_bool(name, getattr(self, name)))
 
     @classmethod
     def from_values(cls, top_k: int, top_p: float, min_p: float, temp: float):

@@ -204,3 +204,32 @@ def test_sampling_method_pipeline_rejects_invalid_logits():
 
     with pytest.raises(TypeError, match="floating point"):
         sampling_fn(rng, jnp.ones((1, 1, 4), dtype=jnp.int32), 2, 0.9, 0.0, 1.0)
+
+
+def test_sampling_method_accepts_numpy_boolean_flags():
+    method = SamplingMethod(
+        use_top_k=np.bool_(True),
+        use_top_p=np.bool_(False),
+        use_min_p=np.bool_(False),
+        use_greedy=np.bool_(False),
+    )
+
+    assert method.use_top_k is True
+    assert method.use_top_p is False
+    assert method.use_min_p is False
+    assert method.use_greedy is False
+
+
+@pytest.mark.parametrize("field_name", ["use_top_k", "use_top_p", "use_min_p", "use_greedy"])
+@pytest.mark.parametrize("value", [1, 0, "true"])
+def test_sampling_method_rejects_non_boolean_flags(field_name, value):
+    kwargs = {
+        "use_top_k": False,
+        "use_top_p": False,
+        "use_min_p": False,
+        "use_greedy": True,
+    }
+    kwargs[field_name] = value
+
+    with pytest.raises(TypeError, match=f"{field_name} must be a boolean"):
+        SamplingMethod(**kwargs)
