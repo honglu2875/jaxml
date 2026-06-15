@@ -168,6 +168,44 @@ def test_generate_rejects_invalid_sampling_method_before_prefill(sampling_method
 
 
 @pytest.mark.parametrize(
+    "eval_output,exception,match",
+    [
+        (object(), TypeError, "pair of"),
+        ((jnp.ones((1, 1), dtype=jnp.float32), ()), ValueError, "input_tokens.shape"),
+        ((jnp.ones((2, 1, 4), dtype=jnp.float32), ()), ValueError, "leading shape"),
+        ((jnp.ones((1, 1, 0), dtype=jnp.float32), ()), ValueError, "non-empty vocabulary"),
+        ((jnp.ones((1, 1, 4), dtype=jnp.int32), ()), TypeError, "floating dtype"),
+    ],
+)
+def test_generate_rejects_invalid_eval_outputs(monkeypatch, eval_output, exception, match):
+    def fake_load_if_exists(name, hash, log=True):
+        del name, hash, log
+
+        def decorator(fn):
+            return fn
+
+        return decorator
+
+    def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
+        del params, tokens, attention_mask, kv_caches, use_cache
+        return eval_output
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", fake_load_if_exists)
+
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-eval-output",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+        )
+
+
+@pytest.mark.parametrize(
     "kwargs,exception,match",
     [
         ({"seed": True}, TypeError, "seed must be an integer"),

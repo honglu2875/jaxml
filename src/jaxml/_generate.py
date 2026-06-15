@@ -62,6 +62,32 @@ def _get_sampling_fn(sampling_method: SamplingMethod):
     return sample_fn
 
 
+def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
+    try:
+        logits, kv_caches = eval_output
+    except (TypeError, ValueError) as e:
+        raise TypeError("eval_fn must return a pair of (logits, kv_caches).") from e
+
+    logits = jnp.asarray(logits)
+    expected_prefix = input_tokens.shape
+    if logits.ndim != input_tokens.ndim + 1:
+        raise ValueError(
+            f"eval_fn logits must have shape input_tokens.shape + (vocab_size,), got {logits.shape} "
+            f"for input shape {expected_prefix}."
+        )
+    if logits.shape[:-1] != expected_prefix:
+        raise ValueError(
+            f"eval_fn logits leading shape must match input_tokens shape; got {logits.shape[:-1]} "
+            f"and {expected_prefix}."
+        )
+    if logits.shape[-1] <= 0:
+        raise ValueError(f"eval_fn logits must have a non-empty vocabulary axis, got shape {logits.shape}.")
+    if not jnp.issubdtype(logits.dtype, jnp.floating):
+        raise TypeError(f"eval_fn logits must have a floating dtype, got {logits.dtype}.")
+
+    return logits, kv_caches
+
+
 @functools.partial(jax.jit, static_argnames=("length", "axis"))
 def _pad_to(x, length, axis=0):
     pad_shape = x.shape[:axis] + (length - x.shape[axis],) + x.shape[axis + 1 :]
@@ -71,12 +97,13 @@ def _pad_to(x, length, axis=0):
 def _loop_fn(cache_and_rng_and_out, i, sample_fn, eval_fn, top_k, top_p, min_p, temp):
     params, kv_caches, key, tok = cache_and_rng_and_out
     key, subkey = jax.random.split(key)
-    outputs, kv_caches = eval_fn(
+    eval_output = eval_fn(
         params,
         tok,
         kv_caches=kv_caches,
         use_cache=True,
     )
+    outputs, kv_caches = _unpack_eval_output(eval_output, tok)
     out_tk = sample_fn(subkey, outputs, top_k, top_p, min_p, temp)
 
     return (params, kv_caches, key, out_tk), out_tk.squeeze(1).T
@@ -88,12 +115,13 @@ def _loop_fn_no_scan(key, kv_caches, tok, params, sample_fn, eval_fn, top_k, top
     #   It actually copies and causes an OOM on TPU-v4 with Llama2 7B.
     #   The way to fix it is not to return `params`, thus removing the ambiguity.
     key, subkey = jax.random.split(key)
-    outputs, kv_caches = eval_fn(
+    eval_output = eval_fn(
         params,
         tok,
         kv_caches=kv_caches,
         use_cache=True,
     )
+    outputs, kv_caches = _unpack_eval_output(eval_output, tok)
     out_tk = sample_fn(subkey, outputs, top_k, top_p, min_p, temp)
 
     return key, kv_caches, out_tk
@@ -211,13 +239,14 @@ def generate(
         # Note that top_k value cannot be traced due to the limit of jax.lax.top_k
         @load_if_exists(name="prefill", hash=call_hash)
         def _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature):
-            first_generated_logit, kv_caches = eval_fn(
+            eval_output = eval_fn(
                 params,
                 prompt_tokens,
                 attention_mask,
                 kv_caches,
                 use_cache=True,
             )
+            first_generated_logit, kv_caches = _unpack_eval_output(eval_output, prompt_tokens)
             return (
                 sample_fn(rng, first_generated_logit[:, -1:], top_k, top_p, min_p, temperature),
                 kv_caches,
