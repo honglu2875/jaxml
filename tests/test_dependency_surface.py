@@ -1,5 +1,6 @@
 import importlib.metadata as metadata
 import importlib.util
+import re
 import tomllib
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _SPECIFIER_OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<")
+_SUPPORTED_CI_PYTHON_VERSIONS = ("3.11", "3.12")
 
 pytestmark = pytest.mark.critical
 
@@ -44,6 +46,19 @@ def _makefile_recipes():
 
 def _workflow_config():
     return (PROJECT_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+
+def _workflow_python_versions(job_name: str) -> tuple[str, ...]:
+    workflow = _workflow_config()
+    job_match = re.search(
+        rf"^  {re.escape(job_name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:|\Z)", workflow, re.MULTILINE | re.DOTALL
+    )
+    if job_match is None:
+        raise AssertionError(f"CI workflow does not define job {job_name!r}.")
+    matrix_match = re.search(r"python-version:\n(?P<versions>(?:\s+- \"[^\"]+\"\n)+)", job_match.group("body"))
+    if matrix_match is None:
+        raise AssertionError(f"CI job {job_name!r} does not define a python-version matrix.")
+    return tuple(re.findall(r'- "([^"]+)"', matrix_match.group("versions")))
 
 
 def _dependency_drift_module():
@@ -201,6 +216,11 @@ def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events()
     assert "uv run --frozen --extra dev make verify-milestone-cpu" in workflow
     assert "workflow_dispatch:" in workflow
     assert "schedule:" in workflow
+
+
+@pytest.mark.parametrize("job_name", ["cpu", "milestone-cpu"])
+def test_ci_cpu_jobs_cover_supported_python_versions(job_name):
+    assert _workflow_python_versions(job_name) == _SUPPORTED_CI_PYTHON_VERSIONS
 
 
 def test_jax_runtime_surface_executes_jitted_cpu_work():

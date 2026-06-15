@@ -79,4 +79,4 @@ Before changing pinned dependencies, audit direct dependency drift:
 uv run --frozen --extra dev make dependency-drift
 ```
 
-GitHub CI runs the critical CPU gate on pushes and pull requests. The full milestone CPU suite runs on the weekly scheduled workflow and manual dispatch. TPU tests are excluded from CPU suites and remain a local/manual gate.
+GitHub CI runs the critical CPU gate on pushes and pull requests for Python 3.11 and 3.12. The full milestone CPU suite runs on the weekly scheduled workflow and manual dispatch. TPU tests are excluded from CPU suites and remain a local/manual gate.
