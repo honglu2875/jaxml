@@ -290,6 +290,32 @@ def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, ma
 
 
 @pytest.mark.parametrize(
+    "attn_cls,use_rope",
+    [
+        (Attention, False),
+        (AttentionWithRoPE, True),
+    ],
+)
+def test_attention_call_rejects_non_kv_cache(attn_cls, use_rope):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=use_rope,
+    )
+    attn = attn_cls(config)
+    hidden_states = jnp.zeros((1, 2, 1), dtype=jnp.float32)
+    params = attn.init(jax.random.PRNGKey(0), hidden_states)
+
+    with pytest.raises(TypeError, match="kv_cache must be a KVCache"):
+        attn.apply(params, hidden_states, kv_cache=object())
+
+
+@pytest.mark.parametrize(
     "attention_mask,exception,match",
     [
         (jnp.ones((1, 2), dtype=bool), ValueError, "attention_mask shape must match"),

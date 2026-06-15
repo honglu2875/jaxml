@@ -86,6 +86,14 @@ def _validate_alibi_slope(alibi_slope, num_heads: int):
     return alibi_slope
 
 
+def _validate_optional_kv_cache(kv_cache: Optional[KVCache]) -> Optional[KVCache]:
+    if kv_cache is None:
+        return None
+    if not isinstance(kv_cache, KVCache):
+        raise TypeError(f"kv_cache must be a KVCache instance or None, got {type(kv_cache)}.")
+    return kv_cache
+
+
 class Attention(Block):
     """
     Flax base model of attention.
@@ -191,6 +199,7 @@ class Attention(Block):
         attention_mask: Optional[jnp.ndarray],
         kv_cache: Optional[KVCache],
     ):
+        kv_cache = _validate_optional_kv_cache(kv_cache)
         if kv_cache is None:
             return key_states, value_states, attention_mask, None
 
@@ -336,6 +345,7 @@ class Attention(Block):
         return attn_output
 
     def _get_default_mask(self, hidden_states, kv_cache):
+        kv_cache = _validate_optional_kv_cache(kv_cache)
         if kv_cache is not None and kv_cache.mask is not None:
             return kv_cache.next_mask
         return jnp.ones(hidden_states.shape[:2], dtype=bool)
