@@ -21,6 +21,11 @@ def _validate_logits(logits):
         raise ValueError(f"logits must have a non-empty vocabulary axis, got shape {logits.shape}.")
     if not jnp.issubdtype(logits.dtype, jnp.floating):
         raise TypeError(f"logits must contain floating point values, got dtype {logits.dtype}.")
+    if not _contains_tracer(logits):
+        if bool(jnp.any(jnp.isnan(logits) | jnp.isposinf(logits))):
+            raise ValueError("logits must not contain NaN or positive infinity.")
+        if not bool(jnp.all(jnp.any(jnp.isfinite(logits), axis=-1))):
+            raise ValueError("logits must contain at least one finite value per vocabulary row.")
     return logits
 
 

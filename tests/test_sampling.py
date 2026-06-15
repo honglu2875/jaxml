@@ -128,6 +128,33 @@ def test_sampling_functions_reject_invalid_logits(filter_fn, logits, exception, 
         filter_fn(rng, logits, 2, 0.9, 0.1, 1.0)
 
 
+@pytest.mark.parametrize(
+    "logits,match",
+    [
+        (jnp.array([[[0.0, jnp.nan]]], dtype=jnp.float32), "NaN or positive infinity"),
+        (jnp.array([[[0.0, jnp.inf]]], dtype=jnp.float32), "NaN or positive infinity"),
+        (jnp.array([[[-jnp.inf, -jnp.inf]]], dtype=jnp.float32), "at least one finite value"),
+    ],
+)
+@pytest.mark.parametrize("filter_fn", [top_p_filtering, min_p_filtering, greedy_fn])
+def test_eager_sampling_functions_reject_invalid_logit_values(filter_fn, logits, match):
+    rng = jax.random.PRNGKey(0)
+
+    with pytest.raises(ValueError, match=match):
+        filter_fn(rng, logits, 2, 0.9, 0.1, 1.0)
+
+
+@pytest.mark.parametrize("filter_fn", [top_p_filtering, min_p_filtering, greedy_fn])
+def test_eager_sampling_functions_allow_negative_infinity_masks(filter_fn):
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.array([[[0.0, -jnp.inf, 1.0]]], dtype=jnp.float32)
+
+    output = filter_fn(rng, logits, 2, 0.9, 0.1, 1.0)
+
+    expected_shape = logits.shape[:-1] if filter_fn is greedy_fn else logits.shape
+    assert output.shape == expected_shape
+
+
 def test_top_p_filtering_uses_sorted_cutoff_per_batch_row():
     rng = jax.random.PRNGKey(0)
     logits = jnp.array(
@@ -258,6 +285,22 @@ def test_sampling_method_pipeline_rejects_invalid_logits():
 
     with pytest.raises(TypeError, match="floating point"):
         sampling_fn(rng, jnp.ones((1, 1, 4), dtype=jnp.int32), 2, 0.9, 0.0, 1.0)
+
+
+@pytest.mark.parametrize(
+    "logits,match",
+    [
+        (jnp.array([[[0.0, jnp.nan]]], dtype=jnp.float32), "NaN or positive infinity"),
+        (jnp.array([[[0.0, jnp.inf]]], dtype=jnp.float32), "NaN or positive infinity"),
+        (jnp.array([[[-jnp.inf, -jnp.inf]]], dtype=jnp.float32), "at least one finite value"),
+    ],
+)
+def test_sampling_method_pipeline_rejects_invalid_logit_values(logits, match):
+    rng = jax.random.PRNGKey(0)
+    sampling_fn = SamplingMethod.from_values(top_k=2, top_p=0.9, min_p=0.0, temp=1.0).get_sampling_fn()
+
+    with pytest.raises(ValueError, match=match):
+        sampling_fn(rng, logits, 2, 0.9, 0.0, 1.0)
 
 
 def test_sampling_method_pipeline_rejects_non_positive_temperature_for_non_greedy_method():
