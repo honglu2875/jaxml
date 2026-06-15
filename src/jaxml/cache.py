@@ -174,7 +174,7 @@ class KVCache(struct.PyTreeNode):
         if self.v is None or self.mask is None or self.pos_id is None:
             raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
         prev_pos = self.pos_id - n
-        if bool(jnp.any(prev_pos < 0)):
+        if not _contains_tracer(prev_pos) and bool(jnp.any(prev_pos < 0)):
             raise ValueError("Cannot roll back past the beginning of the KV cache.")
         filter_mask = jnp.arange(self.k.shape[1]) <= prev_pos
         new_k = jnp.where(filter_mask[..., None, None], self.k, 0)
@@ -192,7 +192,7 @@ class KVCache(struct.PyTreeNode):
             return self.replace(max_seq_len=new_size)
         if self.v is None or self.mask is None or self.pos_id is None:
             raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
-        if bool(jnp.any(self.pos_id >= new_size)):
+        if not _contains_tracer(self.pos_id) and bool(jnp.any(self.pos_id >= new_size)):
             raise ValueError("Cannot resize KV cache below the highest cached position.")
         if new_size > self.max_seq_len:
             new_k, new_v, new_mask = map(

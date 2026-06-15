@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -219,6 +220,24 @@ def test_kv_cache_rollback_rejects_past_beginning():
         cache.rollback(3)
 
 
+def test_kv_cache_rollback_accepts_traced_cache_state():
+    k, v = _kv(seq_len=3)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 3), dtype=bool))
+
+    @jax.jit
+    def rollback(cache):
+        return cache.rollback(1)
+
+    rolled_back = rollback(cache)
+
+    assert np.array_equal(np.array(rolled_back.pos_id), np.array([[1], [1]]))
+    assert np.array_equal(
+        np.array(rolled_back.mask),
+        np.array([[True, True, False, False], [True, True, False, False]]),
+    )
+    assert np.array_equal(np.array(rolled_back.k[:, 2:]), np.zeros((2, 2, 1, 2), dtype=np.float32))
+
+
 @pytest.mark.parametrize("method_name", ["rollback", "resize"])
 @pytest.mark.parametrize(
     "cache,match",
@@ -268,6 +287,26 @@ def test_kv_cache_resize_rejects_truncating_cached_positions():
 
     with pytest.raises(ValueError, match="below the highest cached position"):
         cache.resize(2)
+
+
+def test_kv_cache_resize_accepts_traced_cache_state():
+    k, v = _kv(seq_len=2)
+    cache = KVCache.init(4).update(k, v, mask=jnp.ones((2, 2), dtype=bool))
+
+    @jax.jit
+    def resize(cache):
+        return cache.resize(3)
+
+    resized = resize(cache)
+
+    assert resized.max_seq_len == 3
+    assert resized.k.shape == (2, 3, 1, 2)
+    assert resized.v.shape == (2, 3, 1, 2)
+    assert np.array_equal(np.array(resized.pos_id), np.array([[1], [1]]))
+    assert np.array_equal(
+        np.array(resized.mask),
+        np.array([[True, True, False], [True, True, False]]),
+    )
 
 
 @pytest.mark.parametrize("new_size", [True, np.bool_(True), 1.5])
