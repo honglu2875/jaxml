@@ -178,6 +178,12 @@ def _normalize_decoded_text(decoded, batch_size: int) -> list[str]:
     return decoded
 
 
+def _expected_generated_token_length(input_ids: jnp.ndarray, max_new_tokens: int, include_prompt: bool) -> int:
+    if include_prompt:
+        return input_ids.shape[1] + max_new_tokens
+    return max_new_tokens
+
+
 @dataclass
 class TextGenerationPipeline:
     engine: Engine
@@ -306,6 +312,16 @@ class TextGenerationPipeline:
             raise ValueError(
                 "engine.generate token batch size must match input batch size; "
                 f"got {tokens.shape[0]} and {input_ids.shape[0]}."
+            )
+        expected_length = _expected_generated_token_length(
+            input_ids,
+            max_new_tokens=kwargs["max_new_tokens"],
+            include_prompt=kwargs["include_prompt"],
+        )
+        if tokens.shape[1] != expected_length:
+            raise ValueError(
+                "engine.generate token length must match requested generation length; "
+                f"got {tokens.shape[1]} and expected {expected_length}."
             )
         return tokens
 

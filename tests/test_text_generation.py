@@ -516,6 +516,31 @@ def test_generate_text_rejects_engine_token_batch_mismatch_before_decode():
 
 
 @pytest.mark.parametrize(
+    "include_prompt,engine_output,expected_length",
+    [
+        (False, np.ones((1, 0), dtype=np.int32), 1),
+        (False, np.ones((1, 2), dtype=np.int32), 1),
+        (True, np.ones((1, 1), dtype=np.int32), 2),
+        (True, np.ones((1, 3), dtype=np.int32), 2),
+    ],
+)
+def test_generate_text_rejects_engine_token_length_mismatch_before_decode(
+    include_prompt,
+    engine_output,
+    expected_length,
+):
+    tokenizer = DummyTokenizer()
+    engine = StaticEngine(engine_output)
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(ValueError, match=f"got {engine_output.shape[1]} and expected {expected_length}"):
+        pipeline.generate_text("hello", generation_config=GenerationConfig(max_new_tokens=1, include_prompt=include_prompt))
+
+    assert engine.generate_calls
+    assert tokenizer.decode_calls == []
+
+
+@pytest.mark.parametrize(
     "decoded,exception,match",
     [
         ("decoded", TypeError, "sequence of strings"),
@@ -529,7 +554,7 @@ def test_generate_text_rejects_invalid_decoded_output(decoded, exception, match)
     pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
 
     with pytest.raises(exception, match=match):
-        pipeline.generate_text("hello")
+        pipeline.generate_text("hello", generation_config=GenerationConfig(max_new_tokens=0))
 
     assert engine.generate_calls
     assert tokenizer.decode_calls
