@@ -72,6 +72,12 @@ class StaticTokenizer:
         return ["decoded"]
 
 
+class TokenizerWithoutDecode:
+    def __call__(self, prompts, return_tensors, **kwargs):
+        del prompts, return_tensors, kwargs
+        return {"input_ids": np.ones((1, 1), dtype=np.int32)}
+
+
 @pytest.mark.parametrize("field_name", ["seed", "max_new_tokens", "top_k"])
 @pytest.mark.parametrize("value", [True, np.bool_(True), 1.5])
 def test_generation_config_rejects_non_integer_count_fields(field_name, value):
@@ -142,6 +148,19 @@ def test_generation_config_accepts_numpy_scalar_fields():
 def test_pipeline_rejects_non_mapping_default_kwargs(kwargs, match):
     with pytest.raises(TypeError, match=match):
         TextGenerationPipeline(engine=DummyEngine(), tokenizer=DummyTokenizer(), **kwargs)
+
+
+@pytest.mark.parametrize(
+    "engine,tokenizer,match",
+    [
+        (object(), DummyTokenizer(), "engine must provide a callable generate method"),
+        (DummyEngine(), object(), "tokenizer must be callable"),
+        (DummyEngine(), TokenizerWithoutDecode(), "batch_decode"),
+    ],
+)
+def test_pipeline_rejects_invalid_components(engine, tokenizer, match):
+    with pytest.raises(TypeError, match=match):
+        TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
 
 
 def test_pipeline_copies_default_kwargs_on_construction():
@@ -363,6 +382,9 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
         def init_params(self, use_tpu):
             calls["use_tpu"] = use_tpu
 
+        def generate(self, input_ids, attention_mask=None, **kwargs):
+            raise AssertionError("generate should not be called by from_hf.")
+
     def fake_load_model_from_hf(name, architecture, dtype, **kwargs):
         calls["load_model"] = (name, architecture, dtype, kwargs)
         return "model", {"params": "params"}
@@ -471,6 +493,9 @@ def test_from_hf_normalizes_pathlike_name_for_tokenizer_and_model_loader(monkeyp
 
         def init_params(self, use_tpu):
             calls["use_tpu"] = use_tpu
+
+        def generate(self, input_ids, attention_mask=None, **kwargs):
+            raise AssertionError("generate should not be called by from_hf.")
 
     def fake_load_model_from_hf(name, architecture, dtype, **kwargs):
         calls["load_model"] = (name, architecture, dtype, kwargs)

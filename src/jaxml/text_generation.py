@@ -134,6 +134,12 @@ class TextGenerationPipeline:
     default_decode_kwargs: dict[str, Any] = field(default_factory=lambda: {"skip_special_tokens": True})
 
     def __post_init__(self):
+        if not callable(getattr(self.engine, "generate", None)):
+            raise TypeError("engine must provide a callable generate method.")
+        if not callable(self.tokenizer):
+            raise TypeError(f"tokenizer must be callable, got {type(self.tokenizer)}.")
+        if not callable(getattr(self.tokenizer, "batch_decode", None)):
+            raise TypeError("tokenizer must provide a callable batch_decode method.")
         self.default_tokenize_kwargs = _normalize_optional_kwargs("default_tokenize_kwargs", self.default_tokenize_kwargs)
         self.default_decode_kwargs = _normalize_optional_kwargs("default_decode_kwargs", self.default_decode_kwargs)
 
