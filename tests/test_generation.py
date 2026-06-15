@@ -662,6 +662,23 @@ def test_engine_accepts_numpy_integer_cache_stride(llama_model_with_head):
     assert engine.cache_stride == 8
 
 
+@pytest.mark.parametrize("dtype", [None, "not-a-dtype", object()])
+def test_engine_rejects_invalid_dtype(llama_model_with_head, dtype):
+    model, params = llama_model_with_head
+
+    with pytest.raises(TypeError, match="dtype must be a valid JAX dtype"):
+        Engine(model, InferenceConfig(), params, dtype=dtype)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, np.float32, "bfloat16"])
+def test_engine_canonicalizes_dtype(llama_model_with_head, dtype):
+    model, params = llama_model_with_head
+
+    engine = Engine(model, InferenceConfig(), params, dtype=dtype)
+
+    assert engine.dtype == jnp.dtype(dtype)
+
+
 @pytest.mark.parametrize(
     "kwargs,match",
     [

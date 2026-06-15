@@ -48,6 +48,12 @@ def _normalize_optional_dtype(name: str, value: Any):
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
 
 
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    return _normalize_optional_dtype(name, value)
+
+
 @struct.dataclass
 class InferenceConfig:
     tp_size: int = 1
@@ -75,6 +81,7 @@ class Engine:
         dtype: Any = jnp.float32,
         cache_stride: int = 256,
     ):
+        dtype = _normalize_dtype("dtype", dtype)
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
             raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
