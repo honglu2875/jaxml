@@ -106,7 +106,14 @@ class KVCache(struct.PyTreeNode):
         if not jnp.issubdtype(v.dtype, jnp.floating):
             raise TypeError(f"v must contain floating point values, got dtype {v.dtype}.")
 
+    def _validate_static_state(self):
+        max_seq_len = _normalize_count("max_seq_len", self.max_seq_len)
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
+        _normalize_dtype("dtype", self.dtype)
+
     def _validate_populated_state(self):
+        self._validate_static_state()
         if self.k is None:
             if self.v is not None or self.mask is not None or self.pos_id is not None:
                 raise ValueError("KVCache has partial state: k is empty but v, mask, or pos_id is populated.")
@@ -146,6 +153,7 @@ class KVCache(struct.PyTreeNode):
         return self
 
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
+        self._validate_static_state()
         k = jnp.asarray(k)
         v = jnp.asarray(v)
         self._validate_kv_inputs(k, v)

@@ -41,6 +41,38 @@ def test_kv_cache_init_canonicalizes_dtype(dtype):
     assert cache.dtype == jnp.dtype(dtype)
 
 
+@pytest.mark.parametrize(
+    "cache,exception,match",
+    [
+        (KVCache(k=None, v=None, max_seq_len=0, mask=None), ValueError, "max_seq_len must be positive"),
+        (KVCache(k=None, v=None, max_seq_len=True, mask=None), TypeError, "max_seq_len must be an integer"),
+        (KVCache(k=None, v=None, max_seq_len=4, mask=None, dtype=None), TypeError, "dtype must be a valid JAX dtype"),
+        (
+            KVCache(k=None, v=None, max_seq_len=4, mask=None, dtype="not-a-dtype"),
+            TypeError,
+            "dtype must be a valid JAX dtype",
+        ),
+    ],
+)
+def test_kv_cache_validate_state_rejects_invalid_static_fields(cache, exception, match):
+    with pytest.raises(exception, match=match):
+        cache.validate_state()
+
+
+@pytest.mark.parametrize(
+    "cache,exception,match",
+    [
+        (KVCache(k=None, v=None, max_seq_len=0, mask=None), ValueError, "max_seq_len must be positive"),
+        (KVCache(k=None, v=None, max_seq_len=4, mask=None, dtype=None), TypeError, "dtype must be a valid JAX dtype"),
+    ],
+)
+def test_kv_cache_update_rejects_invalid_static_fields_before_mutation(cache, exception, match):
+    k, v = _kv(batch=1, seq_len=1)
+
+    with pytest.raises(exception, match=match):
+        cache.update(k, v, mask=None)
+
+
 def test_kv_cache_init_accepts_complete_initial_state():
     k, v = _kv(seq_len=2)
     mask = jnp.array([[1, 1], [1, 0]], dtype=jnp.int32)
