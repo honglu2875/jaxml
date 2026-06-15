@@ -469,6 +469,43 @@ def test_dense_general_accepts_numpy_boolean_use_bias():
     assert y.shape == (1, 2, 4)
 
 
+@pytest.mark.parametrize("kernel_axes", ["embed", ("embed",), (1,)])
+def test_dense_general_bias_ignores_kernel_axes_without_logical_partitioning(kernel_axes):
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=kernel_axes,
+        use_bias=True,
+        with_logical_partitioning=False,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.shape == (1, 2, 4)
+    assert params["params"]["bias"].shape == (4,)
+
+
+def test_dense_general_bias_uses_feature_kernel_axes_with_logical_partitioning():
+    dense = DenseGeneral(
+        features=(4, 2),
+        axis=-1,
+        kernel_axes=("embed", "features_a", "features_b"),
+        use_bias=True,
+        with_logical_partitioning=True,
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32)
+
+    params = dense.init(jax.random.PRNGKey(0), x)
+    y = dense.apply(params, x)
+
+    assert y.shape == (1, 2, 4, 2)
+    bias = params["params"]["bias"]
+    assert bias.value.shape == (4, 2)
+    assert bias.names == ("features_a", "features_b")
+
+
 def test_layer_norm_without_bias_matches_zero_bias_torch_layer_norm():
     jax_norm = LayerNorm(hidden_size=4, use_bias=False, dtype=jnp.float32)
     torch_norm = torch.nn.LayerNorm(4, eps=1e-6, elementwise_affine=True)

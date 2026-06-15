@@ -28,7 +28,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from .module import Module
+from .module import Module, _normalize_kernel_axes
 
 
 def _normalize_axes(axes: Iterable[int], ndim: int) -> Tuple[int, ...]:
@@ -159,11 +159,17 @@ class DenseGeneral(Module):
         contract_ind = tuple(range(0, len(axis)))
         output = compute_dot_general(inputs, kernel, axis, contract_ind)
         if use_bias:
-            bias_axes = self.kernel_axes[-len(features) :]
             bias_shape = kernel_shape[-len(features) :]
+            bias_init = self.bias_init
+            if _normalize_bool("with_logical_partitioning", self.with_logical_partitioning):
+                bias_axes = self.kernel_axes[-len(features) :]
+                bias_init = nn.with_logical_partitioning(
+                    bias_init,
+                    _normalize_kernel_axes(bias_axes, bias_shape),
+                )
             bias = self.param(
                 "bias",
-                nn.with_logical_partitioning(self.bias_init, bias_axes),
+                bias_init,
                 bias_shape,
                 weight_dtype,
             )
