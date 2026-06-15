@@ -87,6 +87,35 @@ def test_rnn_discrete_accepts_numpy_dtype():
 
 
 @pytest.mark.parametrize(
+    "input_ids,exception,match",
+    [
+        (jnp.array([0, 1], dtype=jnp.int32), ValueError, "input_ids must be a 2D array"),
+        (jnp.ones((1, 2, 1), dtype=jnp.int32), ValueError, "input_ids must be a 2D array"),
+        (jnp.ones((1, 2), dtype=jnp.float32), TypeError, "integer token ids"),
+        (jnp.ones((0, 2), dtype=jnp.int32), ValueError, "at least one batch row"),
+        (jnp.ones((1, 0), dtype=jnp.int32), ValueError, "at least one token"),
+    ],
+)
+def test_rnn_discrete_rejects_invalid_input_ids(input_ids, exception, match):
+    config = RNNDiscreteConfig(num_classes=8, num_layers=1, hidden_dim=6, state_dim=4)
+    model = RNNDiscrete(config=config, dtype=jnp.float32)
+
+    with pytest.raises(exception, match=match):
+        model.init(jax.random.PRNGKey(0), input_ids)
+
+
+def test_rnn_discrete_accepts_array_like_input_ids():
+    config = RNNDiscreteConfig(num_classes=8, num_layers=1, hidden_dim=6, state_dim=4)
+    model = RNNDiscrete(config=config, dtype=jnp.float32)
+    input_ids = np.array([[0, 1]], dtype=np.int32)
+
+    params = model.init(jax.random.PRNGKey(0), input_ids)
+    logits = model.apply(params, input_ids)
+
+    assert logits.shape == (1, 2, config.num_classes)
+
+
+@pytest.mark.parametrize(
     "overrides,exception,match",
     [
         ({"num_classes": 0}, ValueError, "num_classes must be positive"),

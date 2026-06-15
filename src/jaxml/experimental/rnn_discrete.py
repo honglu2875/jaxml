@@ -43,6 +43,19 @@ def _normalize_callable(name: str, value):
     return value
 
 
+def _validate_input_ids(input_ids) -> jnp.ndarray:
+    input_ids = jnp.asarray(input_ids)
+    if input_ids.ndim != 2:
+        raise ValueError(f"input_ids must be a 2D array, got shape {input_ids.shape}.")
+    if not jnp.issubdtype(input_ids.dtype, jnp.integer):
+        raise TypeError(f"input_ids must contain integer token ids, got dtype {input_ids.dtype}.")
+    if input_ids.shape[0] == 0:
+        raise ValueError("input_ids must contain at least one batch row.")
+    if input_ids.shape[1] == 0:
+        raise ValueError("input_ids must contain at least one token.")
+    return input_ids
+
+
 @struct.dataclass
 class RNNDiscreteConfig:
     num_classes: int = struct.field(pytree_node=False)
@@ -117,6 +130,7 @@ class RNNDiscrete(Module):
     ):
         dtype = _normalize_dtype("dtype", self.dtype)
         act_fn = _normalize_callable("act_fn", self.act_fn)
+        input_ids = _validate_input_ids(input_ids)
         out = self.embed(input_ids).astype(dtype)
         for layer in self.layers:
             out = layer(out)
