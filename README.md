@@ -30,7 +30,7 @@ Inference engine features:
 # Quick start
 
 ```python
-from jaxml.text_generation import GenerationConfig, TextGenerationPipeline
+from jaxml import GenerationConfig, TextGenerationPipeline
 
 pipeline = TextGenerationPipeline.from_hf(
     "EleutherAI/pythia-70m",

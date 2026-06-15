@@ -14,6 +14,23 @@ def test_inference_engine_exports_documented_entry_points():
     assert SamplingMethod is SamplingMethodImpl
 
 
+def test_package_root_exports_documented_entry_points():
+    from jaxml import Engine, GenerationConfig, InferenceConfig, ModelConfig, SamplingMethod, TextGenerationPipeline
+    from jaxml.config import ModelConfig as ModelConfigImpl
+    from jaxml.inference_engine import Engine as EngineImpl
+    from jaxml.inference_engine import InferenceConfig as InferenceConfigImpl
+    from jaxml.inference_engine import SamplingMethod as SamplingMethodImpl
+    from jaxml.text_generation import GenerationConfig as GenerationConfigImpl
+    from jaxml.text_generation import TextGenerationPipeline as TextGenerationPipelineImpl
+
+    assert Engine is EngineImpl
+    assert GenerationConfig is GenerationConfigImpl
+    assert InferenceConfig is InferenceConfigImpl
+    assert ModelConfig is ModelConfigImpl
+    assert SamplingMethod is SamplingMethodImpl
+    assert TextGenerationPipeline is TextGenerationPipelineImpl
+
+
 def test_importing_jaxml_does_not_configure_root_logging():
     root_logger = logging.getLogger()
     original_handlers = list(root_logger.handlers)
