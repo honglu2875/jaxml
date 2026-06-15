@@ -1,9 +1,8 @@
 import importlib.metadata as metadata
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 import pytest
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

@@ -1,5 +1,5 @@
-from dataclasses import field
 import operator
+from dataclasses import field
 from typing import Any, Tuple
 
 import flax.linen as nn

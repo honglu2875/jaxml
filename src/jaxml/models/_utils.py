@@ -69,7 +69,9 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
         if not (jnp.issubdtype(attention_mask.dtype, jnp.bool_) or jnp.issubdtype(attention_mask.dtype, jnp.integer)):
             raise TypeError(f"attention_mask must be boolean or integer, got dtype {attention_mask.dtype}.")
         if attention_mask.shape != input_ids.shape:
-            raise ValueError(f"attention_mask shape must match input_ids shape; got {attention_mask.shape} and {input_ids.shape}.")
+            raise ValueError(
+                f"attention_mask shape must match input_ids shape; got {attention_mask.shape} and {input_ids.shape}."
+            )
         attention_mask = attention_mask.astype(bool)
         if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")

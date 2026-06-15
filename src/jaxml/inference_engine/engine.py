@@ -218,6 +218,7 @@ class Engine:
                 out_shardings=logical_state_sharding,
             )
         else:
+
             def params_fn(*_):
                 return FrozenDict({})
 
@@ -357,9 +358,7 @@ class Engine:
         if tokens.shape[1] <= 0:
             raise ValueError("Internal generation must return at least one token per step.")
         if tokens.shape[1] > max_new_tokens:
-            raise ValueError(
-                f"Internal generation returned {tokens.shape[1]} tokens for a step limited to {max_new_tokens}."
-            )
+            raise ValueError(f"Internal generation returned {tokens.shape[1]} tokens for a step limited to {max_new_tokens}.")
         if not jnp.issubdtype(tokens.dtype, jnp.integer):
             raise TypeError(f"Internal generation tokens must contain integer token ids, got dtype {tokens.dtype}.")
 
@@ -377,12 +376,12 @@ class Engine:
         except TypeError as e:
             raise TypeError("Internal generation kv_caches must be a sequence of KVCache instances.") from e
         if len(kv_caches) != expected_cache_count:
-            raise ValueError(
-                f"Internal generation returned {len(kv_caches)} KV caches, expected {expected_cache_count}."
-            )
+            raise ValueError(f"Internal generation returned {len(kv_caches)} KV caches, expected {expected_cache_count}.")
         for idx, kv_cache in enumerate(kv_caches):
             if not isinstance(kv_cache, KVCache):
-                raise TypeError(f"Internal generation kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}.")
+                raise TypeError(
+                    f"Internal generation kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}."
+                )
 
         return tokens, kv_caches, rng
 

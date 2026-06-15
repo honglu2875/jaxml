@@ -1,8 +1,8 @@
 import math
-from collections.abc import Mapping
-from numbers import Real
 import operator
+from collections.abc import Mapping
 from dataclasses import fields
+from numbers import Real
 from typing import Optional
 
 import numpy as np
@@ -141,8 +141,7 @@ class ModelConfig:
             raise ValueError(f"num_key_value_heads must be positive, got {self.num_key_value_heads}.")
         if self.num_heads % self.num_key_value_heads != 0:
             raise ValueError(
-                "num_heads must be divisible by num_key_value_heads, "
-                f"got {self.num_heads} and {self.num_key_value_heads}."
+                "num_heads must be divisible by num_key_value_heads, " f"got {self.num_heads} and {self.num_key_value_heads}."
             )
 
         if self.sliding_window is not None:

@@ -210,11 +210,10 @@ def torch_to_jax_states(
         _qkv_separate_map = _dense_key_map
         _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], 3, -1))}
     else:
+
         def _reshape_qkv_separate_weight(x):
             if x.shape[0] % head_dim != 0:
-                raise ValueError(
-                    f"Q/K/V projection output dimension {x.shape[0]} must be divisible by head_dim {head_dim}."
-                )
+                raise ValueError(f"Q/K/V projection output dimension {x.shape[0]} must be divisible by head_dim {head_dim}.")
             return x.T.reshape(x.shape[1], -1, head_dim)
 
         def _reshape_qkv_separate_bias(x):

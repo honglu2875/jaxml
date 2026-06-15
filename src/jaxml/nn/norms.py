@@ -14,8 +14,8 @@
 # limitations under the License.
 
 import math
-from numbers import Real
 import operator
+from numbers import Real
 
 import flax.linen as nn
 import jax.numpy as jnp
@@ -58,9 +58,7 @@ def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: 
     if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
         raise TypeError(f"{module_name} input must contain floating point values, got dtype {hidden_states.dtype}.")
     if hidden_states.shape[-1] != hidden_size:
-        raise ValueError(
-            f"{module_name} hidden dimension mismatch: got {hidden_states.shape[-1]} and expected {hidden_size}."
-        )
+        raise ValueError(f"{module_name} hidden dimension mismatch: got {hidden_states.shape[-1]} and expected {hidden_size}.")
     return hidden_states
 
 

@@ -1,5 +1,5 @@
-from dataclasses import field
 import operator
+from dataclasses import field
 from typing import Any, Optional
 
 import jax
@@ -9,8 +9,8 @@ from flax import struct
 
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
-from ..nn.norms import RMSNorm
 from ..nn.module import Module
+from ..nn.norms import RMSNorm
 
 
 def _normalize_count(name: str, value: int) -> int:

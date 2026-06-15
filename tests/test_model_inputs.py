@@ -5,7 +5,6 @@ import pytest
 
 from jaxml.cache import KVCache
 
-
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
 
 

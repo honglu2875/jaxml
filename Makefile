@@ -1,7 +1,7 @@
 SHELL=/bin/bash
 LINT_PATHS=src/jaxml/ tests/
 
-.PHONY: pytest pytest-cpu pytest-tpu lint format style verify-cpu verify-tpu
+.PHONY: pytest pytest-cpu pytest-tpu lint format format-check style verify-cpu verify-tpu
 
 pytest:
 	JAX_PLATFORMS=cpu pytest -m "not tpu" tests/
@@ -18,10 +18,14 @@ lint:
 
 format:
 	isort ${LINT_PATHS}
-	black -l 127 ${LINT_PATHS}
+	black ${LINT_PATHS}
+
+format-check:
+	isort --check-only ${LINT_PATHS}
+	black --check ${LINT_PATHS}
 
 style: format lint
 
-verify-cpu: lint pytest-cpu
+verify-cpu: lint format-check pytest-cpu
 
 verify-tpu: pytest-tpu

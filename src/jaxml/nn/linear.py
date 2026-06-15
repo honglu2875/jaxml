@@ -19,8 +19,8 @@
 # Link: https://github.com/google/maxtext/blob/4f3a0d3cf8509d05ce040e35d88ea7bf57797945/MaxText/layers/linears.py
 #
 
-from dataclasses import field
 import operator
+from dataclasses import field
 from typing import Any, Callable, Iterable, Tuple, Union
 
 import flax.linen as nn

@@ -1,6 +1,6 @@
 import re
-from os import PathLike, fspath
 from operator import index
+from os import PathLike, fspath
 from typing import Literal
 
 import numpy as np

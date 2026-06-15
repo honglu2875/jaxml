@@ -63,7 +63,9 @@ def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarra
             raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
 
     if key_states.shape != value_states.shape:
-        raise ValueError(f"key_states and value_states must have the same shape, got {key_states.shape} and {value_states.shape}.")
+        raise ValueError(
+            f"key_states and value_states must have the same shape, got {key_states.shape} and {value_states.shape}."
+        )
     if query_states.shape[0] != key_states.shape[0] or query_states.shape[2:] != key_states.shape[2:]:
         raise ValueError(
             "query_states and key_states must have matching batch, head count, and head dimension, "

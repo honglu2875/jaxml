@@ -77,8 +77,7 @@ def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
         )
     if logits.shape[:-1] != expected_prefix:
         raise ValueError(
-            f"eval_fn logits leading shape must match input_tokens shape; got {logits.shape[:-1]} "
-            f"and {expected_prefix}."
+            f"eval_fn logits leading shape must match input_tokens shape; got {logits.shape[:-1]} " f"and {expected_prefix}."
         )
     if logits.shape[-1] <= 0:
         raise ValueError(f"eval_fn logits must have a non-empty vocabulary axis, got shape {logits.shape}.")
@@ -264,7 +263,9 @@ def generate(
                 kv_caches,
             )
 
-        first_generated_tok, kv_caches = _prefill(params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature)
+        first_generated_tok, kv_caches = _prefill(
+            params, prompt_tokens, attention_mask, kv_caches, rng, top_p, min_p, temperature
+        )
 
     decode_steps = max_new_tokens if skip_prefill else max_new_tokens - 1
 

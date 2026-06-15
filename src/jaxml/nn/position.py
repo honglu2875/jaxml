@@ -13,8 +13,8 @@
 #  limitations under the License.
 
 import math
-from numbers import Real
 import operator
+from numbers import Real
 from typing import Any
 
 import jax
