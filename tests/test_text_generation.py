@@ -143,6 +143,32 @@ def test_generate_tokens_rejects_empty_prompt_batch():
     assert engine.generate_calls == []
 
 
+@pytest.mark.parametrize("prompts", [123, object(), (prompt for prompt in ["hello"])])
+def test_generate_tokens_rejects_non_sequence_prompts(prompts):
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(TypeError, match="prompts must be a string or a sequence of strings"):
+        pipeline.generate_tokens(prompts)
+
+    assert tokenizer.encode_calls == []
+    assert engine.generate_calls == []
+
+
+@pytest.mark.parametrize("prompts", [["hello", 1], ("hello", None), [b"hello"]])
+def test_generate_tokens_rejects_prompt_batches_with_non_strings(prompts):
+    tokenizer = DummyTokenizer()
+    engine = DummyEngine()
+    pipeline = TextGenerationPipeline(engine=engine, tokenizer=tokenizer)
+
+    with pytest.raises(TypeError, match="prompts must be a string or a sequence of strings"):
+        pipeline.generate_tokens(prompts)
+
+    assert tokenizer.encode_calls == []
+    assert engine.generate_calls == []
+
+
 def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     calls = {}
 

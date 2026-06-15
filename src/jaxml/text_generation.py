@@ -1,5 +1,6 @@
 import numbers
 import operator
+from collections.abc import Sequence as SequenceABC
 from dataclasses import dataclass, field
 from typing import Any, Optional, Sequence
 
@@ -107,9 +108,16 @@ class TextGenerationPipeline:
 
     def _encode(self, prompts: str | Sequence[str], tokenize_kwargs: Optional[dict[str, Any]] = None):
         is_single_prompt = isinstance(prompts, str)
-        prompt_batch = [prompts] if is_single_prompt else list(prompts)
+        if is_single_prompt:
+            prompt_batch = [prompts]
+        else:
+            if not isinstance(prompts, SequenceABC):
+                raise TypeError(f"prompts must be a string or a sequence of strings, got {type(prompts)}.")
+            prompt_batch = list(prompts)
         if not prompt_batch:
             raise ValueError("prompts must contain at least one prompt.")
+        if not all(isinstance(prompt, str) for prompt in prompt_batch):
+            raise TypeError("prompts must be a string or a sequence of strings.")
         kwargs = self.default_tokenize_kwargs | (tokenize_kwargs or {})
         encoded = self.tokenizer(prompt_batch, return_tensors="np", **kwargs)
         input_ids = self._get_encoded_field(encoded, "input_ids")
