@@ -141,6 +141,10 @@ class KVCache(struct.PyTreeNode):
         if not _contains_tracer(self.pos_id) and bool(jnp.any((self.pos_id < 0) | (self.pos_id >= self.max_seq_len))):
             raise ValueError(f"Cached pos_id values must be within [0, {self.max_seq_len}).")
 
+    def validate_state(self):
+        self._validate_populated_state()
+        return self
+
     def update(self, k: jnp.ndarray, v: jnp.ndarray, mask: Optional[jnp.ndarray]):
         k = jnp.asarray(k)
         v = jnp.asarray(v)

@@ -51,6 +51,32 @@ def test_prepare_model_inputs_accepts_numpy_integer_num_layers():
     assert kv_caches == (None,)
 
 
+def test_prepare_model_inputs_validates_kv_cache_state():
+    cache = KVCache(
+        k=None,
+        v=None,
+        max_seq_len=4,
+        mask=jnp.ones((1, 4), dtype=bool),
+        pos_id=None,
+    )
+
+    with pytest.raises(ValueError, match="k is empty"):
+        prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, (cache,), num_layers=1)
+
+
+def test_prepare_model_inputs_rejects_invalid_populated_kv_cache_state():
+    cache = KVCache(
+        k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+        v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+        max_seq_len=4,
+        mask=jnp.ones((1, 4), dtype=jnp.int32),
+        pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+    )
+
+    with pytest.raises(TypeError, match="Cached mask must be boolean"):
+        prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, (cache,), num_layers=1)
+
+
 @pytest.mark.parametrize("num_layers", [True, np.bool_(True), 1.5])
 def test_prepare_model_inputs_rejects_non_integer_num_layers(num_layers):
     with pytest.raises(TypeError, match="num_layers must be an integer"):

@@ -99,6 +99,8 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
         for idx, kv_cache in enumerate(kv_caches):
             if kv_cache is not None and not isinstance(kv_cache, KVCache):
                 raise TypeError(f"kv_caches entries must be KVCache instances or None, got {type(kv_cache)} at index {idx}.")
+            if kv_cache is not None:
+                kv_cache.validate_state()
 
     return input_ids, attention_mask, kv_caches
 
