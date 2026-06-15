@@ -963,6 +963,8 @@ def test_generate_rejects_invalid_rng_before_prefill(rng, exception, match):
         (jnp.ones((1, 1, 1), dtype=jnp.int32), ValueError, "attention_mask must be a 1D or 2D array"),
         (jnp.ones((1, 2), dtype=jnp.int32), ValueError, "attention_mask shape must match"),
         (jnp.ones((1, 1), dtype=jnp.float32), TypeError, "attention_mask must be boolean or integer"),
+        (jnp.array([[2]], dtype=jnp.int32), ValueError, "integer values must be 0 or 1"),
+        (jnp.array([[-1]], dtype=jnp.int32), ValueError, "integer values must be 0 or 1"),
         (jnp.zeros((1, 1), dtype=bool), ValueError, "at least one valid token"),
     ],
 )
