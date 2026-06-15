@@ -150,6 +150,17 @@ def should_use_default_attention_mask(kv_caches) -> bool:
     return not any(kv_cache is not None and kv_cache.mask is not None for kv_cache in kv_caches)
 
 
+def prepare_default_attention_mask(input_ids, kv_caches):
+    if not should_use_default_attention_mask(kv_caches):
+        return None
+    attention_mask = input_ids >= 0
+    if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
+        raise ValueError(
+            "input_ids must contain at least one non-negative token per batch row when attention_mask is omitted."
+        )
+    return attention_mask
+
+
 def cached_sequence_length(kv_caches):
     if kv_caches is None:
         return None

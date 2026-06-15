@@ -7,6 +7,7 @@ from jaxml.cache import KVCache
 from jaxml.config import ModelConfig
 from jaxml.models._utils import (
     cached_sequence_length,
+    prepare_default_attention_mask,
     prepare_model_inputs,
     prepare_position_ids,
     should_use_default_attention_mask,
@@ -186,6 +187,24 @@ def test_default_attention_mask_uses_any_populated_cache_entry():
     assert should_use_default_attention_mask((None, populated_cache)) is False
 
 
+def test_prepare_default_attention_mask_masks_negative_placeholder_ids():
+    attention_mask = prepare_default_attention_mask(jnp.array([[-100, 1]], dtype=jnp.int32), None)
+
+    assert attention_mask.tolist() == [[False, True]]
+
+
+def test_prepare_default_attention_mask_rejects_rows_without_real_tokens():
+    with pytest.raises(ValueError, match="at least one non-negative token"):
+        prepare_default_attention_mask(jnp.array([[-100, -100]], dtype=jnp.int32), None)
+
+
+def test_prepare_default_attention_mask_uses_populated_cache_mask_instead():
+    k, v = _kv(seq_len=2)
+    populated_cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
+
+    assert prepare_default_attention_mask(jnp.array([[-100]], dtype=jnp.int32), (None, populated_cache)) is None
+
+
 def test_cached_sequence_length_uses_first_populated_cache_entry():
     k, v = _kv(seq_len=2)
     populated_cache = KVCache.init(4).update(k, v, mask=jnp.ones((1, 2), dtype=bool))
@@ -341,6 +360,16 @@ def test_models_accept_negative_mask_placeholder_ids(request, fixture_name):
         output = model.apply(params, input_ids)
 
     assert output.last_hidden_state.shape[:2] == input_ids.shape
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_reject_all_negative_placeholder_rows_without_attention_mask(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.array([[-100, -100]], dtype=jnp.int32)
+
+        with pytest.raises(ValueError, match="at least one non-negative token"):
+            model.apply(params, input_ids)
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)

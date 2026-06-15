@@ -30,9 +30,9 @@ from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, Decoder
 from ._utils import (
     cached_sequence_length,
     normalize_model_output_flags,
+    prepare_default_attention_mask,
     prepare_model_inputs,
     prepare_position_ids,
-    should_use_default_attention_mask,
     slice_last_n_logits_hidden_states,
     validate_mlp_input,
 )
@@ -237,10 +237,7 @@ class GemmaModel(Block):
         position_ids = prepare_position_ids(position_ids, input_ids)
 
         if attention_mask is None:
-            # need to apply a default value if kv_cache is either unused or empty
-            if should_use_default_attention_mask(kv_caches):
-                # our convention is that negative ids (such as -100) is masked by default.
-                attention_mask = input_ids >= 0
+            attention_mask = prepare_default_attention_mask(input_ids, kv_caches)
 
         input_ids = jnp.where(input_ids < 0, 0, input_ids)
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
