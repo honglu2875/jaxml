@@ -40,5 +40,17 @@ jobs:
           enable-cache: true
           version: "0.11.21"
 
-      - name: Verify CPU
-        run: uv run --frozen --extra dev make verify-cpu
+      - name: Check lockfile
+        run: uv run --frozen --extra dev make lock-check
+
+      - name: Check installed dependencies
+        run: uv run --frozen --extra dev make dependency-check
+
+      - name: Lint
+        run: uv run --frozen --extra dev make lint
+
+      - name: Check format
+        run: uv run --frozen --extra dev make format-check
+
+      - name: Run CPU tests
+        run: uv run --frozen --extra dev make pytest-cpu
