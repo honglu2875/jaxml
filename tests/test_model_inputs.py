@@ -5,7 +5,7 @@ import pytest
 
 from jaxml.cache import KVCache
 from jaxml.config import ModelConfig
-from jaxml.models._utils import prepare_model_inputs
+from jaxml.models._utils import prepare_model_inputs, prepare_position_ids
 from jaxml.models.gemma3 import GemmaModel
 from jaxml.models.gpt_neox import GPTNeoXModel
 from jaxml.models.llama import LlamaModel
@@ -51,6 +51,21 @@ def test_prepare_model_inputs_rejects_non_integer_num_layers(num_layers):
 def test_prepare_model_inputs_rejects_non_positive_num_layers(num_layers):
     with pytest.raises(ValueError, match="num_layers must be positive"):
         prepare_model_inputs(jnp.ones((1, 2), dtype=jnp.int32), None, None, num_layers=num_layers)
+
+
+def test_prepare_position_ids_accepts_none():
+    input_ids = jnp.ones((2, 4), dtype=jnp.int32)
+
+    assert prepare_position_ids(None, input_ids) is None
+
+
+def test_prepare_position_ids_accepts_broadcast_batch_axis():
+    input_ids = jnp.ones((2, 4), dtype=jnp.int32)
+    position_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+    prepared = prepare_position_ids(position_ids, input_ids)
+
+    assert prepared.shape == (1, 4)
 
 
 @pytest.mark.parametrize(
@@ -142,6 +157,37 @@ def test_models_canonicalize_integer_attention_mask(request, fixture_name):
         expected = model.apply(params, input_ids, attention_mask=bool_mask)
 
     assert np.allclose(output.last_hidden_state, expected.last_hidden_state, atol=1e-6)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+@pytest.mark.parametrize(
+    "position_ids,exception,match",
+    [
+        (jnp.arange(4, dtype=jnp.int32), ValueError, "position_ids must be a 2D array"),
+        (jnp.ones((1, 4), dtype=jnp.float32), TypeError, "integer positions"),
+        (jnp.ones((1, 3), dtype=jnp.int32), ValueError, "position_ids shape must be broadcastable"),
+        (jnp.array([[-1, 0, 1, 2]], dtype=jnp.int32), ValueError, "non-negative positions"),
+    ],
+)
+def test_models_reject_invalid_position_ids(request, fixture_name, position_ids, exception, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        with pytest.raises(exception, match=match):
+            model.apply(params, input_ids, position_ids=position_ids)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_accept_broadcast_position_ids(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+        position_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        output = model.apply(params, input_ids, position_ids=position_ids)
+
+    assert output.last_hidden_state.shape[:2] == input_ids.shape
 
 
 @pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)

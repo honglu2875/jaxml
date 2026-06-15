@@ -92,3 +92,21 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
                 raise TypeError(f"kv_caches entries must be KVCache instances or None, got {type(kv_cache)} at index {idx}.")
 
     return input_ids, attention_mask, kv_caches
+
+
+def prepare_position_ids(position_ids, input_ids):
+    if position_ids is None:
+        return None
+    position_ids = jnp.asarray(position_ids)
+    if position_ids.ndim != 2:
+        raise ValueError(f"position_ids must be a 2D array, got shape {position_ids.shape}.")
+    if not jnp.issubdtype(position_ids.dtype, jnp.integer):
+        raise TypeError(f"position_ids must contain integer positions, got dtype {position_ids.dtype}.")
+    if position_ids.shape[1] != input_ids.shape[1] or position_ids.shape[0] not in (1, input_ids.shape[0]):
+        raise ValueError(
+            "position_ids shape must be broadcastable to input_ids batch and sequence axes, "
+            f"got {position_ids.shape} and {input_ids.shape}."
+        )
+    if not _contains_tracer(position_ids) and bool(jnp.any(position_ids < 0)):
+        raise ValueError("position_ids must contain non-negative positions.")
+    return position_ids
