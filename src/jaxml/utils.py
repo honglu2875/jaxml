@@ -316,9 +316,10 @@ def timeit(logger):
 
 @timeit(logger)
 def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
+    path = compiled_fn_path(name, hash)
+
     from jax.experimental.serialize_executable import serialize
 
-    path = compiled_fn_path(name, hash)
     path.mkdir(parents=True, exist_ok=True)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"

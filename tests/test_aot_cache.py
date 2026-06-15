@@ -59,6 +59,19 @@ def test_load_if_exists_rejects_unsafe_key_parts_before_wrapping():
         load_if_exists("../decode", "abc", log=False)
 
 
+def test_save_compiled_fn_rejects_unsafe_key_parts_before_serializing(monkeypatch):
+    serialize_calls = []
+    monkeypatch.setattr(
+        "jax.experimental.serialize_executable.serialize",
+        lambda fn: serialize_calls.append(fn) or (b"compiled", "in-tree", "out-tree"),
+    )
+
+    with pytest.raises(ValueError, match="AOT cache"):
+        save_compiled_fn(object(), "../decode", "abc", log=False)
+
+    assert serialize_calls == []
+
+
 def test_compiled_fn_exist_requires_payload_files(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     cache_entry = compiled_fn_path("decode", "abc")
