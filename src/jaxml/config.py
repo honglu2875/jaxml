@@ -16,6 +16,12 @@ def _normalize_count(name: str, value: int) -> int:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
 @struct.dataclass
 class ModelConfig:
     head_dim: int = struct.field(pytree_node=False)
@@ -52,6 +58,15 @@ class ModelConfig:
     use_parallel_residual: bool = struct.field(default=True, pytree_node=False)
 
     def __post_init__(self):
+        for name in (
+            "use_bias",
+            "use_alibi",
+            "use_rope",
+            "upcast_alibi",
+            "use_parallel_residual",
+        ):
+            object.__setattr__(self, name, _normalize_bool(name, getattr(self, name)))
+
         for name in (
             "head_dim",
             "hidden_size",

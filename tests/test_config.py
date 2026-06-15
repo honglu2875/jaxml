@@ -40,6 +40,24 @@ def test_model_config_normalizes_numpy_integer_fields():
     assert config.sliding_window_pattern == 2
 
 
+def test_model_config_normalizes_numpy_boolean_fields():
+    config = ModelConfig(
+        **_valid_config_kwargs(
+            use_bias=np.bool_(True),
+            use_alibi=np.bool_(False),
+            use_rope=np.bool_(True),
+            upcast_alibi=np.bool_(False),
+            use_parallel_residual=np.bool_(False),
+        )
+    )
+
+    assert config.use_bias is True
+    assert config.use_alibi is False
+    assert config.use_rope is True
+    assert config.upcast_alibi is False
+    assert config.use_parallel_residual is False
+
+
 @pytest.mark.parametrize(
     "overrides,match",
     [
@@ -58,6 +76,21 @@ def test_model_config_normalizes_numpy_integer_fields():
     ],
 )
 def test_model_config_rejects_non_integer_counts(overrides, match):
+    with pytest.raises(TypeError, match=match):
+        ModelConfig(**_valid_config_kwargs(**overrides))
+
+
+@pytest.mark.parametrize(
+    "overrides,match",
+    [
+        ({"use_bias": 1}, "use_bias must be a boolean"),
+        ({"use_alibi": 1}, "use_alibi must be a boolean"),
+        ({"use_rope": 1}, "use_rope must be a boolean"),
+        ({"upcast_alibi": 1}, "upcast_alibi must be a boolean"),
+        ({"use_parallel_residual": "true"}, "use_parallel_residual must be a boolean"),
+    ],
+)
+def test_model_config_rejects_non_boolean_flags(overrides, match):
     with pytest.raises(TypeError, match=match):
         ModelConfig(**_valid_config_kwargs(**overrides))
 
