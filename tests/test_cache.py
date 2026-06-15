@@ -145,6 +145,40 @@ def test_kv_cache_rollback_rejects_past_beginning():
         cache.rollback(3)
 
 
+@pytest.mark.parametrize("method_name", ["rollback", "resize"])
+@pytest.mark.parametrize(
+    "cache,match",
+    [
+        (
+            KVCache(
+                k=None,
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=None,
+                pos_id=None,
+            ),
+            "k is empty",
+        ),
+        (
+            KVCache(
+                k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                max_seq_len=4,
+                mask=None,
+                pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+            ),
+            "populated k requires",
+        ),
+    ],
+)
+def test_kv_cache_mutations_reject_partial_state(method_name, cache, match):
+    method = getattr(cache, method_name)
+    args = (1,) if method_name == "rollback" else (8,)
+
+    with pytest.raises(ValueError, match=match):
+        method(*args)
+
+
 @pytest.mark.parametrize("n", [True, np.bool_(True), 1.5])
 def test_kv_cache_rollback_rejects_non_integer_count(n):
     k, v = _kv(seq_len=2)

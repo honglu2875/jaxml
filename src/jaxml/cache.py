@@ -146,10 +146,12 @@ class KVCache(struct.PyTreeNode):
         n = _normalize_count("n", n)
         if n <= 0:
             raise ValueError("n must be greater than 0.")
-        if self.k is None or self.v is None:
+        if self.k is None:
+            if self.v is not None or self.mask is not None or self.pos_id is not None:
+                raise ValueError("KVCache has partial state: k is empty but v, mask, or pos_id is populated.")
             return self
-        if self.pos_id is None:
-            raise ValueError("Cannot roll back a cache without position ids.")
+        if self.v is None or self.mask is None or self.pos_id is None:
+            raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
         prev_pos = self.pos_id - n
         if bool(jnp.any(prev_pos < 0)):
             raise ValueError("Cannot roll back past the beginning of the KV cache.")
@@ -164,6 +166,8 @@ class KVCache(struct.PyTreeNode):
         if new_size <= 0:
             raise ValueError(f"new_size must be positive, got {new_size}.")
         if self.k is None:
+            if self.v is not None or self.mask is not None or self.pos_id is not None:
+                raise ValueError("KVCache has partial state: k is empty but v, mask, or pos_id is populated.")
             return self.replace(max_seq_len=new_size)
         if self.v is None or self.mask is None or self.pos_id is None:
             raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
