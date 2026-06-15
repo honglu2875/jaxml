@@ -352,8 +352,19 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     return len(aot_fn) + len(io_spec_bytes)
 
 
-def _validate_cache_key_part(part: str, label: str) -> str:
-    part = str(part)
+def _validate_cache_key_part(part: str, label: str, *, allow_integer: bool = False) -> str:
+    if isinstance(part, (bool, np.bool_)):
+        expected = "a string or integer" if allow_integer else "a string"
+        raise TypeError(f"AOT cache {label} must be {expected}, got {type(part)}.")
+    if isinstance(part, str):
+        pass
+    elif allow_integer:
+        try:
+            part = str(operator.index(part))
+        except TypeError as e:
+            raise TypeError(f"AOT cache {label} must be a string or integer, got {type(part)}.") from e
+    else:
+        raise TypeError(f"AOT cache {label} must be a string, got {type(part)}.")
     if part in {"", ".", ".."}:
         raise ValueError(f"AOT cache {label} must be a non-empty path segment, got {part!r}.")
     if "/" in part or "\\" in part:
@@ -365,7 +376,7 @@ def _validate_cache_key_part(part: str, label: str) -> str:
 
 def compiled_fn_path(name: str, hash: str = "0", cache_dir: str | Path | None = None) -> Path:
     name = _validate_cache_key_part(name, "name")
-    hash = _validate_cache_key_part(hash, "hash")
+    hash = _validate_cache_key_part(hash, "hash", allow_integer=True)
     cache_root = Path(cache_dir) if cache_dir is not None else Path(os.environ.get(JAXML_CACHE_DIR_ENV, ".jaxml"))
     return cache_root / f"{name}_{hash}"
 

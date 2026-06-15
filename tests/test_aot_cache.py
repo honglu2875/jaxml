@@ -3,6 +3,7 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from jaxml.utils import (
@@ -42,6 +43,22 @@ def test_compiled_fn_path_uses_cache_dir_env(monkeypatch, tmp_path):
 
 def test_compiled_fn_path_accepts_integer_hash(tmp_path):
     assert compiled_fn_path("prefill", 0, cache_dir=tmp_path) == tmp_path / "prefill_0"
+
+
+def test_compiled_fn_path_accepts_numpy_integer_hash(tmp_path):
+    assert compiled_fn_path("prefill", np.int64(7), cache_dir=tmp_path) == tmp_path / "prefill_7"
+
+
+@pytest.mark.parametrize("name", [None, 123, np.int64(1), b"decode", object()])
+def test_compiled_fn_path_rejects_non_string_names(tmp_path, name):
+    with pytest.raises(TypeError, match="AOT cache name must be a string"):
+        compiled_fn_path(name, "abc", cache_dir=tmp_path)
+
+
+@pytest.mark.parametrize("hash_value", [None, True, np.bool_(True), b"abc", object()])
+def test_compiled_fn_path_rejects_non_string_or_integer_hashes(tmp_path, hash_value):
+    with pytest.raises(TypeError, match="AOT cache hash must be a string or integer"):
+        compiled_fn_path("prefill", hash_value, cache_dir=tmp_path)
 
 
 @pytest.mark.parametrize(
