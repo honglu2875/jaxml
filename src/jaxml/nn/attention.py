@@ -131,6 +131,15 @@ def _validate_optional_kv_cache(kv_cache: Optional[KVCache]) -> Optional[KVCache
     return kv_cache
 
 
+def _validate_hidden_states(hidden_states: jnp.ndarray) -> jnp.ndarray:
+    hidden_states = jnp.asarray(hidden_states)
+    if hidden_states.ndim != 3:
+        raise ValueError(f"hidden_states must be a 3D array, got shape {hidden_states.shape}.")
+    if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
+        raise TypeError(f"hidden_states must contain floating point values, got dtype {hidden_states.dtype}.")
+    return hidden_states
+
+
 class Attention(Block):
     """
     Flax base model of attention.
@@ -411,6 +420,7 @@ class Attention(Block):
         **kwargs,
     ) -> AttentionOutput:
         """The base class implements basic MHA **without** positional encoding such as RoPE."""
+        hidden_states = _validate_hidden_states(hidden_states)
         output_attentions = _normalize_bool("output_attentions", output_attentions)
         use_flash = _normalize_bool("use_flash", use_flash)
         if position_ids is not None:
@@ -460,6 +470,7 @@ class AttentionWithRoPE(Attention):
         use_flash: bool = False,
         sliding_window: int | None = None,
     ) -> AttentionOutput:
+        hidden_states = _validate_hidden_states(hidden_states)
         output_attentions = _normalize_bool("output_attentions", output_attentions)
         use_flash = _normalize_bool("use_flash", use_flash)
         if cos_sin is None:

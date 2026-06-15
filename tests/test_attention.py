@@ -429,6 +429,41 @@ def test_attention_call_rejects_non_boolean_flags(attn_cls, use_rope, kwargs, ma
         (AttentionWithRoPE, True),
     ],
 )
+@pytest.mark.parametrize(
+    "hidden_states,exception,match",
+    [
+        (jnp.zeros((1, 2), dtype=jnp.float32), ValueError, "hidden_states must be a 3D array"),
+        (jnp.zeros((1, 2, 1, 1), dtype=jnp.float32), ValueError, "hidden_states must be a 3D array"),
+        (jnp.zeros((1, 2, 1), dtype=jnp.int32), TypeError, "hidden_states must contain floating"),
+    ],
+)
+def test_attention_call_rejects_invalid_hidden_states(attn_cls, use_rope, hidden_states, exception, match):
+    config = ModelConfig(
+        head_dim=2 if use_rope else 1,
+        hidden_size=2 if use_rope else 1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=use_rope,
+    )
+    attn = attn_cls(config)
+    valid_hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    call_kwargs = {"cos_sin": _identity_cos_sin(config, valid_hidden_states.shape[1])} if use_rope else {}
+    params = attn.init(jax.random.PRNGKey(0), valid_hidden_states, **call_kwargs)
+
+    with pytest.raises(exception, match=match):
+        attn.apply(params, hidden_states, **call_kwargs)
+
+
+@pytest.mark.parametrize(
+    "attn_cls,use_rope",
+    [
+        (Attention, False),
+        (AttentionWithRoPE, True),
+    ],
+)
 def test_attention_call_rejects_non_kv_cache(attn_cls, use_rope):
     config = ModelConfig(
         head_dim=2 if use_rope else 1,
