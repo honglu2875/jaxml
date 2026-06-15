@@ -21,6 +21,7 @@ import operator
 import os
 import pickle
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
@@ -205,10 +206,10 @@ def torch_to_jax_states(
 
     if isinstance(input, torch.nn.Module):
         states = input.state_dict()
-    elif isinstance(input, dict):
+    elif isinstance(input, Mapping):
         states = input
     else:
-        raise TypeError(f"Expected input to be either a PyTorch module or a dict, got {type(input)}.")
+        raise TypeError(f"Expected input to be either a PyTorch module or a mapping, got {type(input)}.")
 
     jax_states = {"params": {}}
 

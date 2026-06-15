@@ -12,6 +12,8 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from types import MappingProxyType
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -673,6 +675,19 @@ def test_torch_to_jax_states_rejects_unsupported_dtype(dtype):
 def test_torch_to_jax_states_rejects_invalid_dtype_type():
     with pytest.raises(TypeError, match="Expected dtype"):
         torch_to_jax_states({"weight": torch.ones(1)}, dtype=np.float32)
+
+
+def test_torch_to_jax_states_accepts_mapping_state_dicts():
+    state = MappingProxyType({"weight": torch.arange(6, dtype=torch.float32).reshape(2, 3)})
+
+    params = torch_to_jax_states(state, dtype=torch.float32)
+
+    assert params["params"]["kernel"].shape == (3, 2)
+
+
+def test_torch_to_jax_states_rejects_non_mapping_inputs():
+    with pytest.raises(TypeError, match="PyTorch module or a mapping"):
+        torch_to_jax_states([("weight", torch.ones(1))], dtype=torch.float32)
 
 
 @pytest.mark.parametrize("head_dim", [True, np.bool_(True), 1.5])
