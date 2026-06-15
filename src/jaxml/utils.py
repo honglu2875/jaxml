@@ -193,13 +193,39 @@ def torch_to_jax_states(
         _qkv_separate_map = _dense_key_map
         _qkv_fused_map = {"weight": ("kernel", lambda x: x.T.reshape(x.shape[1], 3, -1))}
     else:
+        def _reshape_qkv_separate_weight(x):
+            if x.shape[0] % head_dim != 0:
+                raise ValueError(
+                    f"Q/K/V projection output dimension {x.shape[0]} must be divisible by head_dim {head_dim}."
+                )
+            return x.T.reshape(x.shape[1], -1, head_dim)
+
+        def _reshape_qkv_separate_bias(x):
+            if x.shape[0] % head_dim != 0:
+                raise ValueError(f"Q/K/V projection bias length {x.shape[0]} must be divisible by head_dim {head_dim}.")
+            return x.reshape(-1, head_dim)
+
+        def _reshape_qkv_fused_weight(x):
+            divisor = 3 * head_dim
+            if x.shape[0] % divisor != 0:
+                raise ValueError(
+                    f"Fused QKV projection output dimension {x.shape[0]} must be divisible by 3 * head_dim {divisor}."
+                )
+            return x.T.reshape(x.shape[1], -1, 3, head_dim).transpose(0, 2, 1, 3)
+
+        def _reshape_qkv_fused_bias(x):
+            divisor = 3 * head_dim
+            if x.shape[0] % divisor != 0:
+                raise ValueError(f"Fused QKV projection bias length {x.shape[0]} must be divisible by 3 * head_dim {divisor}.")
+            return x.reshape(-1, 3, head_dim).transpose(1, 0, 2)
+
         _qkv_separate_map = {
-            "weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, head_dim)),
-            "bias": ("bias", lambda x: x.reshape(-1, head_dim)),
+            "weight": ("kernel", _reshape_qkv_separate_weight),
+            "bias": ("bias", _reshape_qkv_separate_bias),
         }
         _qkv_fused_map = {
-            "weight": ("kernel", lambda x: x.T.reshape(x.shape[1], -1, 3, head_dim).transpose(0, 2, 1, 3)),
-            "bias": ("bias", lambda x: x.reshape(-1, 3, head_dim).transpose(1, 0, 2)),
+            "weight": ("kernel", _reshape_qkv_fused_weight),
+            "bias": ("bias", _reshape_qkv_fused_bias),
         }
     _emb_key_map = {"weight": ("embedding", lambda x: x)}
     _exclude_keys = {

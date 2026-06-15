@@ -243,6 +243,20 @@ def test_torch_to_jax_states_accepts_numpy_integer_head_dim():
     assert params["params"]["q_proj"]["kernel"].shape == (8, 1, 4)
 
 
+@pytest.mark.parametrize(
+    "state,match",
+    [
+        ({"q_proj.weight": torch.ones((5, 8))}, "Q/K/V projection output dimension"),
+        ({"k_proj.bias": torch.ones(5)}, "Q/K/V projection bias length"),
+        ({"qkv_proj.weight": torch.ones((10, 8))}, "Fused QKV projection output dimension"),
+        ({"qkv_proj.bias": torch.ones(10)}, "Fused QKV projection bias length"),
+    ],
+)
+def test_torch_to_jax_states_rejects_projection_shapes_incompatible_with_head_dim(state, match):
+    with pytest.raises(ValueError, match=match):
+        torch_to_jax_states(state, dtype=torch.float32, head_dim=4)
+
+
 def test_torch_to_jax_states_rejects_non_tensor_state_values():
     with pytest.raises(TypeError, match="State value for key 'weight'"):
         torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
