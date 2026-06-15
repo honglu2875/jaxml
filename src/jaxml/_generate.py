@@ -146,6 +146,7 @@ def _validate_kv_caches(kv_caches) -> tuple[KVCache, ...]:
     for idx, kv_cache in enumerate(kv_caches):
         if not isinstance(kv_cache, KVCache):
             raise TypeError(f"kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}.")
+        kv_cache.validate_state()
     return kv_caches
 
 

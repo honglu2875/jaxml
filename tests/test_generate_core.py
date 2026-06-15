@@ -143,18 +143,44 @@ def test_generate_rejects_non_integer_prompt_tokens_before_prefill():
 
 
 @pytest.mark.parametrize(
-    "kv_caches,match",
+    "kv_caches,exception,match",
     [
-        (None, "kv_caches must be a sequence"),
-        (object(), "kv_caches must be a sequence"),
-        ((object(),), "kv_caches entries must be KVCache"),
+        (None, TypeError, "kv_caches must be a sequence"),
+        (object(), TypeError, "kv_caches must be a sequence"),
+        ((object(),), TypeError, "kv_caches entries must be KVCache"),
+        (
+            (
+                KVCache(
+                    k=None,
+                    v=None,
+                    max_seq_len=4,
+                    mask=jnp.ones((1, 4), dtype=bool),
+                    pos_id=None,
+                ),
+            ),
+            ValueError,
+            "k is empty",
+        ),
+        (
+            (
+                KVCache(
+                    k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                    v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+                    max_seq_len=4,
+                    mask=jnp.ones((1, 4), dtype=jnp.int32),
+                    pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+                ),
+            ),
+            TypeError,
+            "Cached mask must be boolean",
+        ),
     ],
 )
-def test_generate_rejects_invalid_kv_caches_before_prefill(kv_caches, match):
+def test_generate_rejects_invalid_kv_caches_before_prefill(kv_caches, exception, match):
     def eval_fn(*args, **kwargs):
         raise AssertionError("eval_fn should not be called for invalid kv_caches.")
 
-    with pytest.raises(TypeError, match=match):
+    with pytest.raises(exception, match=match):
         generate(
             {},
             eval_fn,
@@ -704,6 +730,22 @@ def test_generate_advances_rng_when_cached_prefill_returns_legacy_pair(monkeypat
         ((jnp.zeros((1,), dtype=jnp.int32), ()), ValueError, "prefill must return token ids with shape"),
         ((jnp.zeros((1, 1), dtype=jnp.float32), ()), TypeError, "prefill must return integer token ids"),
         ((jnp.zeros((1, 1), dtype=jnp.int32), object()), TypeError, "kv_caches must be a sequence"),
+        (
+            (
+                jnp.zeros((1, 1), dtype=jnp.int32),
+                (
+                    KVCache(
+                        k=None,
+                        v=None,
+                        max_seq_len=4,
+                        mask=jnp.ones((1, 4), dtype=bool),
+                        pos_id=None,
+                    ),
+                ),
+            ),
+            ValueError,
+            "k is empty",
+        ),
         (
             (jnp.zeros((1, 1), dtype=jnp.int32), (), jnp.ones((1, 2), dtype=jnp.uint32)),
             ValueError,
