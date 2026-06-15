@@ -84,7 +84,7 @@ def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
     if not jnp.issubdtype(logits.dtype, jnp.floating):
         raise TypeError(f"eval_fn logits must have a floating dtype, got {logits.dtype}.")
 
-    return logits, kv_caches
+    return logits, _validate_kv_caches(kv_caches)
 
 
 def _validate_sampled_tokens(sampled_tokens, logits: jnp.ndarray):

@@ -233,6 +233,8 @@ def test_generate_rejects_invalid_sampling_method_before_prefill(sampling_method
         ((jnp.ones((2, 1, 4), dtype=jnp.float32), ()), ValueError, "leading shape"),
         ((jnp.ones((1, 1, 0), dtype=jnp.float32), ()), ValueError, "non-empty vocabulary"),
         ((jnp.ones((1, 1, 4), dtype=jnp.int32), ()), TypeError, "floating dtype"),
+        ((jnp.ones((1, 1, 4), dtype=jnp.float32), object()), TypeError, "kv_caches must be a sequence"),
+        ((jnp.ones((1, 1, 4), dtype=jnp.float32), (object(),)), TypeError, "kv_caches entries must be KVCache"),
     ],
 )
 def test_generate_rejects_invalid_eval_outputs(monkeypatch, eval_output, exception, match):
