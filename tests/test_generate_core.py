@@ -405,6 +405,8 @@ def test_generate_rejects_invalid_eval_outputs(monkeypatch, eval_output, excepti
     [
         (jnp.zeros((1,), dtype=jnp.int32), ValueError, "shape"),
         (jnp.zeros((1, 1), dtype=jnp.float32), TypeError, "integer token ids"),
+        (jnp.array([[-1]], dtype=jnp.int32), ValueError, r"within \[0, 10\)"),
+        (jnp.array([[10]], dtype=jnp.int32), ValueError, r"within \[0, 10\)"),
     ],
 )
 def test_generate_rejects_invalid_sampled_tokens(monkeypatch, token_ids, exception, match):

@@ -105,7 +105,11 @@ def _unpack_eval_output(eval_output, input_tokens: jnp.ndarray):
 def _validate_sampled_tokens(sampled_tokens, logits: jnp.ndarray):
     sampled_tokens = jnp.asarray(sampled_tokens)
     expected_shape = logits.shape[:-1]
-    return _validate_token_ids("sample_fn", sampled_tokens, expected_shape)
+    sampled_tokens = _validate_token_ids("sample_fn", sampled_tokens, expected_shape)
+    vocab_size = logits.shape[-1]
+    if not _contains_tracer(sampled_tokens) and bool(jnp.any((sampled_tokens < 0) | (sampled_tokens >= vocab_size))):
+        raise ValueError(f"sample_fn must return token ids within [0, {vocab_size}).")
+    return sampled_tokens
 
 
 def _validate_token_ids(name: str, token_ids, expected_shape):
