@@ -139,6 +139,34 @@ def test_generate_rejects_invalid_control_arguments_before_prefill(kwargs, excep
         )
 
 
+@pytest.mark.parametrize(
+    "kwargs,exception,match",
+    [
+        ({"top_k": True}, TypeError, "top_k must be an integer"),
+        ({"top_k": 1.5}, TypeError, "top_k must be an integer"),
+        ({"top_p": True}, TypeError, "top_p must be a real number"),
+        ({"min_p": "0.1"}, TypeError, "min_p must be a real number"),
+        ({"temperature": np.nan}, ValueError, "temp must be finite"),
+    ],
+)
+def test_generate_rejects_invalid_sampling_arguments_before_prefill(kwargs, exception, match):
+    def eval_fn(*args, **kwargs):
+        raise AssertionError("eval_fn should not be called for invalid generate inputs.")
+
+    with pytest.raises(exception, match=match):
+        generate(
+            {},
+            eval_fn,
+            jnp.ones((1, 1), dtype=jnp.int32),
+            attention_mask=None,
+            kv_caches=(),
+            call_hash="invalid-sampling-input",
+            sampling_method=RngSamplingMethod(),
+            max_new_tokens=1,
+            **kwargs,
+        )
+
+
 def test_generate_accepts_numpy_scalar_control_arguments():
     def eval_fn(params, tokens, attention_mask=None, kv_caches=None, use_cache=True):
         del params, attention_mask, use_cache

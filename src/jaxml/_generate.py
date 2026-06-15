@@ -24,7 +24,7 @@ import numpy as np
 import tqdm
 
 from jaxml.cache import KVCache
-from jaxml.inference_engine.sampling import SamplingMethod
+from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
 from jaxml.utils import load_if_exists
 
@@ -130,6 +130,11 @@ def generate(
     include_prompt = _normalize_bool("include_prompt", include_prompt)
     fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
     skip_prefill = _normalize_bool("skip_prefill", skip_prefill)
+    sampling_params = normalize_sampling_params(top_k=top_k, top_p=top_p, min_p=min_p, temp=temperature)
+    top_k = sampling_params.top_k
+    top_p = sampling_params.top_p
+    min_p = sampling_params.min_p
+    temperature = sampling_params.temp
     if rng is None:
         rng = jax.random.PRNGKey(seed)
     else:
