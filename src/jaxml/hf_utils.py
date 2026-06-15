@@ -60,11 +60,18 @@ def to_neox_jax_params(model, dtype: str = "float16"):
         r"dense_4h_to_h(.*)": r"down_proj\1",
     }
     state_dict = {}
+    state_sources = {}
     for key, value in model.state_dict().items():
         name = key
         for k, v in _sub.items():
             name = re.sub(k, v, name)
+        if name in state_dict:
+            raise ValueError(
+                "Multiple Hugging Face GPT-NeoX state keys map to the same jaxml destination "
+                f"{name!r}: {state_sources[name]!r} and {key!r}."
+            )
         state_dict[name] = value
+        state_sources[name] = key
     return torch_to_jax_states(state_dict, head_dim=_config_head_dim(neox_config), dtype=dtype)
 
 

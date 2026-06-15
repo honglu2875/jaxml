@@ -112,6 +112,18 @@ def test_to_neox_jax_params_does_not_mutate_state_dict_keys():
     assert set(model.states) == {"gpt_neox.embed_in.weight", "gpt_neox.final_layer_norm.weight"}
 
 
+def test_to_neox_jax_params_rejects_rewrite_collisions():
+    config = SimpleNamespace(hidden_size=8, num_attention_heads=2, head_dim=None)
+    model = FakeModel(config)
+    model.states = {
+        "gpt_neox.layers.0.attention.dense.weight": torch.arange(64, dtype=torch.float32).reshape(8, 8),
+        "gpt_neox.layers.0.self_attn.o_proj.weight": torch.arange(64, dtype=torch.float32).reshape(8, 8),
+    }
+
+    with pytest.raises(ValueError, match="map to the same jaxml destination"):
+        to_neox_jax_params(model, dtype=torch.float32)
+
+
 @pytest.mark.parametrize(
     "name,exception,match",
     [
