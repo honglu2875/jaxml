@@ -58,6 +58,9 @@ def test_rope(rope_factory, model_type):
         ({"dim": 4, "max_length": 8, "rotary_pct": float("nan")}, ValueError, "rotary_pct must be finite"),
         ({"dim": 4, "max_length": 8, "rotary_pct": 0.0}, ValueError, "rotary_pct must be in"),
         ({"dim": 4, "max_length": 8, "rotary_pct": 1.5}, ValueError, "rotary_pct must be in"),
+        ({"dim": 4, "max_length": 8, "dtype": None}, TypeError, "dtype must be a valid JAX dtype"),
+        ({"dim": 4, "max_length": 8, "dtype": "not-a-dtype"}, TypeError, "dtype must be a valid JAX dtype"),
+        ({"dim": 4, "max_length": 8, "disable_cache": 1}, TypeError, "disable_cache must be a boolean"),
     ],
 )
 def test_rope_rejects_invalid_shape_parameters(kwargs, exception, match):
@@ -66,6 +69,26 @@ def test_rope_rejects_invalid_shape_parameters(kwargs, exception, match):
 
     with pytest.raises(exception, match=match):
         rope.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("disable_cache", [False, True])
+def test_rope_accepts_numpy_scalar_parameters(disable_cache):
+    rope = RotaryEmbedding(
+        dim=np.int64(4),
+        max_length=np.int64(8),
+        base=np.float64(10000.0),
+        dtype=np.float32,
+        disable_cache=np.bool_(disable_cache),
+        rotary_pct=np.float64(1.0),
+        rope_scale=np.float64(1.0),
+    )
+    x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32)
+
+    params = rope.init(jax.random.PRNGKey(0), x, seq_len=np.int64(2))
+    cos, sin = rope.apply(params, x, seq_len=np.int64(2))
+
+    assert cos.dtype == jnp.float32
+    assert sin.dtype == jnp.float32
 
 
 @pytest.mark.parametrize("seq_len", [True, np.bool_(True), 1.5])

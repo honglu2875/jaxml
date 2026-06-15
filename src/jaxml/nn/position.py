@@ -41,6 +41,21 @@ def _normalize_float(name: str, value: float) -> float:
     return value
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
 def _contains_tracer(x: Any) -> bool:
     return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
@@ -127,6 +142,8 @@ class RotaryEmbedding(nn.Module):
         base = _normalize_float("base", self.base)
         rope_scale = _normalize_float("rope_scale", self.rope_scale)
         rotary_pct = _normalize_float("rotary_pct", self.rotary_pct)
+        dtype = _normalize_dtype("dtype", self.dtype)
+        disable_cache = _normalize_bool("disable_cache", self.disable_cache)
         if dim <= 0:
             raise ValueError(f"dim must be positive, got {dim}.")
         if max_length <= 0:
@@ -161,10 +178,10 @@ class RotaryEmbedding(nn.Module):
             lambda: 1.0 / (base ** (jnp.arange(0, self.rotary_dim, 2, dtype=jnp.float32) / self.rotary_dim)),
         )
 
-        if not self.disable_cache:
+        if not disable_cache:
             emb = self.get_emb(max_length)
-            self.cos_cached = self.variable("cache", "cos_cached", lambda: jnp.cos(emb).astype(self.dtype))
-            self.sin_cached = self.variable("cache", "sin_cached", lambda: jnp.sin(emb).astype(self.dtype))
+            self.cos_cached = self.variable("cache", "cos_cached", lambda: jnp.cos(emb).astype(dtype))
+            self.sin_cached = self.variable("cache", "sin_cached", lambda: jnp.sin(emb).astype(dtype))
 
     def get_emb(self, seq_len: int):
         t = jnp.arange(seq_len, dtype=jnp.float32) / self.rope_scale
@@ -187,7 +204,7 @@ class RotaryEmbedding(nn.Module):
         if seq_len <= 0:
             raise ValueError(f"seq_len must be positive, got {seq_len}.")
 
-        if self.disable_cache:
+        if _normalize_bool("disable_cache", self.disable_cache):
             # Skip updating caches and directly go for the result.
             emb = self.get_emb(seq_len)
             return jnp.cos(emb).astype(x.dtype), jnp.sin(emb).astype(x.dtype)
