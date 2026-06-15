@@ -147,6 +147,38 @@ def test_embed_accepts_numpy_integer_shape_parameters(one_hot):
     assert y.shape == (2, 4)
 
 
+@pytest.mark.parametrize("one_hot", [False, True])
+@pytest.mark.parametrize(
+    "x,match",
+    [
+        (jnp.array([0, -1], dtype=jnp.int32), "non-negative"),
+        (jnp.array([0, 8], dtype=jnp.int32), "less than num_embeddings"),
+    ],
+)
+def test_embed_rejects_out_of_range_input_ids(one_hot, x, match):
+    embed = Embed(num_embeddings=8, features=4, one_hot=one_hot)
+    valid_x = jnp.array([0, 1], dtype=jnp.int32)
+    params = embed.init(jax.random.PRNGKey(0), valid_x)
+
+    with pytest.raises(ValueError, match=match):
+        embed.apply(params, x)
+
+
+@pytest.mark.parametrize("one_hot", [False, True])
+def test_embed_accepts_traced_input_ids(one_hot):
+    embed = Embed(num_embeddings=8, features=4, one_hot=one_hot)
+    x = jnp.array([0, 1], dtype=jnp.int32)
+    params = embed.init(jax.random.PRNGKey(0), x)
+
+    @jax.jit
+    def apply(inputs):
+        return embed.apply(params, inputs)
+
+    y = apply(x)
+
+    assert y.shape == (2, 4)
+
+
 @pytest.mark.parametrize(
     "axis,exception,match",
     [

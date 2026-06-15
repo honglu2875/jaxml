@@ -3,6 +3,7 @@ import operator
 from typing import Any, Tuple
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import lax
@@ -17,6 +18,10 @@ def _normalize_count(name: str, value: int) -> int:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
+
+
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 class Embed(Module):
@@ -70,6 +75,11 @@ class Embed(Module):
 
         if not jnp.issubdtype(inputs.dtype, jnp.integer):
             raise ValueError("Input type must be an integer or unsigned integer.")
+        if not _contains_tracer(inputs):
+            if bool(jnp.any(inputs < 0)):
+                raise ValueError("Input token ids must be non-negative.")
+            if bool(jnp.any(inputs >= num_embeddings)):
+                raise ValueError(f"Input token ids must be less than num_embeddings={num_embeddings}.")
         if self.one_hot:
             iota = lax.iota(jnp.int32, num_embeddings)
             one_hot = jnp.array(inputs[..., jnp.newaxis] == iota, dtype=self.dtype)
