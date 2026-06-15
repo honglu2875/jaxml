@@ -267,6 +267,8 @@ def generate(
         raise ValueError(f"prompt_tokens must be a 1D or 2D array, got shape {prompt_tokens.shape}.")
     if not jnp.issubdtype(prompt_tokens.dtype, jnp.integer):
         raise TypeError(f"prompt_tokens must contain integer token ids, got dtype {prompt_tokens.dtype}.")
+    if prompt_tokens.shape[0] == 0:
+        raise ValueError("prompt_tokens must contain at least one batch row.")
     if prompt_tokens.shape[1] == 0:
         raise ValueError("prompt_tokens must contain at least one token.")
     kv_caches = _validate_kv_caches(kv_caches)

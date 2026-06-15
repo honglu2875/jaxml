@@ -328,6 +328,8 @@ class Engine:
                 raise TypeError(f"prepare_input leaves must be array-like, got {type(x)}.") from e
             if x.ndim != 2:
                 raise ValueError(f"prepare_input leaves must be 2D arrays for data/model sharding, got shape {x.shape}.")
+            if x.shape[0] == 0:
+                raise ValueError("prepare_input leaves must contain at least one batch row.")
             if x.shape[0] % self.config.dp_size != 0:
                 raise ValueError(
                     f"prepare_input batch size must be divisible by dp_size={self.config.dp_size}, got {x.shape[0]}."
@@ -386,6 +388,8 @@ class Engine:
         if not jnp.issubdtype(prompt_tokens.dtype, jnp.integer):
             raise TypeError(f"prompt_tokens must contain integer token ids, got dtype {prompt_tokens.dtype}.")
 
+        if prompt_tokens.shape[0] == 0:
+            raise ValueError("prompt_tokens must contain at least one batch row.")
         if prompt_tokens.shape[1] == 0:
             raise ValueError("prompt_tokens must contain at least one token.")
 

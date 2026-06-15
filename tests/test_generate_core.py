@@ -106,6 +106,7 @@ def test_prefill_rng_is_dynamic_when_compiled_function_is_reused(monkeypatch):
     "prompt_tokens,max_new_tokens,match",
     [
         (jnp.ones((1, 2, 3), dtype=jnp.int32), 1, "1D or 2D"),
+        (jnp.ones((0, 1), dtype=jnp.int32), 1, "at least one batch row"),
         (jnp.ones((1, 0), dtype=jnp.int32), 1, "at least one token"),
         (jnp.ones((1, 1), dtype=jnp.int32), -1, "max_new_tokens"),
     ],

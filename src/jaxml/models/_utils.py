@@ -72,6 +72,8 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int):
         raise ValueError(f"input_ids must be a 2D array, got shape {input_ids.shape}.")
     if not jnp.issubdtype(input_ids.dtype, jnp.integer):
         raise TypeError(f"input_ids must contain integer token ids, got dtype {input_ids.dtype}.")
+    if input_ids.shape[0] == 0:
+        raise ValueError("input_ids must contain at least one batch row.")
     if input_ids.shape[1] == 0:
         raise ValueError("input_ids must contain at least one token.")
 

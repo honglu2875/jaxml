@@ -372,6 +372,24 @@ def test_engine_prepare_input_rejects_empty_pytree_before_device_put(monkeypatch
     assert calls == []
 
 
+def test_engine_prepare_input_rejects_empty_leaf_batch_before_device_put(monkeypatch, llama_model_with_head):
+    calls = []
+
+    def fake_device_put(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("device_put should not be called for an empty input batch.")
+
+    monkeypatch.setattr(jax, "device_put", fake_device_put)
+
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+
+    with pytest.raises(ValueError, match="at least one batch row"):
+        engine.prepare_input({"input_ids": np.ones((0, 2), dtype=np.int32)})
+
+    assert calls == []
+
+
 def test_engine_prepare_input_rejects_mismatched_leaf_batch_sizes_before_device_put(
     monkeypatch,
     llama_model_with_head,
@@ -947,6 +965,7 @@ def test_prepare_generation_inputs_accepts_traced_attention_mask():
     "input_ids,match",
     [
         (jnp.ones((1, 2, 3), dtype=jnp.int32), "prompt_tokens must be a 1D or 2D array"),
+        (jnp.ones((0, 1), dtype=jnp.int32), "at least one batch row"),
         (jnp.ones((1, 0), dtype=jnp.int32), "at least one token"),
     ],
 )

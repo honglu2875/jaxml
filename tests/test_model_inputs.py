@@ -209,6 +209,7 @@ def test_gemma_model_accepts_hidden_size_head_mismatch():
         (jnp.arange(4, dtype=jnp.int32), ValueError, "input_ids must be a 2D array"),
         (jnp.ones((1, 2, 1), dtype=jnp.int32), ValueError, "input_ids must be a 2D array"),
         (jnp.ones((1, 4), dtype=jnp.float32), TypeError, "integer token ids"),
+        (jnp.ones((0, 4), dtype=jnp.int32), ValueError, "at least one batch row"),
         (jnp.ones((1, 0), dtype=jnp.int32), ValueError, "at least one token"),
     ],
 )
