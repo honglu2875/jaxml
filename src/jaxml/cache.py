@@ -111,8 +111,8 @@ class KVCache(struct.PyTreeNode):
         v = jnp.asarray(v)
         self._validate_kv_inputs(k, v)
         if self.k is None:
-            if self.v is not None or self.mask is not None:
-                raise ValueError("KVCache has partial state: k is empty but v or mask is populated.")
+            if self.v is not None or self.mask is not None or self.pos_id is not None:
+                raise ValueError("KVCache has partial state: k is empty but v, mask, or pos_id is populated.")
             if k.shape[1] > self.max_seq_len:
                 raise ValueError(f"Cannot cache {k.shape[1]} tokens in max_seq_len={self.max_seq_len}.")
             if mask is None:

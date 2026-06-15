@@ -79,6 +79,20 @@ def test_kv_cache_update_defaults_missing_initial_mask_to_valid_tokens():
     assert np.array_equal(np.array(cache.pos_id), np.array([[1], [1]]))
 
 
+def test_kv_cache_update_rejects_partial_empty_state():
+    k, v = _kv(batch=1, seq_len=1)
+    cache = KVCache(
+        k=None,
+        v=None,
+        max_seq_len=4,
+        mask=None,
+        pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+    )
+
+    with pytest.raises(ValueError, match="k is empty"):
+        cache.update(k, v, mask=None)
+
+
 @pytest.mark.parametrize(
     "k,v,match",
     [
