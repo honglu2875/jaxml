@@ -188,7 +188,7 @@ def test_cpu_test_modules_are_assigned_to_cadence_markers():
 def test_ci_runs_critical_cpu_suite_on_push_and_full_suite_on_milestone_events():
     workflow = _workflow_config()
 
-    assert "uv run --frozen --extra dev make pytest-critical-cpu" in workflow
+    assert "uv run --frozen --extra dev make verify-critical-cpu" in workflow
     assert "uv run --frozen --extra dev make verify-milestone-cpu" in workflow
     assert "workflow_dispatch:" in workflow
     assert "schedule:" in workflow
