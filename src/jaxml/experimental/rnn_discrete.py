@@ -28,6 +28,21 @@ def _normalize_bool(name: str, value: bool) -> bool:
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
 
 
+def _normalize_dtype(name: str, value: Any):
+    if value is None:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
+    try:
+        return jnp.dtype(value)
+    except TypeError as e:
+        raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
+def _normalize_callable(name: str, value):
+    if not callable(value):
+        raise TypeError(f"{name} must be callable, got {type(value)}.")
+    return value
+
+
 @struct.dataclass
 class RNNDiscreteConfig:
     num_classes: int = struct.field(pytree_node=False)
@@ -65,10 +80,12 @@ class RNNDiscrete(Module):
     act_fn: Any = jax.nn.silu
 
     def setup(self):
+        dtype = _normalize_dtype("dtype", self.dtype)
+        _normalize_callable("act_fn", self.act_fn)
         self.embed = Embed(
             num_embeddings=self.config.num_classes,
             features=self.config.hidden_dim,
-            dtype=self.dtype,
+            dtype=dtype,
         )
         layers = []
         for layer_idx in range(self.config.num_layers):
@@ -77,19 +94,19 @@ class RNNDiscrete(Module):
                 DenseGeneral(
                     features=self.config.state_dim,
                     axis=-1,
-                    weight_dtype=self.dtype,
-                    dtype=self.dtype,
+                    weight_dtype=dtype,
+                    dtype=dtype,
                     kernel_axes=kernel_axes,
                     use_bias=self.config.use_bias,
                 )
             )
         self.layers = tuple(layers)
-        self.norm = RMSNorm(self.config.state_dim, dtype=self.dtype)
+        self.norm = RMSNorm(self.config.state_dim, dtype=dtype)
         self.output = DenseGeneral(
             features=self.config.output_classes,
             axis=-1,
-            weight_dtype=self.dtype,
-            dtype=self.dtype,
+            weight_dtype=dtype,
+            dtype=dtype,
             kernel_axes=("state", "classes"),
             use_bias=self.config.use_bias,
         )
@@ -98,10 +115,12 @@ class RNNDiscrete(Module):
         self,
         input_ids: jnp.ndarray,
     ):
-        out = self.embed(input_ids).astype(self.dtype)
+        dtype = _normalize_dtype("dtype", self.dtype)
+        act_fn = _normalize_callable("act_fn", self.act_fn)
+        out = self.embed(input_ids).astype(dtype)
         for layer in self.layers:
             out = layer(out)
             out = self.norm(out)
-            out = self.act_fn(out)
+            out = act_fn(out)
 
         return self.output(out)

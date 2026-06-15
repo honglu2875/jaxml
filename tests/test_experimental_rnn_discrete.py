@@ -54,6 +54,36 @@ def test_rnn_discrete_config_accepts_numpy_scalar_values():
     assert config.use_bias is True
 
 
+@pytest.mark.parametrize("dtype", [None, "not-a-dtype"])
+def test_rnn_discrete_rejects_invalid_dtype(dtype):
+    config = RNNDiscreteConfig(num_classes=8, num_layers=1, hidden_dim=6, state_dim=4)
+    model = RNNDiscrete(config=config, dtype=dtype)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="dtype must be a valid JAX dtype"):
+        model.init(jax.random.PRNGKey(0), input_ids)
+
+
+def test_rnn_discrete_rejects_non_callable_activation():
+    config = RNNDiscreteConfig(num_classes=8, num_layers=1, hidden_dim=6, state_dim=4)
+    model = RNNDiscrete(config=config, dtype=jnp.float32, act_fn=None)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+
+    with pytest.raises(TypeError, match="act_fn must be callable"):
+        model.init(jax.random.PRNGKey(0), input_ids)
+
+
+def test_rnn_discrete_accepts_numpy_dtype():
+    config = RNNDiscreteConfig(num_classes=8, num_layers=1, hidden_dim=6, state_dim=4)
+    model = RNNDiscrete(config=config, dtype=np.float32)
+    input_ids = jnp.array([[0, 1]], dtype=jnp.int32)
+
+    params = model.init(jax.random.PRNGKey(0), input_ids)
+    logits = model.apply(params, input_ids)
+
+    assert logits.dtype == jnp.float32
+
+
 @pytest.mark.parametrize(
     "overrides,exception,match",
     [
