@@ -17,7 +17,7 @@ from jaxml.hf_utils import (
     _validate_hf_dtype,
     load_model_from_hf,
 )
-from jaxml.inference_engine.engine import Engine, InferenceConfig, _normalize_dtype
+from jaxml.inference_engine.engine import Engine, InferenceConfig, _normalize_dtype, _normalize_inference_config
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -204,6 +204,7 @@ class TextGenerationPipeline:
         architecture = _normalize_hf_architecture(architecture)
         model_dtype = _validate_hf_dtype(model_dtype)
         engine_dtype = _normalize_dtype("engine_dtype", engine_dtype)
+        inference_config = InferenceConfig() if inference_config is None else _normalize_inference_config(inference_config)
         use_tpu = _normalize_bool("use_tpu", use_tpu)
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
@@ -225,7 +226,7 @@ class TextGenerationPipeline:
         )
         engine = Engine(
             model,
-            inference_config or InferenceConfig(),
+            inference_config,
             params,
             dtype=engine_dtype,
             cache_stride=cache_stride,

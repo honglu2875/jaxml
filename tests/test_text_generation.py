@@ -623,6 +623,31 @@ def test_from_hf_rejects_non_boolean_use_tpu_before_loading(monkeypatch):
     assert calls == []
 
 
+@pytest.mark.parametrize("inference_config", [{"tp_size": 1}, object()])
+def test_from_hf_rejects_invalid_inference_config_before_loading(monkeypatch, inference_config):
+    calls = []
+
+    class FakeAutoTokenizer:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            calls.append(("tokenizer", args, kwargs))
+            raise AssertionError("AutoTokenizer.from_pretrained should not be called for invalid inference_config.")
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        calls.append(("model", args, kwargs))
+        raise AssertionError("load_model_from_hf should not be called for invalid inference_config.")
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoTokenizer", FakeAutoTokenizer)
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    with pytest.raises(TypeError, match="config must be an InferenceConfig"):
+        TextGenerationPipeline.from_hf("some/model", inference_config=inference_config)
+
+    assert calls == []
+
+
 @pytest.mark.parametrize(
     "kwargs,match",
     [
