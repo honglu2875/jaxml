@@ -449,7 +449,7 @@ tpu = [
 
 [package.metadata]
 requires-dist = [
-    { name = "black", marker = "extra == 'dev'", specifier = ">=24.0.0" },
+    { name = "black", marker = "extra == 'dev'", specifier = "==26.5.1" },
     { name = "flake8", marker = "extra == 'dev'", specifier = "==7.3.0" },
     { name = "flax", specifier = "==0.12.7" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==5.13.2" },
