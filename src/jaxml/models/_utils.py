@@ -13,6 +13,24 @@ def _normalize_count(name: str, value: int) -> int:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
 
 
+def _normalize_bool(name: str, value: bool) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    raise TypeError(f"{name} must be a boolean, got {type(value)}.")
+
+
+def normalize_model_output_flags(
+    use_cache: bool,
+    output_attentions: bool,
+    output_hidden_states: bool,
+) -> tuple[bool, bool, bool]:
+    return (
+        _normalize_bool("use_cache", use_cache),
+        _normalize_bool("output_attentions", output_attentions),
+        _normalize_bool("output_hidden_states", output_hidden_states),
+    )
+
+
 def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_logits: int) -> jnp.ndarray:
     keep_last_n_logits = _normalize_count("keep_last_n_logits", keep_last_n_logits)
     if keep_last_n_logits < 0:

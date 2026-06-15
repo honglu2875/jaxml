@@ -46,3 +46,47 @@ def test_model_heads_reject_invalid_keep_last_n_logits(request, fixture_name, ke
 
         with pytest.raises(exception, match=match):
             model.apply(params, input_ids, keep_last_n_logits=keep_last_n_logits)
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    ["llama_model_with_head", "neox_model_with_head", "gemma_model_with_head"],
+)
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"use_cache": 1}, "use_cache must be a boolean"),
+        ({"use_cache": None}, "use_cache must be a boolean"),
+        ({"output_attentions": 1}, "output_attentions must be a boolean"),
+        ({"output_hidden_states": "true"}, "output_hidden_states must be a boolean"),
+    ],
+)
+def test_model_heads_reject_non_boolean_output_flags(request, fixture_name, kwargs, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        with pytest.raises(TypeError, match=match):
+            model.apply(params, input_ids, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "fixture_name",
+    ["llama_model_with_head", "neox_model_with_head", "gemma_model_with_head"],
+)
+def test_model_heads_accept_numpy_boolean_output_flags(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        output = model.apply(
+            params,
+            input_ids,
+            use_cache=np.bool_(True),
+            output_attentions=np.bool_(False),
+            output_hidden_states=np.bool_(True),
+        )
+
+    assert output.kv_caches is not None
+    assert output.hidden_states is not None
+    assert output.attention_weights is None

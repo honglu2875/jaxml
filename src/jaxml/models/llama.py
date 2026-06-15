@@ -28,7 +28,7 @@ from ..nn.module import Block
 from ..nn.norms import RMSNorm
 from ..nn.position import RotaryEmbedding
 from ..outputs import BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
-from ._utils import prepare_model_inputs, slice_last_n_logits_hidden_states
+from ._utils import normalize_model_output_flags, prepare_model_inputs, slice_last_n_logits_hidden_states
 
 
 class LlamaMLP(Block):
@@ -160,6 +160,11 @@ class LlamaModel(Block):
         output_hidden_states: bool = False,
         use_cache: bool = False,
     ) -> BaseModelOutputWithCache:
+        use_cache, output_attentions, output_hidden_states = normalize_model_output_flags(
+            use_cache,
+            output_attentions,
+            output_hidden_states,
+        )
         input_ids, attention_mask, kv_caches = prepare_model_inputs(input_ids, attention_mask, kv_caches, self.num_layers)
 
         if attention_mask is None:

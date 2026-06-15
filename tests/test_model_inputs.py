@@ -66,3 +66,41 @@ def test_models_reject_wrong_number_of_kv_caches(request, fixture_name):
 
         with pytest.raises(ValueError, match="one cache per layer"):
             model.apply(params, input_ids, kv_caches=(), use_cache=True)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"use_cache": 1}, "use_cache must be a boolean"),
+        ({"use_cache": None}, "use_cache must be a boolean"),
+        ({"output_attentions": 1}, "output_attentions must be a boolean"),
+        ({"output_hidden_states": "true"}, "output_hidden_states must be a boolean"),
+    ],
+)
+def test_models_reject_non_boolean_output_flags(request, fixture_name, kwargs, match):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        with pytest.raises(TypeError, match=match):
+            model.apply(params, input_ids, **kwargs)
+
+
+@pytest.mark.parametrize("fixture_name", MODEL_FIXTURES)
+def test_models_accept_numpy_boolean_output_flags(request, fixture_name):
+    with jax.default_device(jax.devices("cpu")[0]):
+        model, params = request.getfixturevalue(fixture_name)
+        input_ids = jnp.arange(4, dtype=jnp.int32)[None]
+
+        output = model.apply(
+            params,
+            input_ids,
+            use_cache=np.bool_(True),
+            output_attentions=np.bool_(False),
+            output_hidden_states=np.bool_(True),
+        )
+
+    assert output.kv_caches is not None
+    assert output.hidden_states is not None
+    assert output.attention_weights is None
