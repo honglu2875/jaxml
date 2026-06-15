@@ -142,6 +142,7 @@ def test_model_config_rejects_non_boolean_flags(overrides, match):
         ({"vocab_size": 0}, "vocab_size"),
         ({"intermediate_ratio": (8, 0)}, "intermediate_ratio"),
         ({"intermediate_ratio": (8, 3, 1)}, "intermediate_ratio"),
+        ({"intermediate_ratio": (1, 100)}, "positive intermediate_size"),
         ({"norm_eps": 0.0}, "norm_eps"),
         ({"num_kv_heads": 0}, "num_key_value_heads"),
         ({"num_kv_heads": 4}, "divisible"),

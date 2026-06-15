@@ -175,6 +175,8 @@ class ModelConfig:
         object.__setattr__(self, "intermediate_ratio", intermediate_ratio)
         if intermediate_ratio[0] <= 0 or intermediate_ratio[1] <= 0:
             raise ValueError(f"intermediate_ratio values must be positive, got {intermediate_ratio}.")
+        if self.hidden_size * intermediate_ratio[0] // intermediate_ratio[1] <= 0:
+            raise ValueError(f"intermediate_ratio must produce a positive intermediate_size, got {intermediate_ratio}.")
         for name in ("norm_eps", "rope_theta", "rope_scale", "rotary_pct"):
             object.__setattr__(self, name, _normalize_float(name, getattr(self, name)))
         if self.norm_eps <= 0:
