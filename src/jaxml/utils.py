@@ -163,7 +163,10 @@ def _insert_state_leaf(tree: dict, path: list[str], value: Any, source_key: str)
 def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"State value for key {source_key!r} must be a torch.Tensor, got {type(value)}.")
-    return value.numpy().astype(dtype)
+    tensor = value.detach().cpu()
+    if tensor.dtype == torch.bfloat16:
+        tensor = tensor.to(torch.float32)
+    return tensor.numpy().astype(dtype)
 
 
 def _normalize_optional_head_dim(head_dim: int | None) -> int | None:

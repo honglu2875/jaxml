@@ -430,6 +430,25 @@ def test_torch_to_jax_states_rejects_non_tensor_state_values():
         torch_to_jax_states({"weight": np.ones(1)}, dtype=torch.float32)
 
 
+def test_torch_to_jax_states_detaches_values_requiring_grad():
+    params = torch_to_jax_states(
+        {"bias": torch.tensor([1.0, 2.0], requires_grad=True)},
+        dtype=torch.float32,
+    )
+
+    assert np.array_equal(params["params"]["bias"], np.array([1.0, 2.0], dtype=np.float32))
+
+
+def test_torch_to_jax_states_converts_bfloat16_source_values():
+    params = torch_to_jax_states(
+        {"bias": torch.tensor([1.0, 2.0], dtype=torch.bfloat16)},
+        dtype="bfloat16",
+    )
+
+    assert params["params"]["bias"].dtype == jnp.bfloat16
+    assert np.array_equal(params["params"]["bias"], np.array([1.0, 2.0], dtype=jnp.bfloat16))
+
+
 def test_torch_to_jax_states_rejects_non_string_state_keys():
     with pytest.raises(TypeError, match="State key must be a string"):
         torch_to_jax_states({1: torch.ones(1)}, dtype=torch.float32)
