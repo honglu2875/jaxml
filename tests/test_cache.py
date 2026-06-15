@@ -196,6 +196,20 @@ def test_kv_cache_update_rejects_stale_decode_mask():
         cache.update(next_k, next_v, mask=stale_mask)
 
 
+def test_kv_cache_update_rejects_populated_cache_mask_without_valid_tokens():
+    k, v = _kv(batch=1, seq_len=1)
+    cache = KVCache(
+        k=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+        v=jnp.zeros((1, 4, 1, 2), dtype=jnp.float32),
+        max_seq_len=4,
+        mask=jnp.zeros((1, 4), dtype=bool),
+        pos_id=jnp.zeros((1, 1), dtype=jnp.int32),
+    )
+
+    with pytest.raises(ValueError, match="Cached mask must contain at least one valid token"):
+        cache.update(k, v, mask=None)
+
+
 @pytest.mark.parametrize("mask_arg", ["none", "cached"])
 def test_kv_cache_update_decode_extends_cached_mask(mask_arg):
     k, v = _kv(seq_len=2)

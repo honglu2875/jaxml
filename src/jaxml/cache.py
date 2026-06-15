@@ -136,6 +136,8 @@ class KVCache(struct.PyTreeNode):
 
         if self.v is None or self.mask is None or self.pos_id is None:
             raise ValueError("KVCache has partial state: populated k requires v, mask, and pos_id.")
+        if not _contains_tracer(self.mask) and not bool(jnp.all(jnp.any(self.mask, axis=1))):
+            raise ValueError("Cached mask must contain at least one valid token per batch row before decode.")
         if mask is not None:
             mask = jnp.asarray(mask)
             if mask.shape != self.mask.shape:
