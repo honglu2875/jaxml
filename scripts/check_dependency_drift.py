@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -12,6 +13,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = PROJECT_ROOT / "pyproject.toml"
 SPECIFIER_OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<")
+NORMALIZED_NAME_SEPARATOR_RE = re.compile(r"[-_.]+")
+
+
+def normalize_package_name(name: str) -> str:
+    return NORMALIZED_NAME_SEPARATOR_RE.sub("-", name).lower()
 
 
 def requirement_name(requirement: str) -> str:
@@ -30,10 +36,10 @@ def direct_dependency_names(pyproject_path: Path = PYPROJECT) -> set[str]:
 
 
 def direct_outdated_packages(outdated_packages: list[dict[str, str]], direct_names: set[str]) -> list[dict[str, str]]:
-    normalized_direct_names = {name.lower() for name in direct_names}
+    normalized_direct_names = {normalize_package_name(name) for name in direct_names}
     return sorted(
-        (package for package in outdated_packages if package["name"].lower() in normalized_direct_names),
-        key=lambda package: package["name"].lower(),
+        (package for package in outdated_packages if normalize_package_name(package["name"]) in normalized_direct_names),
+        key=lambda package: normalize_package_name(package["name"]),
     )
 
 

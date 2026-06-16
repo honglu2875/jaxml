@@ -345,6 +345,28 @@ def test_dependency_drift_helper_filters_to_direct_project_pins():
     assert [package["name"] for package in direct_outdated] == ["jax", "torch"]
 
 
+def test_dependency_drift_helper_normalizes_package_names():
+    drift = _dependency_drift_module()
+
+    assert drift.normalize_package_name("jax_tqdm") == "jax-tqdm"
+    assert drift.normalize_package_name("jax.tqdm") == "jax-tqdm"
+    assert drift.normalize_package_name("JAX--TQDM") == "jax-tqdm"
+
+
+def test_dependency_drift_helper_matches_normalized_direct_project_pins():
+    drift = _dependency_drift_module()
+    direct_names = {"jax_tqdm", "example.package"}
+    outdated_packages = [
+        {"name": "jax-tqdm", "version": "0.1.0", "latest_version": "0.2.0"},
+        {"name": "example_package", "version": "1.0.0", "latest_version": "1.1.0"},
+        {"name": "transitive-package", "version": "1.0.0", "latest_version": "1.1.0"},
+    ]
+
+    direct_outdated = drift.direct_outdated_packages(outdated_packages, direct_names)
+
+    assert [package["name"] for package in direct_outdated] == ["example_package", "jax-tqdm"]
+
+
 def test_dependency_drift_helper_reports_current_direct_pins_cleanly():
     drift = _dependency_drift_module()
 
