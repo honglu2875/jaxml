@@ -35,6 +35,14 @@ def test_slice_last_n_logits_hidden_states_rejects_empty_axes(hidden_states):
         slice_last_n_logits_hidden_states(hidden_states, keep_last_n_logits=1)
 
 
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+def test_slice_last_n_logits_hidden_states_rejects_non_finite_values(value):
+    hidden_states = jnp.ones((1, 4, 8), dtype=jnp.float32).at[0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match="hidden_states must contain only finite values"):
+        slice_last_n_logits_hidden_states(hidden_states, keep_last_n_logits=1)
+
+
 @pytest.mark.parametrize(
     "fixture_name",
     ["llama_model_with_head", "neox_model_with_head", "gemma_model_with_head"],

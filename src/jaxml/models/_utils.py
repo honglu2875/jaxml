@@ -1,10 +1,10 @@
 import operator
-from typing import Any
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
+from .._validation import contains_tracer as _contains_tracer
+from .._validation import validate_finite_values
 from ..cache import KVCache
 
 
@@ -21,10 +21,6 @@ def _normalize_bool(name: str, value: bool) -> bool:
     if isinstance(value, (bool, np.bool_)):
         return bool(value)
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
-
-
-def _contains_tracer(x: Any) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def normalize_model_output_flags(
@@ -58,6 +54,7 @@ def validate_mlp_input(module_name: str, x, hidden_size: int) -> jnp.ndarray:
         raise ValueError(f"{module_name} input must not contain empty axes, got shape {x.shape}.")
     if x.shape[-1] != hidden_size:
         raise ValueError(f"{module_name} hidden dimension mismatch: got {x.shape[-1]} and expected {hidden_size}.")
+    validate_finite_values(f"{module_name} input", x)
     return x
 
 
@@ -69,6 +66,7 @@ def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_lo
         raise TypeError(f"hidden_states must contain floating point values, got dtype {hidden_states.dtype}.")
     if any(axis_size <= 0 for axis_size in hidden_states.shape):
         raise ValueError(f"hidden_states must not contain empty axes, got shape {hidden_states.shape}.")
+    validate_finite_values("hidden_states", hidden_states)
     keep_last_n_logits = _normalize_count("keep_last_n_logits", keep_last_n_logits)
     if keep_last_n_logits < 0:
         raise ValueError(f"keep_last_n_logits must be non-negative, got {keep_last_n_logits}.")

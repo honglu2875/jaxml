@@ -80,6 +80,26 @@ def test_mlp_rejects_invalid_inputs(mlp_cls, x, exception, match):
         mlp.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("mlp_cls", [LlamaMLP, GPTNeoXMLP, GemmaMLP])
+def test_mlp_rejects_non_finite_inputs(mlp_cls, value):
+    config = ModelConfig(
+        hidden_size=48,
+        head_dim=8,
+        num_heads=6,
+        num_layers=1,
+        intermediate_ratio=(2, 1),
+        max_position_embeddings=16,
+        vocab_size=128,
+        attn_scale=8**-0.5,
+    )
+    mlp = mlp_cls(config=config, dtype=jnp.float32)
+    x = jnp.ones((1, 2, 48), dtype=jnp.float32).at[0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match="input must contain only finite values"):
+        mlp.init(jax.random.PRNGKey(0), x)
+
+
 @pytest.mark.parametrize("mlp_cls", [LlamaMLP, GPTNeoXMLP, GemmaMLP])
 def test_mlp_accepts_array_like_inputs(mlp_cls):
     config = ModelConfig(
