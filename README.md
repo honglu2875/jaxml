@@ -106,4 +106,6 @@ Before changing pinned dependencies, audit direct dependency drift:
 uv run --frozen --extra dev make dependency-drift
 ```
 
+Compiled AOT cache entries include JAX/JAXLIB runtime metadata; inspect an entry with `jaxml.utils.compiled_fn_metadata(...)` before reusing caches across dependency upgrades.
+
 GitHub CI runs shared push checks (`lock-check`, `dependency-check`, `lint`, `format-check`, and `build-check`) once on Python 3.12, then runs critical CPU tests on Python 3.11 and 3.12. The full milestone CPU suite runs on the weekly scheduled workflow and manual dispatch. TPU tests are excluded from CPU suites and remain a local/manual gate.

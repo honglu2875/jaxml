@@ -115,11 +115,18 @@ def _encode_aot_cache_metadata() -> bytes:
     return json.dumps(_aot_cache_metadata(), sort_keys=True).encode("utf-8")
 
 
-def _validate_aot_cache_metadata(path: Path, metadata_path: Path):
+def _read_aot_cache_metadata(path: Path, metadata_path: Path) -> dict[str, str | int]:
     try:
-        actual = json.loads(metadata_path.read_text())
+        metadata = json.loads(metadata_path.read_text())
     except Exception as e:
         raise ValueError(f"Failed to load AOT cache metadata from {path}.") from e
+    if not isinstance(metadata, dict):
+        raise ValueError(f"AOT cache metadata from {path} must be a JSON object, got {type(metadata)}.")
+    return metadata
+
+
+def _validate_aot_cache_metadata(path: Path, metadata_path: Path):
+    actual = _read_aot_cache_metadata(path, metadata_path)
     expected = _aot_cache_metadata()
     if actual != expected:
         raise ValueError(f"AOT cache metadata mismatch for {path}: got {actual!r}, expected {expected!r}.")
@@ -426,6 +433,16 @@ def compiled_fn_exist(name: str, hash: str = "0"):
     spec_path = path / "in_out_spec"
     metadata_path = path / "metadata.json"
     return all(path.is_file() and path.stat().st_size > 0 for path in (fn_path, spec_path, metadata_path))
+
+
+def compiled_fn_metadata(name: str, hash: str = "0", cache_dir: str | Path | None = None) -> dict[str, str | int]:
+    path = compiled_fn_path(name, hash, cache_dir=cache_dir)
+    metadata_path = path / "metadata.json"
+    if not metadata_path.is_file():
+        raise ValueError(f"Cannot find AOT cache metadata from the folder {path}")
+    if metadata_path.stat().st_size <= 0:
+        raise ValueError(f"AOT cache entry from {path} has empty payload file {metadata_path.name!r}.")
+    return _read_aot_cache_metadata(path, metadata_path)
 
 
 @functools.lru_cache()

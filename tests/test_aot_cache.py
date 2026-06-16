@@ -13,6 +13,7 @@ from jaxml.utils import (
     _hash,
     _load_compiled_fn_from_path,
     compiled_fn_exist,
+    compiled_fn_metadata,
     compiled_fn_path,
     load_compiled_fn,
     load_if_exists,
@@ -141,6 +142,42 @@ def test_compiled_fn_exist_rejects_empty_payload_files(monkeypatch, tmp_path, em
     (cache_entry / empty_payload_name).write_bytes(b"")
 
     assert not compiled_fn_exist("decode", "abc")
+
+
+def test_compiled_fn_metadata_returns_stored_metadata(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    cache_entry = compiled_fn_path("decode", "abc")
+    _write_aot_cache_entry(cache_entry)
+
+    assert compiled_fn_metadata("decode", "abc") == _aot_cache_metadata()
+
+
+def test_compiled_fn_metadata_uses_explicit_cache_dir(tmp_path):
+    cache_entry = compiled_fn_path("decode", "abc", cache_dir=tmp_path)
+    _write_aot_cache_entry(cache_entry)
+
+    assert compiled_fn_metadata("decode", "abc", cache_dir=tmp_path) == _aot_cache_metadata()
+
+
+def test_compiled_fn_metadata_returns_stale_metadata_for_diagnostics(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    cache_entry = compiled_fn_path("decode", "abc")
+    stale_metadata = _aot_cache_metadata() | {"jax": "0.0.0"}
+    _write_aot_cache_entry(cache_entry)
+    (cache_entry / "metadata.json").write_text(json.dumps(stale_metadata, sort_keys=True))
+
+    assert compiled_fn_metadata("decode", "abc") == stale_metadata
+
+
+@pytest.mark.parametrize("metadata_payload", ["", "[]", "not-json"])
+def test_compiled_fn_metadata_rejects_invalid_metadata_payloads(monkeypatch, tmp_path, metadata_payload):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    cache_entry = compiled_fn_path("decode", "abc")
+    _write_aot_cache_entry(cache_entry)
+    (cache_entry / "metadata.json").write_text(metadata_payload)
+
+    with pytest.raises(ValueError, match="metadata|empty payload"):
+        compiled_fn_metadata("decode", "abc")
 
 
 @pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec", "metadata.json"])
