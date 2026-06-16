@@ -153,6 +153,16 @@ def test_norms_reject_non_floating_inputs(norm_cls):
         norm.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm, GemmaRMSNorm])
+def test_norms_reject_non_finite_inputs(norm_cls, value):
+    norm = norm_cls(hidden_size=4)
+    x = jnp.ones((1, 2, 4), dtype=jnp.float32).at[0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match="input must contain only finite values"):
+        norm.init(jax.random.PRNGKey(0), x)
+
+
 @pytest.mark.parametrize("norm_cls", [RMSNorm, LayerNorm])
 @pytest.mark.parametrize(
     "kwargs,exception,match",
@@ -393,6 +403,19 @@ def test_dense_general_rejects_non_floating_inputs():
     x = jnp.ones((1, 2, 3), dtype=jnp.int32)
 
     with pytest.raises(TypeError, match="floating point"):
+        dense.init(jax.random.PRNGKey(0), x)
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+def test_dense_general_rejects_non_finite_inputs(value):
+    dense = DenseGeneral(
+        features=4,
+        axis=-1,
+        kernel_axes=("embed", "features"),
+    )
+    x = jnp.ones((1, 2, 3), dtype=jnp.float32).at[0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match="DenseGeneral inputs must contain only finite values"):
         dense.init(jax.random.PRNGKey(0), x)
 
 

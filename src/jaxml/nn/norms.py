@@ -18,6 +18,7 @@ import operator
 from numbers import Real
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 import numpy as np
 from flax.linen.partitioning import param_with_axes
@@ -64,6 +65,19 @@ def _normalize_dtype(name: str, value):
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
 
 
+def _contains_tracer(x) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
+
+
+def _validate_finite_values(name: str, values):
+    try:
+        has_only_finite_values = bool(jnp.all(jnp.isfinite(values)))
+    except jax.errors.TracerBoolConversionError:
+        return
+    if not _contains_tracer(values) and not has_only_finite_values:
+        raise ValueError(f"{name} must contain only finite values.")
+
+
 def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: int):
     hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim == 0:
@@ -74,6 +88,7 @@ def _validate_hidden_states_shape(module_name: str, hidden_states, hidden_size: 
         raise ValueError(f"{module_name} input must not contain empty axes, got shape {hidden_states.shape}.")
     if hidden_states.shape[-1] != hidden_size:
         raise ValueError(f"{module_name} hidden dimension mismatch: got {hidden_states.shape[-1]} and expected {hidden_size}.")
+    _validate_finite_values(f"{module_name} input", hidden_states)
     return hidden_states
 
 

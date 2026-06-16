@@ -139,6 +139,15 @@ def test_rope_rejects_invalid_input_tensor(x, exception, match):
         rope.init(jax.random.PRNGKey(0), x)
 
 
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+def test_rope_rejects_non_finite_input_tensor(value):
+    rope = RotaryEmbedding(dim=4, max_length=8)
+    x = jnp.ones((1, 2, 1, 4), dtype=jnp.float32).at[0, 0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match="x must contain only finite values"):
+        rope.init(jax.random.PRNGKey(0), x)
+
+
 @pytest.mark.parametrize(
     "kwargs,exception,match",
     [
@@ -180,6 +189,22 @@ def test_apply_rotary_pos_emb_rejects_invalid_inputs(kwargs, exception, match):
 
     with pytest.raises(exception, match=match):
         RotaryEmbedding.apply_rotary_pos_emb(**(defaults | kwargs))
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("field_name", ["q", "k", "cos", "sin"])
+def test_apply_rotary_pos_emb_rejects_non_finite_inputs(field_name, value):
+    kwargs = {
+        "q": jnp.ones((1, 2, 2, 4), dtype=jnp.float32),
+        "k": jnp.ones((1, 2, 1, 4), dtype=jnp.float32),
+        "cos": jnp.ones((4, 4), dtype=jnp.float32),
+        "sin": jnp.zeros((4, 4), dtype=jnp.float32),
+        "position_ids": jnp.arange(2, dtype=jnp.int32)[None],
+    }
+    kwargs[field_name] = kwargs[field_name].at[(0,) * kwargs[field_name].ndim].set(value)
+
+    with pytest.raises(ValueError, match=f"{field_name} must contain only finite values"):
+        RotaryEmbedding.apply_rotary_pos_emb(**kwargs)
 
 
 def test_apply_rotary_pos_emb_allows_grouped_query_head_counts():

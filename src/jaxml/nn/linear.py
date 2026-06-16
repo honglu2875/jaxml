@@ -24,6 +24,7 @@ from dataclasses import field
 from typing import Any, Callable, Iterable, Tuple, Union
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import lax
@@ -78,6 +79,19 @@ def _normalize_dtype(name: str, value: Any):
         return jnp.dtype(value)
     except TypeError as e:
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
+
+
+def _contains_tracer(x: Any) -> bool:
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
+
+
+def _validate_finite_values(name: str, values: jnp.ndarray):
+    try:
+        has_only_finite_values = bool(jnp.all(jnp.isfinite(values)))
+    except jax.errors.TracerBoolConversionError:
+        return
+    if not _contains_tracer(values) and not has_only_finite_values:
+        raise ValueError(f"{name} must contain only finite values.")
 
 
 def _canonicalize_tuple(x):
@@ -141,6 +155,7 @@ class DenseGeneral(Module):
             raise TypeError(f"DenseGeneral inputs must contain floating point values, got dtype {inputs.dtype}.")
         if inputs.size == 0:
             raise ValueError(f"DenseGeneral inputs must not contain empty axes, got shape {inputs.shape}.")
+        _validate_finite_values("DenseGeneral inputs", inputs)
         inputs = inputs.astype(dtype)
         axis = _normalize_axes(axis, inputs.ndim)
         use_bias = _normalize_bool("use_bias", self.use_bias)

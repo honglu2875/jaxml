@@ -60,6 +60,15 @@ def _contains_tracer(x: Any) -> bool:
     return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
+def _validate_finite_values(name: str, values: jnp.ndarray):
+    try:
+        has_only_finite_values = bool(jnp.all(jnp.isfinite(values)))
+    except jax.errors.TracerBoolConversionError:
+        return
+    if not _contains_tracer(values) and not has_only_finite_values:
+        raise ValueError(f"{name} must contain only finite values.")
+
+
 class RotaryEmbedding(nn.Module):
     dim: int
     # max_trained_length is the initial context window, and we may extend it at inference time.
@@ -94,6 +103,7 @@ class RotaryEmbedding(nn.Module):
         for name, value in (("q", q), ("k", k), ("cos", cos), ("sin", sin)):
             if not jnp.issubdtype(value.dtype, jnp.floating):
                 raise TypeError(f"{name} must contain floating point values, got dtype {value.dtype}.")
+            _validate_finite_values(name, value)
         if q.shape[:2] != k.shape[:2] or q.shape[-1] != k.shape[-1]:
             raise ValueError(f"q and k must have matching batch, sequence, and head dimensions, got {q.shape} and {k.shape}.")
         if cos.ndim != 2 or sin.ndim != 2:
@@ -209,6 +219,7 @@ class RotaryEmbedding(nn.Module):
             raise ValueError(f"x must not contain empty axes, got shape {x.shape}.")
         if not jnp.issubdtype(x.dtype, jnp.floating):
             raise TypeError(f"x must contain floating point values, got dtype {x.dtype}.")
+        _validate_finite_values("x", x)
         if seq_len is None:
             seq_len = x.shape[1]
         seq_len = _normalize_count("seq_len", seq_len)

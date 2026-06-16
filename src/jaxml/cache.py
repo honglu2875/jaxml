@@ -60,7 +60,11 @@ def _validate_binary_integer_mask(name: str, mask: jnp.ndarray):
 
 
 def _validate_finite_values(name: str, values: jnp.ndarray):
-    if not _contains_tracer(values) and not bool(jnp.all(jnp.isfinite(values))):
+    try:
+        has_only_finite_values = bool(jnp.all(jnp.isfinite(values)))
+    except jax.errors.TracerBoolConversionError:
+        return
+    if not _contains_tracer(values) and not has_only_finite_values:
         raise ValueError(f"{name} must contain only finite values.")
 
 
