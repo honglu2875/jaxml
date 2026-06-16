@@ -17,15 +17,19 @@
 # routing and MLA math mirror transformers' modeling_deepseek_v3 so the modules
 # can be checked for forward-parity against the reference implementation.
 
-from typing import Any
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
 from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
 
+from ..cache import KVCache
+from ..nn.attention import Attention, _validate_cos_sin, _validate_hidden_states
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
+from ..nn.norms import RMSNorm
+from ..outputs import AttentionOutput
 
 
 class DeepseekMoE(Block):
@@ -159,3 +163,171 @@ class DeepseekMoE(Block):
 
         shared = self.shared_down_proj(jax.nn.silu(self.shared_gate_proj(x)) * self.shared_up_proj(x))
         return routed + shared
+
+
+def _apply_rope_interleave(q_rot, k_rot, cos, sin):
+    """DeepSeek interleaved RoPE applied to the decoupled rope slices.
+
+    Mirrors transformers' ``apply_rotary_pos_emb_interleave``: ``cos``/``sin`` are
+    ``cat(freqs, freqs)`` so only the first half holds the per-pair angle; the
+    even/odd input lanes are rotated and re-concatenated. Inputs use the
+    ``(batch, seq, heads, rope)`` layout (cos/sin are ``(batch, seq, rope)``).
+    """
+    half = cos.shape[-1] // 2
+    cos_h = cos[..., :half][:, :, None, :]
+    sin_h = sin[..., :half][:, :, None, :]
+
+    def _rotate(x):
+        x1, x2 = x[..., 0::2], x[..., 1::2]
+        return jnp.concatenate([x1 * cos_h - x2 * sin_h, x2 * cos_h + x1 * sin_h], axis=-1)
+
+    return _rotate(q_rot), _rotate(k_rot)
+
+
+class MLAAttention(Attention):
+    """Multi-head Latent Attention (DeepSeek-V3).
+
+    Query and key/value are produced through low-rank latent projections; RoPE is
+    applied to a small decoupled slice only. The key/value heads have different
+    dimensions (``qk_head_dim`` vs ``v_head_dim``), so the value is zero-padded to
+    ``qk_head_dim`` — exactly as the reference does for its flash path — which lets
+    this class reuse the standard ``mha`` core and ``KVCache`` (which require
+    matching key/value shapes). The attention output is sliced back to
+    ``v_head_dim`` before the output projection.
+
+    ``cos_sin`` are the per-token (already position-indexed) cosine/sine arrays of
+    shape ``(batch, seq, qk_rope_head_dim)``, matching ``AttentionWithRoPE``'s
+    convention of receiving the rotary tables from the caller.
+    """
+
+    def setup(self):
+        cfg = self.config
+        if not cfg.is_mla:
+            raise ValueError("MLAAttention requires a config with kv_lora_rank set.")
+        nh = cfg.num_heads
+        self.num_key_value_heads = nh  # MLA materializes one k/v per query head.
+        nope, rope, v = cfg.qk_nope_head_dim, cfg.qk_rope_head_dim, cfg.v_head_dim
+        qk = nope + rope
+
+        if cfg.q_lora_rank is None:
+            self.q_proj = DenseGeneral(
+                features=(nh, qk),
+                axis=-1,
+                kernel_axes=("embed", "heads", "head_states"),
+                dtype=self.dtype,
+                use_bias=cfg.use_bias,
+                name="q_proj",
+            )
+        else:
+            self.q_a_proj = DenseGeneral(
+                features=cfg.q_lora_rank,
+                axis=-1,
+                kernel_axes=("embed", "q_lora"),
+                dtype=self.dtype,
+                use_bias=cfg.use_bias,
+                name="q_a_proj",
+            )
+            self.q_a_layernorm = RMSNorm(cfg.q_lora_rank, eps=cfg.norm_eps, dtype=self.dtype, upcast=True)
+            self.q_b_proj = DenseGeneral(
+                features=(nh, qk),
+                axis=-1,
+                kernel_axes=("q_lora", "heads", "head_states"),
+                dtype=self.dtype,
+                name="q_b_proj",
+            )
+
+        self.kv_a_proj_with_mqa = DenseGeneral(
+            features=cfg.kv_lora_rank + rope,
+            axis=-1,
+            kernel_axes=("embed", "kv_lora_rope"),
+            dtype=self.dtype,
+            use_bias=cfg.use_bias,
+            name="kv_a_proj_with_mqa",
+        )
+        self.kv_a_layernorm = RMSNorm(cfg.kv_lora_rank, eps=cfg.norm_eps, dtype=self.dtype, upcast=True)
+        self.kv_b_proj = DenseGeneral(
+            features=(nh, nope + v),
+            axis=-1,
+            kernel_axes=("kv_lora", "heads", "head_states"),
+            dtype=self.dtype,
+            name="kv_b_proj",
+        )
+        self.o_proj = DenseGeneral(
+            features=cfg.hidden_size,
+            axis=-1,
+            kernel_axes=("heads_merged", "embed"),
+            dtype=self.dtype,
+            use_bias=cfg.use_bias,
+            name="o_proj",
+        )
+
+    def __call__(
+        self,
+        hidden_states: jnp.ndarray,
+        cos_sin: Optional[tuple[jnp.ndarray, jnp.ndarray]] = None,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
+        kv_cache: Optional[KVCache] = None,
+        output_attentions: bool = False,
+        use_flash: bool = False,
+        sliding_window: int | None = None,
+    ) -> AttentionOutput:
+        hidden_states = _validate_hidden_states(hidden_states)
+        cos, sin = _validate_cos_sin(cos_sin)
+        cfg = self.config
+        bsz, seq_len, _ = hidden_states.shape
+        nh = cfg.num_heads
+        nope, rope, v = cfg.qk_nope_head_dim, cfg.qk_rope_head_dim, cfg.v_head_dim
+        qk = nope + rope
+
+        # Query: optional low-rank compression, then split into nope / rope parts.
+        if cfg.q_lora_rank is None:
+            q = self.q_proj(hidden_states)
+        else:
+            q = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
+        q = q.reshape(bsz, seq_len, nh, qk)
+        q_nope, q_rot = q[..., :nope], q[..., nope:]
+
+        # Key/value: shared latent (kv_lora_rank) + a single-head decoupled rope key.
+        compressed = self.kv_a_proj_with_mqa(hidden_states)
+        k_pass, k_rot = compressed[..., : cfg.kv_lora_rank], compressed[..., cfg.kv_lora_rank :]
+        kv = self.kv_b_proj(self.kv_a_layernorm(k_pass)).reshape(bsz, seq_len, nh, nope + v)
+        k_nope, value = kv[..., :nope], kv[..., nope:]
+        k_rot = k_rot.reshape(bsz, seq_len, 1, rope)
+
+        q_rot, k_rot = _apply_rope_interleave(q_rot, k_rot, cos, sin)
+        k_rot = jnp.broadcast_to(k_rot, (bsz, seq_len, nh, rope))
+
+        query_states = jnp.concatenate([q_nope, q_rot], axis=-1)  # (b, s, nh, qk_head_dim)
+        key_states = jnp.concatenate([k_nope, k_rot], axis=-1)  # (b, s, nh, qk_head_dim)
+        # Pad value to qk_head_dim so key/value shapes match (reference does the same
+        # for flash); the padded lanes are sliced off after attention.
+        if qk > v:
+            value_states = jnp.concatenate([value, jnp.zeros((bsz, seq_len, nh, qk - v), dtype=value.dtype)], axis=-1)
+        else:
+            value_states = value
+
+        if attention_mask is None:
+            attention_mask = self._get_default_mask(hidden_states, kv_cache)
+        key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
+            key_states, value_states, attention_mask, kv_cache
+        )
+
+        attn_output, attn_weight = self.mha(
+            query_states,
+            key_states,
+            value_states,
+            attention_mask=attention_mask,
+            causal=True,
+            sliding_window=None,
+            alibi_slope=None,
+            softmax_fp32=True,
+            output_attentions=output_attentions,
+        )
+
+        attn_output = attn_output[..., :v].reshape(bsz, seq_len, nh * v)
+        return AttentionOutput(
+            attention_output=self.o_proj(attn_output),
+            attention_weight=attn_weight,
+            kv_cache=kv_cache,
+        )
