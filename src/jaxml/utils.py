@@ -407,8 +407,11 @@ def _load_compiled_fn_from_path(path: str):
     path = Path(path)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
-    if not fn_path.exists() or not spec_path.exists():
+    if not fn_path.is_file() or not spec_path.is_file():
         raise ValueError(f"Cannot find files from the folder {path}")
+    for payload_path in (fn_path, spec_path):
+        if payload_path.stat().st_size <= 0:
+            raise ValueError(f"AOT cache entry from {path} has empty payload file {payload_path.name!r}.")
 
     try:
         with fn_path.open("rb") as f:

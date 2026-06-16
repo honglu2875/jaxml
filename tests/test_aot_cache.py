@@ -132,6 +132,28 @@ def test_compiled_fn_exist_rejects_empty_payload_files(monkeypatch, tmp_path, em
     assert not compiled_fn_exist("decode", "abc")
 
 
+@pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec"])
+def test_load_compiled_fn_rejects_empty_payload_files_before_deserializing(monkeypatch, tmp_path, empty_payload_name):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    deserialize_calls = []
+    monkeypatch.setattr(
+        "jax.experimental.serialize_executable.deserialize_and_load",
+        lambda *args: deserialize_calls.append(args),
+    )
+    _load_compiled_fn_from_path.cache_clear()
+    cache_entry = compiled_fn_path("decode", "abc")
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(b"compiled")
+    with (cache_entry / "in_out_spec").open("wb") as f:
+        pickle.dump(("in-tree", "out-tree"), f)
+    (cache_entry / empty_payload_name).write_bytes(b"")
+
+    with pytest.raises(ValueError, match="empty payload file"):
+        load_compiled_fn("decode", "abc", log=False)
+
+    assert deserialize_calls == []
+
+
 def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"new-aot", "in-tree", "out-tree"))
