@@ -59,6 +59,12 @@ def to_llama_jax_params(model, dtype: str = "float16"):
     return torch_to_jax_states(_hf_model_state_dict(model, "Llama"), head_dim=_config_head_dim(llama_config), dtype=dtype)
 
 
+def to_mistral_jax_params(model, dtype: str = "float16"):
+    # Mistral shares Llama's parameter naming, so the Llama conversion applies unchanged.
+    mistral_config = _hf_model_config(model, "Mistral")
+    return torch_to_jax_states(_hf_model_state_dict(model, "Mistral"), head_dim=_config_head_dim(mistral_config), dtype=dtype)
+
+
 def to_gemma_jax_params(model, dtype: str = "bfloat16"):
     gemma_config = _hf_model_config(model, "Gemma")
     return torch_to_jax_states(_hf_model_state_dict(model, "Gemma"), head_dim=_config_head_dim(gemma_config), dtype=dtype)
@@ -93,7 +99,7 @@ def to_neox_jax_params(model, dtype: str = "float16"):
     return torch_to_jax_states(state_dict, head_dim=_config_head_dim(neox_config), dtype=dtype)
 
 
-HFArchitecture = Literal["auto", "llama", "gpt_neox", "neox", "gemma3", "gemma"]
+HFArchitecture = Literal["auto", "llama", "mistral", "gpt_neox", "neox", "gemma3", "gemma"]
 
 
 def _normalize_hf_architecture(architecture: str) -> str:
@@ -101,7 +107,7 @@ def _normalize_hf_architecture(architecture: str) -> str:
         raise TypeError(f"architecture must be a string, got {type(architecture)}.")
     normalized = architecture.lower().replace("-", "_")
     match normalized:
-        case "auto" | "llama" | "neox" | "gemma":
+        case "auto" | "llama" | "mistral" | "neox" | "gemma":
             return normalized
         case "gpt_neox":
             return "neox"
@@ -147,6 +153,8 @@ def _infer_hf_architecture(name: str, **config_kwargs) -> str:
     match model_type:
         case "llama":
             return "llama"
+        case "mistral":
+            return "mistral"
         case "gpt_neox":
             return "neox"
         case "gemma3":
@@ -173,6 +181,8 @@ def load_model_from_hf(
     match architecture:
         case "llama":
             return load_llama_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+        case "mistral":
+            return load_mistral_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "gpt_neox" | "neox":
             return load_neox_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "gemma3" | "gemma":
@@ -197,6 +207,26 @@ def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
     _config = _hf_model_config(_model, "Llama")
     _validate_hf_model_type(_config, ("llama",), "Llama")
     params = to_llama_jax_params(_model, dtype=dtype)
+    config = ModelConfig.from_hf(_config)
+    model = LlamaModelWithHead(config)
+    return model, params
+
+
+def load_mistral_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[LlamaModelWithHead, dict]:
+    """Load Huggingface Mistral compatible models. Mistral reuses the Llama model definition."""
+    name = _normalize_hf_model_name(name)
+    dtype = _validate_hf_dtype(dtype)
+    try:
+        from transformers import AutoModelForCausalLM
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+
+    from jaxml.config import ModelConfig
+
+    _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
+    _config = _hf_model_config(_model, "Mistral")
+    _validate_hf_model_type(_config, ("mistral",), "Mistral")
+    params = to_mistral_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_config)
     model = LlamaModelWithHead(config)
     return model, params

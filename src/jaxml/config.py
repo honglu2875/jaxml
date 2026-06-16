@@ -244,10 +244,12 @@ class ModelConfig:
     @classmethod
     def from_hf(cls, config):
         """Construct a ModelConfig from a supported Hugging Face config."""
-        from transformers import Gemma3TextConfig, GPTNeoXConfig, LlamaConfig
+        from transformers import Gemma3TextConfig, GPTNeoXConfig, LlamaConfig, MistralConfig
 
         if isinstance(config, LlamaConfig):
             config_type = "llama"
+        elif isinstance(config, MistralConfig):
+            config_type = "mistral"
         elif isinstance(config, GPTNeoXConfig):
             config_type = "gpt_neox"
         elif isinstance(config, Gemma3TextConfig):
@@ -293,6 +295,25 @@ class ModelConfig:
             # no impact
             use_parallel_residual, rotary_pct = True, 1.0
             use_bias = False
+            sliding_window = None
+            sliding_window_pattern = None
+        elif config_type == "mistral":
+            # Mistral is architecturally Llama (RMSNorm, SwiGLU, GQA, RoPE, no bias).
+            norm_eps = config.rms_norm_eps
+            num_kv_heads = _normalize_count("num_key_value_heads", config.num_key_value_heads)
+            if num_kv_heads <= 0:
+                raise ValueError(f"num_key_value_heads must be positive, got {num_kv_heads}.")
+            rope_theta = _infer_hf_rope_theta(config)
+            rope_scale = _infer_hf_rope_scale(config)
+            use_parallel_residual, rotary_pct = True, 1.0
+            use_bias = False
+            # The Llama decode path does not apply sliding-window masking, so only
+            # full-attention Mistral configs (sliding_window=None) can be loaded faithfully.
+            if getattr(config, "sliding_window", None) is not None:
+                raise NotImplementedError(
+                    "Mistral sliding-window attention is not yet supported; "
+                    "only configs with sliding_window=None can be loaded."
+                )
             sliding_window = None
             sliding_window_pattern = None
         elif config_type == "gpt_neox":

@@ -19,6 +19,7 @@ Within the definition of model architectures, it also uses the following
 
 Currently supported:
 - [x] Llama
+- [x] Mistral (full-attention configs; sliding-window not yet supported)
 - [x] GPT-NeoX
 - [x] Gemma3
 

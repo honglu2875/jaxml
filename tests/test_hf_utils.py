@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from jaxml.hf_utils import (
+    _normalize_hf_architecture,
     load_gemma_from_hf,
     load_llama_from_hf,
     load_model_from_hf,
@@ -16,6 +17,11 @@ from jaxml.hf_utils import (
 )
 
 pytestmark = pytest.mark.milestone
+
+
+def test_normalize_hf_architecture_accepts_mistral():
+    assert _normalize_hf_architecture("mistral") == "mistral"
+    assert _normalize_hf_architecture("Mistral") == "mistral"
 
 
 class FakeModel:

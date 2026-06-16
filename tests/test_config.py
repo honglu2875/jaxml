@@ -198,6 +198,52 @@ def test_model_config_from_hf_accepts_supported_config_subclasses():
     assert config.norm_eps == 1e-5
 
 
+def test_model_config_from_hf_accepts_mistral_config():
+    from transformers import MistralConfig
+
+    hf_config = MistralConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+        rope_theta=5000.0,
+        rms_norm_eps=1e-5,
+        sliding_window=None,
+    )
+
+    config = ModelConfig.from_hf(hf_config)
+
+    assert config.hidden_size == 48
+    assert config.head_dim == 8
+    assert config.num_key_value_heads == 3
+    assert config.intermediate_size == 144
+    assert config.rope_theta == 5000.0
+    assert config.norm_eps == 1e-5
+    assert config.use_bias is False
+    assert config.sliding_window is None
+
+
+def test_model_config_from_hf_rejects_mistral_sliding_window():
+    from transformers import MistralConfig
+
+    hf_config = MistralConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+        sliding_window=128,
+    )
+
+    with pytest.raises(NotImplementedError, match="sliding-window"):
+        ModelConfig.from_hf(hf_config)
+
+
 def test_model_config_from_hf_accepts_integer_like_head_dim():
     from transformers import LlamaConfig
 
@@ -575,7 +621,7 @@ def test_model_config_from_hf_rejects_invalid_gemma_query_pre_attn_scalar(
 
 
 def test_model_config_from_hf_rejects_unsupported_config():
-    from transformers import MistralConfig
+    from transformers import GPT2Config
 
     with pytest.raises(ValueError, match="Unsupported config class"):
-        ModelConfig.from_hf(MistralConfig())
+        ModelConfig.from_hf(GPT2Config())
