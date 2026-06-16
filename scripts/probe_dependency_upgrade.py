@@ -26,6 +26,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--libtpu-version", help="Optional candidate libtpu version for TPU upgrade probes.")
     parser.add_argument(
+        "--jax-platforms",
+        default="cpu",
+        help="JAX_PLATFORMS value for the probe command. Use 'default' to leave JAX backend selection unrestricted.",
+    )
+    parser.add_argument(
         "--probe-root",
         type=Path,
         default=DEFAULT_PROBE_ROOT,
@@ -71,11 +76,14 @@ def _format_pin_summary(pins: dict[str, str]) -> str:
     return ", ".join(f"{name}=={version}" for name, version in pins.items())
 
 
-def _probe_environment() -> dict[str, str]:
+def _probe_environment(jax_platforms: str = "cpu") -> dict[str, str]:
     env = os.environ.copy()
     for name in ("VIRTUAL_ENV", "UV_PROJECT", "UV_WORKING_DIR", "UV_NO_PROJECT"):
         env.pop(name, None)
-    env.setdefault("JAX_PLATFORMS", "cpu")
+    if jax_platforms == "default":
+        env.pop("JAX_PLATFORMS", None)
+    else:
+        env["JAX_PLATFORMS"] = jax_platforms
     return env
 
 
@@ -100,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         pins["libtpu"] = args.libtpu_version
 
     probe_root = args.probe_root.resolve()
-    env = _probe_environment()
+    env = _probe_environment(args.jax_platforms)
     print(f"Creating dependency upgrade probe in {probe_root}", flush=True)
     print(f"Candidate pins: {_format_pin_summary(pins)}", flush=True)
     _copy_project(PROJECT_ROOT, probe_root)

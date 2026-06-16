@@ -106,13 +106,20 @@ Before changing pinned dependencies, audit direct dependency drift across dev an
 uv run --frozen --extra dev make dependency-drift
 ```
 
-Probe candidate JAX/JAXLIB pins in a temporary copy before editing committed pins:
+Probe candidate JAX/JAXLIB pins in a temporary copy before editing committed pins. Start with the critical CPU probe:
 
 ```bash
 uv run --frozen --extra dev make dependency-upgrade-probe JAX_VERSION=0.10.2
 ```
 
-Set `JAXLIB_VERSION=...` as well when the candidate JAX/JAXLIB versions intentionally differ. The probe rewrites only `tmp/dependency-upgrade-probe`, refreshes that copy's lockfile, and runs the critical CPU gate there.
+For a runtime dependency upgrade milestone, also run the full CPU and TPU probes:
+
+```bash
+uv run --frozen --extra dev make dependency-upgrade-probe-milestone-cpu JAX_VERSION=0.10.2
+uv run --frozen --extra dev make dependency-upgrade-probe-tpu JAX_VERSION=0.10.2
+```
+
+Set `JAXLIB_VERSION=...` as well when the candidate JAX/JAXLIB versions intentionally differ, and `LIBTPU_VERSION=...` for a candidate TPU runtime pin. The probes rewrite only `tmp/dependency-upgrade-probe`, refresh that copy's lockfile, and run the selected gate there.
 
 Compiled AOT cache entries include JAX/JAXLIB runtime metadata; inspect an entry with `jaxml.utils.compiled_fn_metadata(...)` before reusing caches across dependency upgrades.
 

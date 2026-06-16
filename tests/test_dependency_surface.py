@@ -351,12 +351,30 @@ def test_dependency_upgrade_probe_target_runs_critical_cpu_probe():
     ]
 
 
+def test_dependency_upgrade_probe_targets_cover_milestone_cpu_and_tpu_gates():
+    targets = _makefile_targets()
+    recipes = _makefile_recipes()
+
+    assert "dependency-upgrade-probe-milestone-cpu" in targets
+    assert "dependency-upgrade-probe-tpu" in targets
+    assert recipes["dependency-upgrade-probe-milestone-cpu"] == [
+        '@test -n "$$JAX_VERSION" || (echo "Set JAX_VERSION, for example: make dependency-upgrade-probe-milestone-cpu JAX_VERSION=0.10.2" && false)',
+        'uv run --frozen --extra dev python scripts/probe_dependency_upgrade.py --jax-version "$$JAX_VERSION" --jaxlib-version "$${JAXLIB_VERSION:-$$JAX_VERSION}" -- uv run --frozen --extra dev make verify-milestone-cpu',
+    ]
+    assert recipes["dependency-upgrade-probe-tpu"] == [
+        '@test -n "$$JAX_VERSION" || (echo "Set JAX_VERSION, for example: make dependency-upgrade-probe-tpu JAX_VERSION=0.10.2" && false)',
+        'uv run --frozen --extra dev python scripts/probe_dependency_upgrade.py --jax-version "$$JAX_VERSION" --jaxlib-version "$${JAXLIB_VERSION:-$$JAX_VERSION}" $$(test -n "$$LIBTPU_VERSION" && printf \'%s %s\' --libtpu-version "$$LIBTPU_VERSION") --jax-platforms default -- uv run --frozen --extra dev --extra tpu make verify-tpu',
+    ]
+
+
 def test_readme_documents_dependency_upgrade_probe():
     readme = _readme_text()
 
     assert "make dependency-upgrade-probe JAX_VERSION=" in readme
+    assert "make dependency-upgrade-probe-milestone-cpu JAX_VERSION=" in readme
+    assert "make dependency-upgrade-probe-tpu JAX_VERSION=" in readme
     assert "tmp/dependency-upgrade-probe" in readme
-    assert "critical CPU gate" in readme
+    assert "candidate TPU runtime pin" in readme
 
 
 def test_dependency_drift_helper_filters_to_direct_project_pins():
@@ -450,3 +468,12 @@ def test_dependency_upgrade_probe_sanitizes_parent_uv_environment(monkeypatch):
     assert "UV_NO_PROJECT" not in env
     assert env["JAX_PLATFORMS"] == "cpu"
     assert env["PATH"] == os.environ["PATH"]
+
+
+def test_dependency_upgrade_probe_can_leave_jax_platform_selection_unrestricted(monkeypatch):
+    probe = _dependency_upgrade_probe_module()
+    monkeypatch.setenv("JAX_PLATFORMS", "cpu")
+
+    env = probe._probe_environment("default")
+
+    assert "JAX_PLATFORMS" not in env
