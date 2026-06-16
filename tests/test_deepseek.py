@@ -193,6 +193,79 @@ def test_mla_attention_decode_cache_consistency():
     assert np.allclose(decode.attention_output[:, -1], full[:, -1], atol=1e-5)
 
 
+def _tiny_tpu_deepseek_config(**overrides):
+    # megablox.gmm tiles the K/N dims by 128, so hidden_size and moe_intermediate_size
+    # must be multiples of 128 for the grouped matmul.
+    from transformers import DeepseekV3Config
+
+    kwargs = dict(
+        hidden_size=256,
+        intermediate_size=512,
+        moe_intermediate_size=128,
+        num_hidden_layers=2,
+        num_attention_heads=8,
+        num_key_value_heads=8,
+        n_routed_experts=8,
+        n_shared_experts=1,
+        num_experts_per_tok=4,
+        n_group=2,
+        topk_group=1,
+        first_k_dense_replace=0,
+        q_lora_rank=64,
+        kv_lora_rank=64,
+        qk_nope_head_dim=32,
+        qk_rope_head_dim=16,
+        v_head_dim=32,
+        vocab_size=128,
+        max_position_embeddings=64,
+    )
+    kwargs.update(overrides)
+    return DeepseekV3Config(**kwargs)
+
+
+@pytest.mark.tpu
+def test_deepseek_moe_gmm_matches_dense_on_tpu():
+    """The Pallas gmm sparse path equals the dense reference (up to TPU bf16)."""
+    config = ModelConfig.from_hf(_tiny_tpu_deepseek_config())
+    dense = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="dense")
+    gmm = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="gmm")
+
+    bs, seq_len = 2, 8
+    x = jax.random.normal(jax.random.PRNGKey(0), (bs, seq_len, config.hidden_size), dtype=jnp.float32)
+    params = dense.init(jax.random.PRNGKey(1), x)  # both paths share the same parameters
+
+    y_dense = np.asarray(dense.apply(params, x))
+    y_gmm = np.asarray(gmm.apply(params, x))
+
+    assert y_gmm.shape == y_dense.shape
+    assert np.allclose(y_gmm, y_dense, atol=2e-2, rtol=2e-2)
+
+
+def test_deepseek_engine_generate_end_to_end(tmp_path, monkeypatch):
+    """DeepSeek threads through the full engine prefill+decode generation pipeline.
+
+    Runs on CPU (single device, dense MoE path). The engine calls the same
+    ``model.apply`` path on TPU, where the dense/gmm selection is automatic
+    (gmm for multi-token prefill, dense for single-token decode); the gmm kernel
+    itself is covered by ``test_deepseek_moe_gmm_matches_dense_on_tpu``.
+    """
+    from jaxml.inference_engine.engine import Engine, InferenceConfig
+
+    monkeypatch.setenv("JAXML_CACHE_DIR", str(tmp_path))  # isolate the AOT cache
+    config = ModelConfig.from_hf(_tiny_hf_deepseek_config(num_hidden_layers=3, first_k_dense_replace=1))
+    model = DeepseekModelWithHead(config, moe_implementation="auto")
+
+    rng = np.random.default_rng(0)
+    prompt = jnp.asarray(rng.integers(0, config.vocab_size, size=(1, 6)).astype(np.int32))
+    params = model.init(jax.random.PRNGKey(0), prompt)
+
+    engine = Engine(model, InferenceConfig(tp_size=1, dp_size=1), params, dtype=jnp.float32)
+    out = engine.generate(prompt, max_new_tokens=4, temperature=0.0, include_prompt=True)
+
+    assert out.shape == (1, 10)
+    assert bool(jnp.all((out >= 0) & (out < config.vocab_size)))
+
+
 def test_deepseek_for_causal_lm_matches_hf():
     """End-to-end logits parity for the whole model (embed -> dense + MoE layers -> MLA -> head)."""
     from transformers import DeepseekV3ForCausalLM

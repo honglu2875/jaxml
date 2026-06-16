@@ -40,20 +40,30 @@ from ._utils import (
 )
 from .llama import LlamaMLP
 
+_GMM_TILE = 128  # megablox gmm tiles the token (M) dimension by this; pad M to a multiple.
+
 
 class DeepseekMoE(Block):
     """Fine-grained mixture-of-experts FFN with shared experts (DeepSeek-V3).
 
     Routed experts are stored as stacked 3D kernels (matching the reference
-    `DeepseekV3NaiveMoe` layout) and evaluated densely for every token; the
-    routing weights are zero for non-selected experts, so the dense weighted sum
-    is identical to the reference's gather/index-add while staying jit-friendly.
-    Dense evaluation costs ``n_routed_experts`` x the active compute, which is
-    fine for the small configs used in tests; production-scale sparse dispatch is
-    a separate follow-up.
+    `DeepseekV3NaiveMoe` layout). Two evaluation paths share the same parameters:
+
+    - ``dense`` (default off TPU / reference): every expert is evaluated for every
+      token and weighted by a dense ``(tokens, experts)`` routing matrix that is
+      zero for non-selected experts. Parity-exact and portable, but costs
+      ``n_routed_experts`` x the active compute.
+    - ``gmm`` (TPU): a sparse path that dispatches tokens to their selected experts
+      (sort + gather), runs the expert FFN with the Pallas grouped-matmul kernel
+      ``megablox.gmm``, and combines via a weighted scatter-add. Equivalent to the
+      dense path up to TPU bf16, and avoids the ``n_routed_experts`` x blowup.
+
+    ``moe_implementation`` selects the path: ``"auto"`` uses gmm on TPU for
+    multi-token (prefill) calls and dense otherwise (single-token decode, CPU).
     """
 
     kernel_init: Any = nn.initializers.normal(stddev=0.02)
+    moe_implementation: str = "auto"  # "auto" | "dense" | "gmm"
 
     def setup(self):
         cfg = self.config
@@ -120,8 +130,8 @@ class DeepseekMoE(Block):
             name="shared_down_proj",
         )
 
-    def route(self, hidden_flat: jnp.ndarray) -> jnp.ndarray:
-        """Return a dense (tokens, n_routed_experts) routing-weight matrix.
+    def _route_topk(self, hidden_flat: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Return ``(topk_idx (T, top_k) int32, topk_weights (T, top_k) float32)``.
 
         Mirrors `DeepseekV3MoE.route_tokens_to_experts`: sigmoid scores, additive
         correction bias for *selection only*, group-limited top-k, then top-k
@@ -151,23 +161,77 @@ class DeepseekMoE(Block):
             topk_weights = topk_weights / (topk_weights.sum(axis=-1, keepdims=True) + 1e-20)
         topk_weights = topk_weights * self.routed_scaling_factor
 
-        routing = jnp.zeros((T, E), dtype=jnp.float32).at[rows, topk_idx].set(topk_weights.astype(jnp.float32))
-        return routing
+        return topk_idx.astype(jnp.int32), topk_weights.astype(jnp.float32)
 
-    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
-        x = with_sharding_constraint(x, ("batch", "length", "embed"))
-        bsz, seq_len, H = x.shape
+    def _resolve_implementation(self, seq_len: int) -> str:
+        impl = self.moe_implementation
+        if impl not in ("auto", "dense", "gmm"):
+            raise ValueError(f"moe_implementation must be 'auto', 'dense', or 'gmm', got {impl!r}.")
+        if impl != "auto":
+            return impl
+        # gmm only pays off for many tokens (prefill) and only runs on TPU.
+        if seq_len > 1 and jax.default_backend() == "tpu":
+            return "gmm"
+        return "dense"
+
+    def _moe_dense(self, hidden_flat: jnp.ndarray, topk_idx: jnp.ndarray, topk_weights: jnp.ndarray) -> jnp.ndarray:
+        """Dense reference: evaluate all experts, weight by a sparse routing matrix."""
+        T, H = hidden_flat.shape
         inter = self.moe_intermediate_size
-        hidden_flat = x.reshape(-1, H)
-
-        routing = self.route(hidden_flat)  # (T, E), float32
+        rows = jnp.arange(T)[:, None]
+        routing = jnp.zeros((T, self.n_routed_experts), dtype=jnp.float32).at[rows, topk_idx].set(topk_weights)
 
         xd = hidden_flat.astype(self.dtype)
         gate_up = jnp.einsum("th,ehf->tef", xd, self.gate_up_kernel)  # (T, E, 2I)
         gate, up = gate_up[..., :inter], gate_up[..., inter:]
         expert_hidden = jax.nn.silu(gate) * up
         expert_out = jnp.einsum("tei,eih->teh", expert_hidden, self.down_kernel)  # (T, E, H)
-        routed = jnp.einsum("te,teh->th", routing.astype(self.dtype), expert_out)  # (T, H)
+        return jnp.einsum("te,teh->th", routing.astype(self.dtype), expert_out)  # (T, H)
+
+    def _moe_gmm(self, hidden_flat: jnp.ndarray, topk_idx: jnp.ndarray, topk_weights: jnp.ndarray) -> jnp.ndarray:
+        """Sparse path: sort-dispatch -> megablox grouped GEMM -> weighted scatter-combine."""
+        from jax.experimental.pallas.ops.tpu import megablox
+
+        T, H = hidden_flat.shape
+        E, k, inter = self.n_routed_experts, self.top_k, self.moe_intermediate_size
+        M = T * k
+        m_pad = ((M + _GMM_TILE - 1) // _GMM_TILE) * _GMM_TILE
+
+        flat_expert = topk_idx.reshape(-1)  # (M,)
+        flat_weight = topk_weights.reshape(-1)  # (M,)
+        token_of = jnp.repeat(jnp.arange(T, dtype=jnp.int32), k)  # original token per assignment
+
+        # Dispatch: sort assignments by expert so each expert's tokens are contiguous.
+        order = jnp.argsort(flat_expert)
+        sorted_token = token_of[order]
+        sorted_weight = flat_weight[order]
+        group_sizes = jnp.bincount(flat_expert, length=E).astype(jnp.int32)  # sums to M
+
+        # Pad M up to a tile multiple; padding rows are zeros appended after the last
+        # expert's block, so absorb them into the final group (their output is discarded).
+        lhs = hidden_flat[sorted_token].astype(self.dtype)
+        lhs = jnp.concatenate([lhs, jnp.zeros((m_pad - M, H), lhs.dtype)], axis=0)
+        group_sizes = group_sizes.at[E - 1].add(m_pad - M)
+
+        # Expert FFN via the Pallas grouped matmul.
+        gate_up = megablox.gmm(lhs, self.gate_up_kernel, group_sizes)  # (m_pad, 2I)
+        expert_hidden = jax.nn.silu(gate_up[:, :inter]) * gate_up[:, inter:]
+        expert_out = megablox.gmm(expert_hidden, self.down_kernel, group_sizes)  # (m_pad, H)
+
+        # Combine: scatter weighted expert outputs back to their original tokens.
+        contrib = expert_out[:M] * sorted_weight[:, None].astype(expert_out.dtype)
+        return jnp.zeros((T, H), expert_out.dtype).at[sorted_token].add(contrib)
+
+    def __call__(self, x: jnp.ndarray, **kwargs) -> jnp.ndarray:
+        x = with_sharding_constraint(x, ("batch", "length", "embed"))
+        bsz, seq_len, H = x.shape
+        hidden_flat = x.reshape(-1, H)
+
+        topk_idx, topk_weights = self._route_topk(hidden_flat)
+        if self._resolve_implementation(seq_len) == "gmm":
+            routed = self._moe_gmm(hidden_flat, topk_idx, topk_weights)
+        else:
+            routed = self._moe_dense(hidden_flat, topk_idx, topk_weights)
         routed = routed.reshape(bsz, seq_len, H)
 
         shared = self.shared_down_proj(jax.nn.silu(self.shared_gate_proj(x)) * self.shared_up_proj(x))
@@ -359,11 +423,16 @@ class DeepseekDecoder(Block):
     """A single DeepSeek-V3 decoder layer (MLA + dense-or-MoE FFN)."""
 
     use_moe: bool = False
+    moe_implementation: str = "auto"
 
     def setup(self):
         cfg = self.config
         self.self_attn = MLAAttention(cfg, dtype=self.dtype)
-        self.mlp = DeepseekMoE(cfg, dtype=self.dtype) if self.use_moe else LlamaMLP(cfg, dtype=self.dtype)
+        self.mlp = (
+            DeepseekMoE(cfg, dtype=self.dtype, moe_implementation=self.moe_implementation)
+            if self.use_moe
+            else LlamaMLP(cfg, dtype=self.dtype)
+        )
         self.input_layernorm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
         self.post_attention_layernorm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
 
@@ -400,13 +469,20 @@ class DeepseekDecoder(Block):
 class DeepseekModel(Block):
     """DeepSeek-V3 backbone: token embedding, MLA decoder stack, final norm."""
 
+    moe_implementation: str = "auto"
+
     def setup(self):
         cfg = self.config
         if not (cfg.is_mla and cfg.is_moe):
             raise ValueError("DeepseekModel requires an MLA + MoE config.")
         self.embed_tokens = Embed(num_embeddings=cfg.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.layers = [
-            DeepseekDecoder(cfg, dtype=self.dtype, use_moe=(idx >= cfg.first_k_dense_replace))
+            DeepseekDecoder(
+                cfg,
+                dtype=self.dtype,
+                use_moe=(idx >= cfg.first_k_dense_replace),
+                moe_implementation=self.moe_implementation,
+            )
             for idx in range(self.num_layers)
         ]
         self.norm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
@@ -485,9 +561,10 @@ class DeepseekModelWithHead(Block):
 
     lm_head_init: Any = nn.initializers.xavier_uniform
     lm_head_init_args: tuple = ()
+    moe_implementation: str = "auto"
 
     def setup(self):
-        self.model = DeepseekModel(self.config, dtype=self.dtype)
+        self.model = DeepseekModel(self.config, dtype=self.dtype, moe_implementation=self.moe_implementation)
         self.lm_head = DenseGeneral(
             features=self.config.vocab_size,
             dtype=self.dtype,
