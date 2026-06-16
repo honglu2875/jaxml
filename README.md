@@ -106,6 +106,14 @@ Before changing pinned dependencies, audit direct dependency drift across dev an
 uv run --frozen --extra dev make dependency-drift
 ```
 
+Probe candidate JAX/JAXLIB pins in a temporary copy before editing committed pins:
+
+```bash
+uv run --frozen --extra dev make dependency-upgrade-probe JAX_VERSION=0.10.2
+```
+
+Set `JAXLIB_VERSION=...` as well when the candidate JAX/JAXLIB versions intentionally differ. The probe rewrites only `tmp/dependency-upgrade-probe`, refreshes that copy's lockfile, and runs the critical CPU gate there.
+
 Compiled AOT cache entries include JAX/JAXLIB runtime metadata; inspect an entry with `jaxml.utils.compiled_fn_metadata(...)` before reusing caches across dependency upgrades.
 
 GitHub CI runs shared push checks (`lock-check`, `dependency-check`, `lint`, `format-check`, and `build-check`) once on Python 3.12, then runs critical CPU tests on Python 3.11 and 3.12. The full milestone CPU suite runs on the weekly scheduled workflow and manual dispatch. TPU tests are excluded from CPU suites and remain a local/manual gate.

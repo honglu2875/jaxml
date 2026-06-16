@@ -1,5 +1,6 @@
 import importlib.metadata as metadata
 import importlib.util
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -82,6 +83,14 @@ def _workflow_job_timeout(job_name: str) -> int:
 def _dependency_drift_module():
     path = PROJECT_ROOT / "scripts" / "check_dependency_drift.py"
     spec = importlib.util.spec_from_file_location("check_dependency_drift", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _dependency_upgrade_probe_module():
+    path = PROJECT_ROOT / "scripts" / "probe_dependency_upgrade.py"
+    spec = importlib.util.spec_from_file_location("probe_dependency_upgrade", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -331,6 +340,25 @@ def test_dependency_drift_target_audits_direct_project_pins():
     assert recipes["dependency-drift"] == ["uv run --frozen --extra dev --extra tpu python scripts/check_dependency_drift.py"]
 
 
+def test_dependency_upgrade_probe_target_runs_critical_cpu_probe():
+    targets = _makefile_targets()
+    recipes = _makefile_recipes()
+
+    assert "dependency-upgrade-probe" in targets
+    assert recipes["dependency-upgrade-probe"] == [
+        '@test -n "$$JAX_VERSION" || (echo "Set JAX_VERSION, for example: make dependency-upgrade-probe JAX_VERSION=0.10.2" && false)',
+        'uv run --frozen --extra dev python scripts/probe_dependency_upgrade.py --jax-version "$$JAX_VERSION" --jaxlib-version "$${JAXLIB_VERSION:-$$JAX_VERSION}" -- uv run --frozen --extra dev make verify-critical-cpu',
+    ]
+
+
+def test_readme_documents_dependency_upgrade_probe():
+    readme = _readme_text()
+
+    assert "make dependency-upgrade-probe JAX_VERSION=" in readme
+    assert "tmp/dependency-upgrade-probe" in readme
+    assert "critical CPU gate" in readme
+
+
 def test_dependency_drift_helper_filters_to_direct_project_pins():
     drift = _dependency_drift_module()
     direct_names = {"jax", "jaxlib", "flax", "transformers", "torch"}
@@ -371,3 +399,54 @@ def test_dependency_drift_helper_reports_current_direct_pins_cleanly():
     drift = _dependency_drift_module()
 
     assert drift.format_report([]) == "All direct pinned dependencies are current."
+
+
+def test_dependency_upgrade_probe_patches_candidate_runtime_pins(tmp_path):
+    probe = _dependency_upgrade_probe_module()
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        "\n".join(
+            [
+                "[project]",
+                'dependencies = ["jax==0.1.0", "jaxlib==0.1.0"]',
+                "[project.optional-dependencies]",
+                'tpu = ["jax==0.1.0", "jaxlib==0.1.0", "libtpu==0.0.1"]',
+            ]
+        )
+    )
+
+    probe.patch_dependency_pins(pyproject, {"jax": "0.2.0", "jaxlib": "0.2.1", "libtpu": "0.0.2"})
+
+    pyproject_text = pyproject.read_text()
+    assert pyproject_text.count("jax==0.2.0") == 2
+    assert pyproject_text.count("jaxlib==0.2.1") == 2
+    assert pyproject_text.count("libtpu==0.0.2") == 1
+    assert "0.1.0" not in pyproject_text
+    assert "0.0.1" not in pyproject_text
+
+
+def test_dependency_upgrade_probe_rejects_missing_candidate_pin(tmp_path):
+    probe = _dependency_upgrade_probe_module()
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text("[project]\ndependencies = []\n")
+
+    with pytest.raises(ValueError, match="exact pin"):
+        probe.patch_dependency_pins(pyproject, {"jax": "0.2.0"})
+
+
+def test_dependency_upgrade_probe_sanitizes_parent_uv_environment(monkeypatch):
+    probe = _dependency_upgrade_probe_module()
+    monkeypatch.setenv("VIRTUAL_ENV", "/project/.venv")
+    monkeypatch.setenv("UV_PROJECT", "/project")
+    monkeypatch.setenv("UV_WORKING_DIR", "/project")
+    monkeypatch.setenv("UV_NO_PROJECT", "1")
+    monkeypatch.delenv("JAX_PLATFORMS", raising=False)
+
+    env = probe._probe_environment()
+
+    assert "VIRTUAL_ENV" not in env
+    assert "UV_PROJECT" not in env
+    assert "UV_WORKING_DIR" not in env
+    assert "UV_NO_PROJECT" not in env
+    assert env["JAX_PLATFORMS"] == "cpu"
+    assert env["PATH"] == os.environ["PATH"]
