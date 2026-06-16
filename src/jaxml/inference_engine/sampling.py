@@ -9,6 +9,8 @@ import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
+from jaxml._validation import contains_tracer as _contains_tracer
+
 NEG_INF = float("-inf")
 logger = logging.getLogger(__name__)
 
@@ -27,10 +29,6 @@ def _validate_logits(logits):
         if not bool(jnp.all(jnp.any(jnp.isfinite(logits), axis=-1))):
             raise ValueError("logits must contain at least one finite value per vocabulary row.")
     return logits
-
-
-def _contains_tracer(x) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 @functools.partial(jax.jit, static_argnames=("top_k",))

@@ -16,23 +16,20 @@
 import functools
 import logging
 import operator
-from typing import Any, Optional
+from typing import Optional
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import tqdm
 
+from jaxml._validation import contains_tracer as _contains_tracer
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
 from jaxml.utils import _validate_cache_key_part, load_if_exists
 
 logger = logging.getLogger(__name__)
-
-
-def _contains_tracer(x: Any) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def _normalize_count(name: str, value: int) -> int:

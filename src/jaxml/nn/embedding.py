@@ -3,11 +3,11 @@ from dataclasses import field
 from typing import Any, Tuple
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
+from .._validation import contains_tracer as _contains_tracer
 from .module import Module
 
 
@@ -18,10 +18,6 @@ def _normalize_count(name: str, value: int) -> int:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
-
-
-def _contains_tracer(x: Any) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def _normalize_bool(name: str, value: bool) -> bool:

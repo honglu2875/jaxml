@@ -15,6 +15,7 @@ from flax.typing import FrozenVariableDict
 from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
+from jaxml._validation import contains_tracer as _contains_tracer
 from jaxml.cache import KVCache
 from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
@@ -23,10 +24,6 @@ from jaxml.utils import _hash, timeit
 logger = logging.getLogger(__name__)
 
 GENERATION_AOT_CACHE_VERSION = "generate_v6"
-
-
-def _contains_tracer(x: Any) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def _normalize_count(name: str, value: int) -> int:
