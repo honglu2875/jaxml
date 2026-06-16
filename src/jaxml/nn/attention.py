@@ -68,6 +68,11 @@ def _contains_tracer(x: Any) -> bool:
     return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
+def _validate_finite_values(name: str, values: jnp.ndarray):
+    if not _contains_tracer(values) and not bool(jnp.all(jnp.isfinite(values))):
+        raise ValueError(f"{name} must contain only finite values.")
+
+
 def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarray, value_states: jnp.ndarray):
     for name, states in (("query_states", query_states), ("key_states", key_states), ("value_states", value_states)):
         if states.ndim != 4:
@@ -78,6 +83,7 @@ def _validate_attention_states(query_states: jnp.ndarray, key_states: jnp.ndarra
                 raise ValueError(f"{name} {axis_name} axis must be non-empty, got shape {states.shape}.")
         if not jnp.issubdtype(states.dtype, jnp.floating):
             raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
+        _validate_finite_values(name, states)
 
     if key_states.shape != value_states.shape:
         raise ValueError(
@@ -106,6 +112,7 @@ def _validate_key_value_states(
                 raise ValueError(f"{name} {axis_name} axis must be non-empty, got shape {states.shape}.")
         if not jnp.issubdtype(states.dtype, jnp.floating):
             raise TypeError(f"{name} must contain floating point values, got dtype {states.dtype}.")
+        _validate_finite_values(name, states)
 
     if key_states.shape != value_states.shape:
         raise ValueError(
@@ -132,6 +139,7 @@ def _validate_alibi_slope(alibi_slope, num_heads: int):
         raise ValueError(f"alibi_slope must contain {num_heads} values, got {alibi_slope.shape[0]}.")
     if not jnp.issubdtype(alibi_slope.dtype, jnp.floating):
         raise TypeError(f"alibi_slope must contain floating point values, got dtype {alibi_slope.dtype}.")
+    _validate_finite_values("alibi_slope", alibi_slope)
     return alibi_slope
 
 
@@ -151,6 +159,7 @@ def _validate_hidden_states(hidden_states: jnp.ndarray) -> jnp.ndarray:
         raise ValueError(f"hidden_states must not contain empty axes, got shape {hidden_states.shape}.")
     if not jnp.issubdtype(hidden_states.dtype, jnp.floating):
         raise TypeError(f"hidden_states must contain floating point values, got dtype {hidden_states.dtype}.")
+    _validate_finite_values("hidden_states", hidden_states)
     return hidden_states
 
 

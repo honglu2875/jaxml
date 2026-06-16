@@ -318,6 +318,31 @@ def test_attention_repeat_kv_rejects_invalid_states(kwargs, exception, match):
         attn.apply({}, **(defaults | kwargs), method=Attention.repeat_kv)
 
 
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("field_name", ["key_states", "value_states"])
+def test_attention_repeat_kv_rejects_non_finite_states(field_name, value):
+    config = ModelConfig(
+        head_dim=2,
+        hidden_size=4,
+        num_heads=2,
+        num_kv_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=2**-0.5,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    kwargs = {
+        "key_states": jnp.zeros((1, 2, 1, 2), dtype=jnp.float32),
+        "value_states": jnp.zeros((1, 2, 1, 2), dtype=jnp.float32),
+    }
+    kwargs[field_name] = kwargs[field_name].at[0, 0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match=f"{field_name} must contain only finite values"):
+        attn.apply({}, **kwargs, method=Attention.repeat_kv)
+
+
 @pytest.mark.parametrize(
     "kwargs,exception,match",
     [
@@ -361,6 +386,35 @@ def test_attention_mha_rejects_invalid_attention_states(kwargs, exception, match
         attn.apply(
             {},
             **(defaults | kwargs),
+            method=Attention.mha,
+        )
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize("field_name", ["query_states", "key_states", "value_states"])
+def test_attention_mha_rejects_non_finite_attention_states(field_name, value):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    kwargs = {
+        "query_states": jnp.zeros((1, 1, 1, 1), dtype=jnp.float32),
+        "key_states": jnp.zeros((1, 3, 1, 1), dtype=jnp.float32),
+        "value_states": jnp.zeros((1, 3, 1, 1), dtype=jnp.float32),
+    }
+    kwargs[field_name] = kwargs[field_name].at[0, 0, 0, 0].set(value)
+
+    with pytest.raises(ValueError, match=f"{field_name} must contain only finite values"):
+        attn.apply(
+            {},
+            **kwargs,
             method=Attention.mha,
         )
 
@@ -496,6 +550,35 @@ def test_attention_call_rejects_invalid_hidden_states(attn_cls, use_rope, hidden
     params = attn.init(jax.random.PRNGKey(0), valid_hidden_states, **call_kwargs)
 
     with pytest.raises(exception, match=match):
+        attn.apply(params, hidden_states, **call_kwargs)
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+@pytest.mark.parametrize(
+    "attn_cls,use_rope",
+    [
+        (Attention, False),
+        (AttentionWithRoPE, True),
+    ],
+)
+def test_attention_call_rejects_non_finite_hidden_states(attn_cls, use_rope, value):
+    config = ModelConfig(
+        head_dim=2 if use_rope else 1,
+        hidden_size=2 if use_rope else 1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=use_rope,
+    )
+    attn = attn_cls(config)
+    valid_hidden_states = jnp.zeros((1, 2, config.hidden_size), dtype=jnp.float32)
+    hidden_states = valid_hidden_states.at[0, 0, 0].set(value)
+    call_kwargs = {"cos_sin": _identity_cos_sin(config, valid_hidden_states.shape[1])} if use_rope else {}
+    params = attn.init(jax.random.PRNGKey(0), valid_hidden_states, **call_kwargs)
+
+    with pytest.raises(ValueError, match="hidden_states must contain only finite values"):
         attn.apply(params, hidden_states, **call_kwargs)
 
 
@@ -686,6 +769,34 @@ def test_attention_mha_rejects_invalid_alibi_slope(alibi_slope, exception, match
             key_states,
             value_states,
             alibi_slope=alibi_slope,
+            method=Attention.mha,
+        )
+
+
+@pytest.mark.parametrize("value", [jnp.nan, jnp.inf, -jnp.inf])
+def test_attention_mha_rejects_non_finite_alibi_slope(value):
+    config = ModelConfig(
+        head_dim=1,
+        hidden_size=1,
+        num_heads=1,
+        num_layers=1,
+        max_position_embeddings=8,
+        vocab_size=8,
+        attn_scale=1.0,
+        use_rope=False,
+    )
+    attn = Attention(config)
+    query_states = jnp.zeros((1, 1, 1, 1), dtype=jnp.float32)
+    key_states = jnp.zeros((1, 3, 1, 1), dtype=jnp.float32)
+    value_states = jnp.arange(3, dtype=jnp.float32).reshape(1, 3, 1, 1)
+
+    with pytest.raises(ValueError, match="alibi_slope must contain only finite values"):
+        attn.apply(
+            {},
+            query_states,
+            key_states,
+            value_states,
+            alibi_slope=jnp.array([value], dtype=jnp.float32),
             method=Attention.mha,
         )
 
