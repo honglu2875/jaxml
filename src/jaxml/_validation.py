@@ -1,7 +1,19 @@
+import math
+import numbers
 from typing import Any
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+
+
+def normalize_float(name: str, value: float) -> float:
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
+        raise TypeError(f"{name} must be a real number, got {type(value)}.")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite, got {value}.")
+    return value
 
 
 def contains_tracer(x: Any) -> bool:

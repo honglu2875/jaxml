@@ -1,5 +1,3 @@
-import math
-import numbers
 import operator
 from collections.abc import Mapping
 from collections.abc import Sequence as SequenceABC
@@ -10,6 +8,7 @@ from typing import Any, Optional, Sequence
 import jax.numpy as jnp
 import numpy as np
 
+from jaxml._validation import normalize_float as _normalize_float
 from jaxml.hf_utils import (
     HFArchitecture,
     _normalize_hf_architecture,
@@ -27,15 +26,6 @@ def _normalize_count(name: str, value: int) -> int:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
-
-
-def _normalize_float(name: str, value: float) -> float:
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
-        raise TypeError(f"{name} must be a real number, got {type(value)}.")
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite, got {value}.")
-    return value
 
 
 def _normalize_bool(name: str, value: bool) -> bool:

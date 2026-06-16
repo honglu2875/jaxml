@@ -2,11 +2,12 @@ import math
 import operator
 from collections.abc import Mapping
 from dataclasses import fields
-from numbers import Real
 from typing import Optional
 
 import numpy as np
 from flax import struct
+
+from ._validation import normalize_float as _normalize_float
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -22,15 +23,6 @@ def _normalize_bool(name: str, value: bool) -> bool:
     if isinstance(value, (bool, np.bool_)):
         return bool(value)
     raise TypeError(f"{name} must be a boolean, got {type(value)}.")
-
-
-def _normalize_float(name: str, value: float) -> float:
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
-        raise TypeError(f"{name} must be a real number, got {type(value)}.")
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite, got {value}.")
-    return value
 
 
 def _infer_hf_head_dim(config) -> int:

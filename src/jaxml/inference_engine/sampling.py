@@ -1,7 +1,5 @@
 import functools
 import logging
-import math
-import numbers
 import operator
 
 import jax
@@ -10,6 +8,7 @@ import numpy as np
 from flax import struct
 
 from jaxml._validation import contains_tracer as _contains_tracer
+from jaxml._validation import normalize_float as _normalize_real
 
 NEG_INF = float("-inf")
 logger = logging.getLogger(__name__)
@@ -95,15 +94,6 @@ def _normalize_top_k(top_k: int) -> int:
     except TypeError as e:
         raise TypeError(f"top_k must be an integer, got {type(top_k)}.") from e
     return _clip_value("top_k", top_k, 0, float("inf"))
-
-
-def _normalize_real(name: str, value: float) -> float:
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, numbers.Real):
-        raise TypeError(f"{name} must be a real number, got {type(value)}.")
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite, got {value}.")
-    return value
 
 
 def _normalize_probability(name: str, value: float):

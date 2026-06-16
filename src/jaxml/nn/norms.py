@@ -13,15 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
 import operator
-from numbers import Real
 
 import flax.linen as nn
 import jax.numpy as jnp
 import numpy as np
 from flax.linen.partitioning import param_with_axes
 
+from .._validation import normalize_float as _normalize_float
 from .._validation import validate_finite_values as _validate_finite_values
 
 
@@ -40,15 +39,6 @@ def _normalize_count(name: str, value: int) -> int:
         return operator.index(value)
     except TypeError as e:
         raise TypeError(f"{name} must be an integer, got {type(value)}.") from e
-
-
-def _normalize_float(name: str, value: float) -> float:
-    if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
-        raise TypeError(f"{name} must be a real number, got {type(value)}.")
-    value = float(value)
-    if not math.isfinite(value):
-        raise ValueError(f"{name} must be finite, got {value}.")
-    return value
 
 
 def _normalize_bool(name: str, value: bool) -> bool:
