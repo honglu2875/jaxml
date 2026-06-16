@@ -462,7 +462,13 @@ def compiled_fn_exist(name: str, hash: str = "0"):
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     metadata_path = path / "metadata.json"
-    return all(path.is_file() and path.stat().st_size > 0 for path in (fn_path, spec_path, metadata_path))
+    try:
+        if not all(path.is_file() and path.stat().st_size > 0 for path in (fn_path, spec_path, metadata_path)):
+            return False
+        _validate_aot_cache_metadata(path, metadata_path)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def compiled_fn_metadata(name: str, hash: str = "0", cache_dir: str | Path | None = None) -> dict[str, str | int]:

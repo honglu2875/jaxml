@@ -187,6 +187,24 @@ def test_compiled_fn_exist_rejects_empty_payload_files(monkeypatch, tmp_path, em
     assert not compiled_fn_exist("decode", "abc")
 
 
+def test_compiled_fn_exist_rejects_stale_metadata(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    cache_entry = compiled_fn_path("decode", "abc")
+    _write_aot_cache_entry(cache_entry)
+    (cache_entry / "metadata.json").write_text(json.dumps(_aot_cache_metadata() | {"jaxlib": "0.0.0"}, sort_keys=True))
+
+    assert not compiled_fn_exist("decode", "abc")
+
+
+def test_compiled_fn_exist_rejects_corrupt_metadata(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    cache_entry = compiled_fn_path("decode", "abc")
+    _write_aot_cache_entry(cache_entry)
+    (cache_entry / "metadata.json").write_text("not-json")
+
+    assert not compiled_fn_exist("decode", "abc")
+
+
 def test_compiled_fn_metadata_returns_stored_metadata(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     cache_entry = compiled_fn_path("decode", "abc")
