@@ -10,8 +10,11 @@ import pytest
 from jaxml.utils import (
     JAXML_CACHE_DIR_ENV,
     _aot_cache_metadata,
+    _aot_serialization_api,
+    _deserialize_compiled_executable,
     _hash,
     _load_compiled_fn_from_path,
+    _serialize_compiled_executable,
     compiled_fn_exist,
     compiled_fn_metadata,
     compiled_fn_path,
@@ -44,6 +47,49 @@ def test_hash_frames_arguments_to_avoid_concatenation_collisions():
 def test_hash_rejects_non_string_arguments():
     with pytest.raises(TypeError, match="hash arguments must be strings"):
         _hash("decode", 1)
+
+
+def test_aot_serialization_api_exposes_expected_callables():
+    serialize, deserialize_and_load = _aot_serialization_api()
+
+    assert callable(serialize)
+    assert callable(deserialize_and_load)
+
+
+@pytest.mark.parametrize("missing_callable", ["serialize", "deserialize_and_load"])
+def test_aot_serialization_api_rejects_missing_callables(monkeypatch, missing_callable):
+    from jax.experimental import serialize_executable
+
+    monkeypatch.delattr(serialize_executable, missing_callable)
+
+    with pytest.raises(RuntimeError, match=f"missing callable.*{missing_callable}"):
+        _aot_serialization_api()
+
+
+def test_serialize_compiled_executable_uses_resolved_jax_api(monkeypatch):
+    serialize_calls = []
+
+    def serialize(fn):
+        serialize_calls.append(fn)
+        return b"compiled", "in-tree", "out-tree"
+
+    monkeypatch.setattr("jaxml.utils._aot_serialization_api", lambda: (serialize, None))
+
+    assert _serialize_compiled_executable("compiled-fn") == (b"compiled", "in-tree", "out-tree")
+    assert serialize_calls == ["compiled-fn"]
+
+
+def test_deserialize_compiled_executable_uses_resolved_jax_api(monkeypatch):
+    deserialize_calls = []
+
+    def deserialize_and_load(*args):
+        deserialize_calls.append(args)
+        return "loaded"
+
+    monkeypatch.setattr("jaxml.utils._aot_serialization_api", lambda: (None, deserialize_and_load))
+
+    assert _deserialize_compiled_executable(b"compiled", "in-tree", "out-tree") == "loaded"
+    assert deserialize_calls == [(b"compiled", "in-tree", "out-tree")]
 
 
 def test_compiled_fn_path_uses_cache_dir_env(monkeypatch, tmp_path):
@@ -104,10 +150,7 @@ def test_load_if_exists_rejects_unsafe_key_parts_before_wrapping():
 
 def test_save_compiled_fn_rejects_unsafe_key_parts_before_serializing(monkeypatch):
     serialize_calls = []
-    monkeypatch.setattr(
-        "jax.experimental.serialize_executable.serialize",
-        lambda fn: serialize_calls.append(fn) or (b"compiled", "in-tree", "out-tree"),
-    )
+    monkeypatch.setattr("jaxml.utils._serialize_compiled_executable", lambda fn: serialize_calls.append(fn))
 
     with pytest.raises(ValueError, match="AOT cache"):
         save_compiled_fn(object(), "../decode", "abc", log=False)
@@ -184,10 +227,7 @@ def test_compiled_fn_metadata_rejects_invalid_metadata_payloads(monkeypatch, tmp
 def test_load_compiled_fn_rejects_empty_payload_files_before_deserializing(monkeypatch, tmp_path, empty_payload_name):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     deserialize_calls = []
-    monkeypatch.setattr(
-        "jax.experimental.serialize_executable.deserialize_and_load",
-        lambda *args: deserialize_calls.append(args),
-    )
+    monkeypatch.setattr("jaxml.utils._deserialize_compiled_executable", lambda *args: deserialize_calls.append(args))
     _load_compiled_fn_from_path.cache_clear()
     cache_entry = compiled_fn_path("decode", "abc")
     _write_aot_cache_entry(cache_entry)
@@ -202,10 +242,7 @@ def test_load_compiled_fn_rejects_empty_payload_files_before_deserializing(monke
 def test_load_compiled_fn_rejects_metadata_mismatch_before_deserializing(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     deserialize_calls = []
-    monkeypatch.setattr(
-        "jax.experimental.serialize_executable.deserialize_and_load",
-        lambda *args: deserialize_calls.append(args),
-    )
+    monkeypatch.setattr("jaxml.utils._deserialize_compiled_executable", lambda *args: deserialize_calls.append(args))
     _load_compiled_fn_from_path.cache_clear()
     cache_entry = compiled_fn_path("decode", "abc")
     _write_aot_cache_entry(cache_entry)
@@ -219,7 +256,7 @@ def test_load_compiled_fn_rejects_metadata_mismatch_before_deserializing(monkeyp
 
 def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
-    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"new-aot", "in-tree", "out-tree"))
+    monkeypatch.setattr("jaxml.utils._serialize_compiled_executable", lambda fn: (b"new-aot", "in-tree", "out-tree"))
     cache_entry = compiled_fn_path("decode", "abc")
     cache_entry.mkdir(parents=True)
     (cache_entry / "aot").write_bytes(b"old-aot")
@@ -241,7 +278,7 @@ def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
 
 def test_save_compiled_fn_rejects_non_bytes_executable_payload(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
-    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: ("not-bytes", "in-tree", "out-tree"))
+    monkeypatch.setattr("jaxml.utils._serialize_compiled_executable", lambda fn: ("not-bytes", "in-tree", "out-tree"))
 
     with pytest.raises(TypeError, match="Serialized AOT executable must be bytes"):
         save_compiled_fn(object(), "decode", "abc", log=False)
@@ -254,7 +291,7 @@ def test_save_compiled_fn_rejects_non_bytes_executable_payload(monkeypatch, tmp_
 
 def test_save_compiled_fn_rejects_empty_executable_payload(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
-    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"", "in-tree", "out-tree"))
+    monkeypatch.setattr("jaxml.utils._serialize_compiled_executable", lambda fn: (b"", "in-tree", "out-tree"))
 
     with pytest.raises(ValueError, match="Serialized AOT executable must not be empty"):
         save_compiled_fn(object(), "decode", "abc", log=False)
@@ -268,7 +305,7 @@ def test_save_compiled_fn_rejects_empty_executable_payload(monkeypatch, tmp_path
 def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr(
-        "jax.experimental.serialize_executable.deserialize_and_load",
+        "jaxml.utils._deserialize_compiled_executable",
         lambda payload, in_tree, out_tree: (payload, in_tree, out_tree),
     )
     _load_compiled_fn_from_path.cache_clear()
@@ -277,7 +314,7 @@ def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
 
     first = load_compiled_fn("decode", "abc", log=False)
 
-    monkeypatch.setattr("jax.experimental.serialize_executable.serialize", lambda fn: (b"new-aot", "new-in", "new-out"))
+    monkeypatch.setattr("jaxml.utils._serialize_compiled_executable", lambda fn: (b"new-aot", "new-in", "new-out"))
     save_compiled_fn(object(), "decode", "abc", log=False)
     second = load_compiled_fn("decode", "abc", log=False)
 
@@ -310,7 +347,7 @@ def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tm
         _write_aot_cache_entry(cache_entry, payload=payload)
 
     monkeypatch.setattr(
-        "jax.experimental.serialize_executable.deserialize_and_load",
+        "jaxml.utils._deserialize_compiled_executable",
         lambda payload, in_tree, out_tree: (payload, in_tree, out_tree),
     )
     _load_compiled_fn_from_path.cache_clear()
@@ -334,7 +371,7 @@ def test_load_compiled_fn_cache_key_resolves_relative_paths(monkeypatch, tmp_pat
         _write_aot_cache_entry(cache_entry, payload=payload)
 
     monkeypatch.setattr(
-        "jax.experimental.serialize_executable.deserialize_and_load",
+        "jaxml.utils._deserialize_compiled_executable",
         lambda payload, in_tree, out_tree: (payload, in_tree, out_tree),
     )
     _load_compiled_fn_from_path.cache_clear()
@@ -370,7 +407,7 @@ def test_load_compiled_fn_wraps_corrupt_spec_payload(monkeypatch, tmp_path):
 def test_load_compiled_fn_wraps_deserializer_failures(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     monkeypatch.setattr(
-        "jax.experimental.serialize_executable.deserialize_and_load",
+        "jaxml.utils._deserialize_compiled_executable",
         lambda payload, in_tree, out_tree: (_ for _ in ()).throw(RuntimeError("bad executable")),
     )
     _load_compiled_fn_from_path.cache_clear()

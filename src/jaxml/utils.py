@@ -132,6 +132,38 @@ def _validate_aot_cache_metadata(path: Path, metadata_path: Path):
         raise ValueError(f"AOT cache metadata mismatch for {path}: got {actual!r}, expected {expected!r}.")
 
 
+def _aot_serialization_api() -> tuple[Callable, Callable]:
+    try:
+        from jax.experimental import serialize_executable
+    except Exception as e:
+        raise RuntimeError("JAX executable serialization API is unavailable.") from e
+
+    serialize = getattr(serialize_executable, "serialize", None)
+    deserialize_and_load = getattr(serialize_executable, "deserialize_and_load", None)
+    missing = [
+        name
+        for name, fn in (
+            ("serialize", serialize),
+            ("deserialize_and_load", deserialize_and_load),
+        )
+        if not callable(fn)
+    ]
+    if missing:
+        joined = ", ".join(missing)
+        raise RuntimeError(f"JAX executable serialization API is missing callable(s): {joined}.")
+    return serialize, deserialize_and_load
+
+
+def _serialize_compiled_executable(fn):
+    serialize, _ = _aot_serialization_api()
+    return serialize(fn)
+
+
+def _deserialize_compiled_executable(aot_fn, in_tree, out_tree):
+    _, deserialize_and_load = _aot_serialization_api()
+    return deserialize_and_load(aot_fn, in_tree, out_tree)
+
+
 @functools.lru_cache()
 def _hash(*args) -> str:
     m = hashlib.sha256()
@@ -377,13 +409,11 @@ def timeit(logger):
 def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     path = compiled_fn_path(name, hash)
 
-    from jax.experimental.serialize_executable import serialize
-
     path.mkdir(parents=True, exist_ok=True)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
     metadata_path = path / "metadata.json"
-    aot_fn, in_tree, out_tree = serialize(fn)
+    aot_fn, in_tree, out_tree = _serialize_compiled_executable(fn)
     if not isinstance(aot_fn, (bytes, bytearray)):
         raise TypeError(f"Serialized AOT executable must be bytes, got {type(aot_fn)}.")
     aot_fn = bytes(aot_fn)
@@ -447,8 +477,6 @@ def compiled_fn_metadata(name: str, hash: str = "0", cache_dir: str | Path | Non
 
 @functools.lru_cache()
 def _load_compiled_fn_from_path(path: str):
-    from jax.experimental.serialize_executable import deserialize_and_load
-
     path = Path(path)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
@@ -465,7 +493,7 @@ def _load_compiled_fn_from_path(path: str):
             aot_fn = f.read()
         with spec_path.open("rb") as f:
             in_tree, out_tree = pickle.load(f)
-        compiled_fn = deserialize_and_load(
+        compiled_fn = _deserialize_compiled_executable(
             aot_fn,
             in_tree,
             out_tree,
