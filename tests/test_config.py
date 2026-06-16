@@ -244,6 +244,81 @@ def test_model_config_from_hf_rejects_mistral_sliding_window():
         ModelConfig.from_hf(hf_config)
 
 
+def _tiny_deepseek_config(**overrides):
+    from transformers import DeepseekV3Config
+
+    kwargs = dict(
+        hidden_size=64,
+        intermediate_size=128,
+        moe_intermediate_size=32,
+        num_hidden_layers=3,
+        num_attention_heads=4,
+        num_key_value_heads=4,
+        n_routed_experts=8,
+        n_shared_experts=1,
+        num_experts_per_tok=4,
+        n_group=2,
+        topk_group=1,
+        first_k_dense_replace=1,
+        q_lora_rank=24,
+        kv_lora_rank=16,
+        qk_nope_head_dim=16,
+        qk_rope_head_dim=8,
+        v_head_dim=16,
+        vocab_size=100,
+        max_position_embeddings=64,
+    )
+    kwargs.update(overrides)
+    return DeepseekV3Config(**kwargs)
+
+
+def test_model_config_from_hf_accepts_deepseek_v3_config():
+    config = ModelConfig.from_hf(_tiny_deepseek_config())
+
+    assert config.is_mla is True
+    assert config.is_moe is True
+    # MLA query/key head dim is the concatenation of nope + rope parts.
+    assert config.qk_nope_head_dim == 16
+    assert config.qk_rope_head_dim == 8
+    assert config.head_dim == 24
+    assert config.qk_head_dim == 24
+    assert config.attn_scale == pytest.approx(24**-0.5)
+    assert config.v_head_dim == 16
+    assert config.kv_lora_rank == 16
+    assert config.q_lora_rank == 24
+    assert config.n_routed_experts == 8
+    assert config.n_shared_experts == 1
+    assert config.moe_intermediate_size == 32
+    assert config.num_experts_per_tok == 4
+    assert config.n_group == 2
+    assert config.topk_group == 1
+    assert config.first_k_dense_replace == 1
+    assert config.norm_topk_prob is True
+
+
+def test_model_config_from_hf_rejects_deepseek_yarn_scaling():
+    config = _tiny_deepseek_config()
+    config.rope_parameters = {"rope_theta": 10000.0, "rope_type": "yarn", "factor": 4.0}
+
+    with pytest.raises(NotImplementedError, match="YaRN"):
+        ModelConfig.from_hf(config)
+
+
+def test_model_config_defaults_have_no_mla_or_moe():
+    config = ModelConfig(
+        head_dim=8,
+        hidden_size=48,
+        num_heads=6,
+        num_layers=2,
+        max_position_embeddings=128,
+        vocab_size=256,
+    )
+    assert config.is_mla is False
+    assert config.is_moe is False
+    assert config.qk_head_dim is None
+    assert config.first_k_dense_replace == 0
+
+
 def test_model_config_from_hf_accepts_integer_like_head_dim():
     from transformers import LlamaConfig
 

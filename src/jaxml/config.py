@@ -149,6 +149,26 @@ class ModelConfig:
     # Only effective in GPT-NeoX for the two arch variants
     use_parallel_residual: bool = struct.field(default=True, pytree_node=False)
 
+    # --- DeepSeek-V3 MLA (Multi-head Latent Attention). All None for non-MLA models. ---
+    # When q_lora_rank is None the query uses a single projection (no low-rank compression).
+    q_lora_rank: Optional[int] = struct.field(default=None, pytree_node=False)
+    kv_lora_rank: Optional[int] = struct.field(default=None, pytree_node=False)
+    qk_nope_head_dim: Optional[int] = struct.field(default=None, pytree_node=False)
+    qk_rope_head_dim: Optional[int] = struct.field(default=None, pytree_node=False)
+    v_head_dim: Optional[int] = struct.field(default=None, pytree_node=False)
+
+    # --- DeepSeek-V3 fine-grained MoE. n_routed_experts is None for dense models. ---
+    n_routed_experts: Optional[int] = struct.field(default=None, pytree_node=False)
+    n_shared_experts: Optional[int] = struct.field(default=None, pytree_node=False)
+    moe_intermediate_size: Optional[int] = struct.field(default=None, pytree_node=False)
+    num_experts_per_tok: Optional[int] = struct.field(default=None, pytree_node=False)
+    n_group: Optional[int] = struct.field(default=None, pytree_node=False)
+    topk_group: Optional[int] = struct.field(default=None, pytree_node=False)
+    routed_scaling_factor: float = struct.field(default=1.0, pytree_node=False)
+    norm_topk_prob: bool = struct.field(default=True, pytree_node=False)
+    # Layers with index < first_k_dense_replace use a dense MLP instead of MoE.
+    first_k_dense_replace: int = struct.field(default=0, pytree_node=False)
+
     def __post_init__(self):
         for name in (
             "use_bias",
@@ -227,6 +247,56 @@ class ModelConfig:
         if not 0 < self.rotary_pct <= 1:
             raise ValueError(f"rotary_pct must be in (0, 1], got {self.rotary_pct}.")
 
+        # DeepSeek-V3 MLA / MoE fields. Each is optional; validate only when set.
+        for name in (
+            "q_lora_rank",
+            "kv_lora_rank",
+            "qk_nope_head_dim",
+            "qk_rope_head_dim",
+            "v_head_dim",
+            "n_routed_experts",
+            "n_shared_experts",
+            "moe_intermediate_size",
+            "num_experts_per_tok",
+            "n_group",
+            "topk_group",
+        ):
+            value = getattr(self, name)
+            if value is not None:
+                value = _normalize_count(name, value)
+                object.__setattr__(self, name, value)
+                if value <= 0:
+                    raise ValueError(f"{name} must be positive when set, got {value}.")
+
+        object.__setattr__(self, "norm_topk_prob", _normalize_bool("norm_topk_prob", self.norm_topk_prob))
+        object.__setattr__(
+            self, "routed_scaling_factor", _normalize_float("routed_scaling_factor", self.routed_scaling_factor)
+        )
+        object.__setattr__(
+            self, "first_k_dense_replace", _normalize_count("first_k_dense_replace", self.first_k_dense_replace)
+        )
+        if self.first_k_dense_replace < 0:
+            raise ValueError(f"first_k_dense_replace must be non-negative, got {self.first_k_dense_replace}.")
+        if self.is_moe:
+            if self.n_group is not None and self.n_routed_experts % self.n_group != 0:
+                raise ValueError(f"n_routed_experts ({self.n_routed_experts}) must be divisible by n_group ({self.n_group}).")
+            if self.topk_group is not None and self.n_group is not None and self.topk_group > self.n_group:
+                raise ValueError(f"topk_group ({self.topk_group}) cannot exceed n_group ({self.n_group}).")
+
+    @property
+    def is_mla(self) -> bool:
+        return self.kv_lora_rank is not None
+
+    @property
+    def is_moe(self) -> bool:
+        return self.n_routed_experts is not None
+
+    @property
+    def qk_head_dim(self) -> Optional[int]:
+        if self.qk_nope_head_dim is None or self.qk_rope_head_dim is None:
+            return None
+        return self.qk_nope_head_dim + self.qk_rope_head_dim
+
     def replace(self, **kwargs):
         args_dict = {k.name: getattr(self, k.name) for k in fields(self)} | kwargs
         return self.__class__(**args_dict)
@@ -244,12 +314,14 @@ class ModelConfig:
     @classmethod
     def from_hf(cls, config):
         """Construct a ModelConfig from a supported Hugging Face config."""
-        from transformers import Gemma3TextConfig, GPTNeoXConfig, LlamaConfig, MistralConfig
+        from transformers import DeepseekV3Config, Gemma3TextConfig, GPTNeoXConfig, LlamaConfig, MistralConfig
 
         if isinstance(config, LlamaConfig):
             config_type = "llama"
         elif isinstance(config, MistralConfig):
             config_type = "mistral"
+        elif isinstance(config, DeepseekV3Config):
+            config_type = "deepseek"
         elif isinstance(config, GPTNeoXConfig):
             config_type = "gpt_neox"
         elif isinstance(config, Gemma3TextConfig):
@@ -283,6 +355,12 @@ class ModelConfig:
                 raise ValueError(f"{name} must be positive, got {value}.")
         intermediate_ratio = (intermediate_size // factor, hidden_size // factor)
         attn_scale = head_dim**-0.5
+
+        # DeepSeek-V3 MLA / MoE fields. None / disabled for every other architecture.
+        q_lora_rank = kv_lora_rank = qk_nope_head_dim = qk_rope_head_dim = v_head_dim = None
+        n_routed_experts = n_shared_experts = moe_intermediate_size = None
+        num_experts_per_tok = n_group = topk_group = None
+        routed_scaling_factor, norm_topk_prob, first_k_dense_replace = 1.0, True, 0
 
         # Case-by-case.
         if config_type == "llama":
@@ -342,6 +420,38 @@ class ModelConfig:
             use_bias = False
             sliding_window = config.sliding_window
             sliding_window_pattern = config.sliding_window_pattern
+        elif config_type == "deepseek":
+            # DeepSeek-V3: MLA attention + fine-grained MoE. RMSNorm, SwiGLU experts.
+            if getattr(config, "rope_interleave", True) is False:
+                raise NotImplementedError("DeepSeek configs with rope_interleave=False are not supported.")
+            if getattr(config, "rope_parameters", {}).get("rope_type", "default") != "default":
+                # YaRN long-context scaling changes attn scaling and frequencies; out of scope for v1.
+                raise NotImplementedError("DeepSeek YaRN rope scaling is not yet supported; expected rope_type='default'.")
+            qk_nope_head_dim = _normalize_count("qk_nope_head_dim", config.qk_nope_head_dim)
+            qk_rope_head_dim = _normalize_count("qk_rope_head_dim", config.qk_rope_head_dim)
+            v_head_dim = _normalize_count("v_head_dim", config.v_head_dim)
+            kv_lora_rank = _normalize_count("kv_lora_rank", config.kv_lora_rank)
+            q_lora_rank = None if config.q_lora_rank is None else _normalize_count("q_lora_rank", config.q_lora_rank)
+            # MLA query/key head dim is the concatenation of the nope and rope parts.
+            head_dim = qk_nope_head_dim + qk_rope_head_dim
+            attn_scale = head_dim**-0.5
+            norm_eps = config.rms_norm_eps
+            num_kv_heads = num_heads  # MLA materializes one k/v per query head.
+            rope_theta = _infer_hf_rope_theta(config)
+            rope_scale = 1.0
+            use_parallel_residual, rotary_pct = True, 1.0
+            use_bias = bool(getattr(config, "attention_bias", False))
+            sliding_window = None
+            sliding_window_pattern = None
+            n_routed_experts = _normalize_count("n_routed_experts", config.n_routed_experts)
+            n_shared_experts = _normalize_count("n_shared_experts", config.n_shared_experts)
+            moe_intermediate_size = _normalize_count("moe_intermediate_size", config.moe_intermediate_size)
+            num_experts_per_tok = _normalize_count("num_experts_per_tok", config.num_experts_per_tok)
+            n_group = _normalize_count("n_group", config.n_group)
+            topk_group = _normalize_count("topk_group", config.topk_group)
+            routed_scaling_factor = _normalize_float("routed_scaling_factor", config.routed_scaling_factor)
+            norm_topk_prob = bool(config.norm_topk_prob)
+            first_k_dense_replace = _normalize_count("first_k_dense_replace", config.first_k_dense_replace)
 
         _validate_rope_rotary_dim(head_dim, rotary_pct)
 
@@ -364,4 +474,18 @@ class ModelConfig:
             sliding_window_pattern=sliding_window_pattern,
             rope_scale=rope_scale,
             attn_scale=attn_scale,
+            q_lora_rank=q_lora_rank,
+            kv_lora_rank=kv_lora_rank,
+            qk_nope_head_dim=qk_nope_head_dim,
+            qk_rope_head_dim=qk_rope_head_dim,
+            v_head_dim=v_head_dim,
+            n_routed_experts=n_routed_experts,
+            n_shared_experts=n_shared_experts,
+            moe_intermediate_size=moe_intermediate_size,
+            num_experts_per_tok=num_experts_per_tok,
+            n_group=n_group,
+            topk_group=topk_group,
+            routed_scaling_factor=routed_scaling_factor,
+            norm_topk_prob=norm_topk_prob,
+            first_k_dense_replace=first_k_dense_replace,
         )
