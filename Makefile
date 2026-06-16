@@ -39,7 +39,7 @@ dependency-check:
 	uv pip check
 
 dependency-drift:
-	uv run --frozen --extra dev python scripts/check_dependency_drift.py
+	uv run --frozen --extra dev --extra tpu python scripts/check_dependency_drift.py
 
 style: format lint
 

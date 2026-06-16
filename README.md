@@ -100,7 +100,7 @@ TPU validation is intentionally split out because it requires a visible TPU runt
 uv run --frozen --extra dev --extra tpu make verify-tpu
 ```
 
-Before changing pinned dependencies, audit direct dependency drift:
+Before changing pinned dependencies, audit direct dependency drift across dev and TPU extras:
 
 ```bash
 uv run --frozen --extra dev make dependency-drift

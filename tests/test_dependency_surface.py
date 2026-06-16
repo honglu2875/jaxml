@@ -328,7 +328,7 @@ def test_torch_tensor_surface_interops_with_numpy():
 def test_dependency_drift_target_audits_direct_project_pins():
     recipes = _makefile_recipes()
 
-    assert recipes["dependency-drift"] == ["uv run --frozen --extra dev python scripts/check_dependency_drift.py"]
+    assert recipes["dependency-drift"] == ["uv run --frozen --extra dev --extra tpu python scripts/check_dependency_drift.py"]
 
 
 def test_dependency_drift_helper_filters_to_direct_project_pins():
