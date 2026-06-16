@@ -16,16 +16,13 @@
 import operator
 from typing import Any, Optional
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import struct
 
+from ._validation import contains_tracer as _contains_tracer
+from ._validation import validate_finite_values as _validate_finite_values
 from .utils import get_default_pos_ids
-
-
-def _contains_tracer(x: Any) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -57,15 +54,6 @@ def _validate_binary_integer_mask(name: str, mask: jnp.ndarray):
     if jnp.issubdtype(mask.dtype, jnp.integer) and not _contains_tracer(mask):
         if bool(jnp.any((mask != 0) & (mask != 1))):
             raise ValueError(f"{name} integer values must be 0 or 1.")
-
-
-def _validate_finite_values(name: str, values: jnp.ndarray):
-    try:
-        has_only_finite_values = bool(jnp.all(jnp.isfinite(values)))
-    except jax.errors.TracerBoolConversionError:
-        return
-    if not _contains_tracer(values) and not has_only_finite_values:
-        raise ValueError(f"{name} must contain only finite values.")
 
 
 class KVCache(struct.PyTreeNode):

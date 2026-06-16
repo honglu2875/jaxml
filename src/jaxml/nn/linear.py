@@ -24,11 +24,11 @@ from dataclasses import field
 from typing import Any, Callable, Iterable, Tuple, Union
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
+from .._validation import validate_finite_values as _validate_finite_values
 from .module import Module, _normalize_kernel_axes
 
 
@@ -79,19 +79,6 @@ def _normalize_dtype(name: str, value: Any):
         return jnp.dtype(value)
     except TypeError as e:
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
-
-
-def _contains_tracer(x: Any) -> bool:
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree.leaves(x))
-
-
-def _validate_finite_values(name: str, values: jnp.ndarray):
-    try:
-        has_only_finite_values = bool(jnp.all(jnp.isfinite(values)))
-    except jax.errors.TracerBoolConversionError:
-        return
-    if not _contains_tracer(values) and not has_only_finite_values:
-        raise ValueError(f"{name} must contain only finite values.")
 
 
 def _canonicalize_tuple(x):
