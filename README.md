@@ -22,6 +22,7 @@ Currently supported:
 - [x] Mistral (full-attention configs; sliding-window not yet supported)
 - [x] GPT-NeoX
 - [x] Gemma3
+- [x] DeepSeek-V3 / R1 (MLA + fine-grained MoE; default RoPE only — YaRN long-context scaling not yet supported)
 
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)

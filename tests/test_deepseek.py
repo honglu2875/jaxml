@@ -21,7 +21,8 @@ from flax import linen as nn
 
 from jaxml.cache import KVCache
 from jaxml.config import ModelConfig
-from jaxml.models.deepseek import DeepseekMoE, MLAAttention
+from jaxml.hf_utils import load_model_from_hf, to_deepseek_jax_params
+from jaxml.models.deepseek import DeepseekModelWithHead, DeepseekMoE, MLAAttention
 
 pytestmark = pytest.mark.milestone
 
@@ -190,3 +191,52 @@ def test_mla_attention_decode_cache_consistency():
         )
 
     assert np.allclose(decode.attention_output[:, -1], full[:, -1], atol=1e-5)
+
+
+def test_deepseek_for_causal_lm_matches_hf():
+    """End-to-end logits parity for the whole model (embed -> dense + MoE layers -> MLA -> head)."""
+    from transformers import DeepseekV3ForCausalLM
+
+    torch.manual_seed(0)
+    # num_hidden_layers=3 with first_k_dense_replace=1 exercises one dense layer and two MoE layers.
+    hf_cfg = _tiny_hf_deepseek_config(num_hidden_layers=3, first_k_dense_replace=1)
+    hf_cfg._attn_implementation = "eager"
+    hf_model = DeepseekV3ForCausalLM(hf_cfg).eval()
+
+    config = ModelConfig.from_hf(hf_cfg)
+    model = DeepseekModelWithHead(config)
+
+    bs, seq_len = 2, 7
+    rng = np.random.default_rng(0)
+    ids = rng.integers(0, config.vocab_size, size=(bs, seq_len)).astype(np.int32)
+    with jax.default_device(jax.devices("cpu")[0]):
+        params = to_deepseek_jax_params(hf_model, dtype="float32")
+        logits = model.apply(params, jnp.asarray(ids), use_cache=False).logits
+        with torch.no_grad():
+            hf_logits = hf_model(input_ids=torch.tensor(ids, dtype=torch.long)).logits.numpy()
+
+    assert logits.shape == hf_logits.shape
+    assert np.allclose(logits, hf_logits, atol=1e-4)
+
+
+def test_load_deepseek_from_hf_roundtrip(tmp_path):
+    """The auto loader infers DeepSeek, converts weights, and reproduces HF logits."""
+    from transformers import AutoModelForCausalLM, DeepseekV3ForCausalLM
+
+    torch.manual_seed(0)
+    hf_cfg = _tiny_hf_deepseek_config(num_hidden_layers=3, first_k_dense_replace=1)
+    DeepseekV3ForCausalLM(hf_cfg).eval().save_pretrained(tmp_path)
+
+    ref = AutoModelForCausalLM.from_pretrained(tmp_path).eval()
+    ref.config._attn_implementation = "eager"
+    model, params = load_model_from_hf(str(tmp_path), architecture="auto", dtype="float32")
+    assert isinstance(model, DeepseekModelWithHead)
+
+    rng = np.random.default_rng(1)
+    ids = rng.integers(0, hf_cfg.vocab_size, size=(2, 6)).astype(np.int32)
+    with jax.default_device(jax.devices("cpu")[0]):
+        logits = model.apply(params, jnp.asarray(ids), use_cache=False).logits
+        with torch.no_grad():
+            ref_logits = ref(input_ids=torch.tensor(ids, dtype=torch.long)).logits.numpy()
+
+    assert np.allclose(logits, ref_logits, atol=1e-4)

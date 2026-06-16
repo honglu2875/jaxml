@@ -26,10 +26,19 @@ from flax.linen.partitioning import with_sharding_constraint
 
 from ..cache import KVCache
 from ..nn.attention import Attention, _validate_cos_sin, _validate_hidden_states
+from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
 from ..nn.norms import RMSNorm
-from ..outputs import AttentionOutput
+from ..outputs import AttentionOutput, BaseModelOutputWithCache, CausalLMOutputWithCache, DecoderOutput
+from ._utils import (
+    normalize_model_output_flags,
+    prepare_default_attention_mask,
+    prepare_model_inputs,
+    prepare_position_ids,
+    slice_last_n_logits_hidden_states,
+)
+from .llama import LlamaMLP
 
 
 class DeepseekMoE(Block):
@@ -330,4 +339,190 @@ class MLAAttention(Attention):
             attention_output=self.o_proj(attn_output),
             attention_weight=attn_weight,
             kv_cache=kv_cache,
+        )
+
+
+def _deepseek_cos_sin(position_ids: jnp.ndarray, rope_dim: int, base: float, dtype) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Default (non-scaled) DeepSeek rotary tables for the decoupled rope slice.
+
+    Matches transformers' compute_default_rope_parameters + rotary forward: the
+    angles are ``cat(freqs, freqs)`` so the interleaved application can take the
+    first half. Returns cos/sin of shape ``(batch, seq, rope_dim)``.
+    """
+    inv_freq = 1.0 / (base ** (jnp.arange(0, rope_dim, 2, dtype=jnp.float32) / rope_dim))
+    freqs = position_ids.astype(jnp.float32)[..., None] * inv_freq[None, None, :]
+    emb = jnp.concatenate([freqs, freqs], axis=-1)
+    return jnp.cos(emb).astype(dtype), jnp.sin(emb).astype(dtype)
+
+
+class DeepseekDecoder(Block):
+    """A single DeepSeek-V3 decoder layer (MLA + dense-or-MoE FFN)."""
+
+    use_moe: bool = False
+
+    def setup(self):
+        cfg = self.config
+        self.self_attn = MLAAttention(cfg, dtype=self.dtype)
+        self.mlp = DeepseekMoE(cfg, dtype=self.dtype) if self.use_moe else LlamaMLP(cfg, dtype=self.dtype)
+        self.input_layernorm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
+        self.post_attention_layernorm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
+
+    def __call__(
+        self,
+        hidden_states: jnp.ndarray,
+        cos_sin: tuple[jnp.ndarray, jnp.ndarray],
+        attention_mask: Optional[jnp.ndarray] = None,
+        kv_cache: Optional[KVCache] = None,
+        output_attentions: bool = False,
+    ) -> DecoderOutput:
+        residual = hidden_states
+        hidden_states = self.input_layernorm(hidden_states)
+        output = self.self_attn(
+            hidden_states=hidden_states,
+            cos_sin=cos_sin,
+            attention_mask=attention_mask,
+            kv_cache=kv_cache,
+            output_attentions=output_attentions,
+        )
+        hidden_states = residual + output.attention_output
+
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states) + residual
+
+        return DecoderOutput(
+            hidden_states=hidden_states,
+            kv_cache=output.kv_cache,
+            attention_weight=output.attention_weight,
+        )
+
+
+class DeepseekModel(Block):
+    """DeepSeek-V3 backbone: token embedding, MLA decoder stack, final norm."""
+
+    def setup(self):
+        cfg = self.config
+        if not (cfg.is_mla and cfg.is_moe):
+            raise ValueError("DeepseekModel requires an MLA + MoE config.")
+        self.embed_tokens = Embed(num_embeddings=cfg.vocab_size, features=self.hidden_size, dtype=self.dtype)
+        self.layers = [
+            DeepseekDecoder(cfg, dtype=self.dtype, use_moe=(idx >= cfg.first_k_dense_replace))
+            for idx in range(self.num_layers)
+        ]
+        self.norm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
+
+    def _resolve_position_ids(self, position_ids, input_ids, kv_caches):
+        if position_ids is not None:
+            return position_ids
+        bsz, seq_len = input_ids.shape
+        offsets = jnp.arange(seq_len)[None]
+        if kv_caches is not None:
+            for kv_cache in kv_caches:
+                if kv_cache is not None and kv_cache.pos_id is not None:
+                    # Continue numbering after the cached positions (per batch row).
+                    return kv_cache.next_pos_id + offsets
+        return jnp.broadcast_to(offsets, (bsz, seq_len))
+
+    def __call__(
+        self,
+        input_ids: jnp.ndarray,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
+        kv_caches: Optional[tuple[KVCache, ...]] = None,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
+        use_cache: bool = False,
+    ) -> BaseModelOutputWithCache:
+        cfg = self.config
+        use_cache, output_attentions, output_hidden_states = normalize_model_output_flags(
+            use_cache, output_attentions, output_hidden_states
+        )
+        input_ids, attention_mask, kv_caches = prepare_model_inputs(
+            input_ids, attention_mask, kv_caches, self.num_layers, vocab_size=cfg.vocab_size
+        )
+        position_ids = prepare_position_ids(position_ids, input_ids, cfg.max_position_embeddings)
+        resolved_position_ids = self._resolve_position_ids(position_ids, input_ids, kv_caches)
+
+        if attention_mask is None:
+            attention_mask = prepare_default_attention_mask(input_ids, kv_caches)
+
+        input_ids = jnp.where(input_ids < 0, 0, input_ids)
+        inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
+        hidden_states = inputs_embeds
+
+        cos_sin = _deepseek_cos_sin(resolved_position_ids, cfg.qk_rope_head_dim, cfg.rope_theta, self.dtype)
+
+        all_hidden_states = []
+        all_self_attns = []
+        next_kv_caches = []
+        for idx, decoder_layer in enumerate(self.layers):
+            all_hidden_states.append(hidden_states)
+            kv_cache = None if kv_caches is None else kv_caches[idx]
+            output = decoder_layer(
+                hidden_states,
+                cos_sin=cos_sin,
+                attention_mask=attention_mask,
+                kv_cache=kv_cache,
+                output_attentions=output_attentions,
+            )
+            hidden_states, kv_cache, attn_weight = (output.hidden_states, output.kv_cache, output.attention_weight)
+            all_self_attns.append(attn_weight)
+            next_kv_caches.append(kv_cache)
+
+        hidden_states = self.norm(hidden_states)
+        all_hidden_states.append(hidden_states)
+
+        return BaseModelOutputWithCache(
+            last_hidden_state=hidden_states,
+            kv_caches=tuple(next_kv_caches) if use_cache else None,
+            hidden_states=tuple(all_hidden_states) if output_hidden_states else None,
+            attention_weights=tuple(all_self_attns) if output_attentions else None,
+        )
+
+
+class DeepseekModelWithHead(Block):
+    """DeepSeek-V3 causal LM (backbone + untied LM head)."""
+
+    lm_head_init: Any = nn.initializers.xavier_uniform
+    lm_head_init_args: tuple = ()
+
+    def setup(self):
+        self.model = DeepseekModel(self.config, dtype=self.dtype)
+        self.lm_head = DenseGeneral(
+            features=self.config.vocab_size,
+            dtype=self.dtype,
+            kernel_init=self.lm_head_init,
+            kernel_init_args=self.lm_head_init_args,
+            with_logical_partitioning=True,
+            kernel_axes=("embed", "vocab"),
+            name="lm_head",
+        )
+
+    def __call__(
+        self,
+        input_ids,
+        attention_mask: Optional[jnp.ndarray] = None,
+        position_ids: Optional[jnp.ndarray] = None,
+        kv_caches: Optional[tuple[KVCache, ...]] = None,
+        use_cache: bool = False,
+        output_attentions: bool = False,
+        output_hidden_states: bool = False,
+        keep_last_n_logits: int = 0,
+    ) -> CausalLMOutputWithCache:
+        outputs = self.model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            kv_caches=kv_caches,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+        )
+        hidden_states = slice_last_n_logits_hidden_states(outputs.last_hidden_state, keep_last_n_logits)
+        logits = self.lm_head(hidden_states)
+        return CausalLMOutputWithCache(
+            logits=logits,
+            kv_caches=outputs.kv_caches,
+            hidden_states=outputs.hidden_states,
+            attention_weights=outputs.attention_weights,
         )

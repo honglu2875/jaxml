@@ -6,11 +6,12 @@ from typing import Literal
 
 import numpy as np
 
+from jaxml.models.deepseek import DeepseekModelWithHead
 from jaxml.models.gemma3 import GemmaModelWithHead
 from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 from jaxml.models.llama import LlamaModelWithHead
 
-from .utils import _resolve_np_dtype, torch_to_jax_states
+from .utils import _resolve_np_dtype, _state_value_to_numpy, torch_to_jax_states
 
 
 def _normalize_hf_count(name: str, value) -> int:
@@ -99,7 +100,71 @@ def to_neox_jax_params(model, dtype: str = "float16"):
     return torch_to_jax_states(state_dict, head_dim=_config_head_dim(neox_config), dtype=dtype)
 
 
-HFArchitecture = Literal["auto", "llama", "mistral", "gpt_neox", "neox", "gemma3", "gemma"]
+def to_deepseek_jax_params(model, dtype: str = "bfloat16"):
+    """Convert an HF DeepseekV3ForCausalLM into the jaxml DeepseekModelWithHead tree.
+
+    DeepSeek-V3 needs a bespoke converter: the MLA projections reshape into
+    (head, head_dim) kernels, and the routed experts are stacked 3D tensors with
+    a fused gate/up projection (none of which the generic converter handles).
+    """
+    from jaxml.config import ModelConfig
+
+    cfg = ModelConfig.from_hf(_hf_model_config(model, "DeepSeek"))
+    state_dict = _hf_model_state_dict(model, "DeepSeek")
+    np_dtype = _resolve_np_dtype(dtype)
+
+    def g(key):
+        return _state_value_to_numpy(state_dict[key], np_dtype, key)
+
+    nh, qk = cfg.num_heads, cfg.qk_head_dim
+    nope, v = cfg.qk_nope_head_dim, cfg.v_head_dim
+
+    def attn_params(prefix):
+        attn = {}
+        if cfg.q_lora_rank is None:
+            attn["q_proj"] = {"kernel": g(prefix + "q_proj.weight").T.reshape(-1, nh, qk)}
+        else:
+            attn["q_a_proj"] = {"kernel": g(prefix + "q_a_proj.weight").T}
+            attn["q_a_layernorm"] = {"weight": g(prefix + "q_a_layernorm.weight")}
+            attn["q_b_proj"] = {"kernel": g(prefix + "q_b_proj.weight").T.reshape(-1, nh, qk)}
+        attn["kv_a_proj_with_mqa"] = {"kernel": g(prefix + "kv_a_proj_with_mqa.weight").T}
+        attn["kv_a_layernorm"] = {"weight": g(prefix + "kv_a_layernorm.weight")}
+        attn["kv_b_proj"] = {"kernel": g(prefix + "kv_b_proj.weight").T.reshape(-1, nh, nope + v)}
+        attn["o_proj"] = {"kernel": g(prefix + "o_proj.weight").T}
+        return attn
+
+    def mlp_params(prefix, is_moe):
+        if not is_moe:
+            return {
+                "gate_proj": {"kernel": g(prefix + "gate_proj.weight").T},
+                "up_proj": {"kernel": g(prefix + "up_proj.weight").T},
+                "down_proj": {"kernel": g(prefix + "down_proj.weight").T},
+            }
+        return {
+            "gate_kernel": g(prefix + "gate.weight").T,
+            "e_score_correction_bias": g(prefix + "gate.e_score_correction_bias"),
+            "gate_up_kernel": g(prefix + "experts.gate_up_proj").transpose(0, 2, 1),
+            "down_kernel": g(prefix + "experts.down_proj").transpose(0, 2, 1),
+            "shared_gate_proj": {"kernel": g(prefix + "shared_experts.gate_proj.weight").T},
+            "shared_up_proj": {"kernel": g(prefix + "shared_experts.up_proj.weight").T},
+            "shared_down_proj": {"kernel": g(prefix + "shared_experts.down_proj.weight").T},
+        }
+
+    model_params = {"embed_tokens": {"embedding": g("model.embed_tokens.weight")}}
+    for idx in range(cfg.num_layers):
+        layer_prefix = f"model.layers.{idx}."
+        model_params[f"layers_{idx}"] = {
+            "self_attn": attn_params(layer_prefix + "self_attn."),
+            "mlp": mlp_params(layer_prefix + "mlp.", idx >= cfg.first_k_dense_replace),
+            "input_layernorm": {"weight": g(layer_prefix + "input_layernorm.weight")},
+            "post_attention_layernorm": {"weight": g(layer_prefix + "post_attention_layernorm.weight")},
+        }
+    model_params["norm"] = {"weight": g("model.norm.weight")}
+
+    return {"params": {"model": model_params, "lm_head": {"kernel": g("lm_head.weight").T}}}
+
+
+HFArchitecture = Literal["auto", "llama", "mistral", "deepseek", "deepseek_v3", "gpt_neox", "neox", "gemma3", "gemma"]
 
 
 def _normalize_hf_architecture(architecture: str) -> str:
@@ -109,6 +174,8 @@ def _normalize_hf_architecture(architecture: str) -> str:
     match normalized:
         case "auto" | "llama" | "mistral" | "neox" | "gemma":
             return normalized
+        case "deepseek" | "deepseek_v3":
+            return "deepseek"
         case "gpt_neox":
             return "neox"
         case "gemma3" | "gemma_3":
@@ -155,6 +222,8 @@ def _infer_hf_architecture(name: str, **config_kwargs) -> str:
             return "llama"
         case "mistral":
             return "mistral"
+        case "deepseek_v3":
+            return "deepseek"
         case "gpt_neox":
             return "neox"
         case "gemma3":
@@ -183,6 +252,8 @@ def load_model_from_hf(
             return load_llama_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "mistral":
             return load_mistral_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+        case "deepseek" | "deepseek_v3":
+            return load_deepseek_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "gpt_neox" | "neox":
             return load_neox_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "gemma3" | "gemma":
@@ -229,6 +300,26 @@ def load_mistral_from_hf(name: str, dtype: str = "float32", **from_pretrained_kw
     params = to_mistral_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_config)
     model = LlamaModelWithHead(config)
+    return model, params
+
+
+def load_deepseek_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[DeepseekModelWithHead, dict]:
+    """Load a Hugging Face DeepSeek-V3 / R1 model into a jaxml DeepseekModelWithHead."""
+    name = _normalize_hf_model_name(name)
+    dtype = _validate_hf_dtype(dtype)
+    try:
+        from transformers import AutoModelForCausalLM
+    except ImportError as e:
+        raise ImportError("Please install transformers library.") from e
+
+    from jaxml.config import ModelConfig
+
+    _model = AutoModelForCausalLM.from_pretrained(name, **from_pretrained_kwargs)
+    _config = _hf_model_config(_model, "DeepSeek")
+    _validate_hf_model_type(_config, ("deepseek_v3",), "DeepSeek")
+    params = to_deepseek_jax_params(_model, dtype=dtype)
+    config = ModelConfig.from_hf(_config)
+    model = DeepseekModelWithHead(config)
     return model, params
 
 

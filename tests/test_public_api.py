@@ -37,11 +37,17 @@ def test_package_root_exports_documented_entry_points():
 
 def test_models_package_exports_architecture_entry_points():
     import jaxml.models as models
+    from jaxml.models.deepseek import DeepseekDecoder, DeepseekModel, DeepseekModelWithHead, DeepseekMoE, MLAAttention
     from jaxml.models.gemma3 import GemmaDecoder, GemmaMLP, GemmaModel, GemmaModelWithHead, GemmaRMSNorm
     from jaxml.models.gpt_neox import GPTNeoXDecoder, GPTNeoXMLP, GPTNeoXModel, GPTNeoXModelWithHead
     from jaxml.models.llama import LlamaDecoder, LlamaMLP, LlamaModel, LlamaModelWithHead
 
     assert models.__all__ == [
+        "DeepseekDecoder",
+        "DeepseekModel",
+        "DeepseekModelWithHead",
+        "DeepseekMoE",
+        "MLAAttention",
         "GPTNeoXDecoder",
         "GPTNeoXMLP",
         "GPTNeoXModel",
@@ -56,6 +62,11 @@ def test_models_package_exports_architecture_entry_points():
         "LlamaModel",
         "LlamaModelWithHead",
     ]
+    assert models.DeepseekDecoder is DeepseekDecoder
+    assert models.DeepseekModel is DeepseekModel
+    assert models.DeepseekModelWithHead is DeepseekModelWithHead
+    assert models.DeepseekMoE is DeepseekMoE
+    assert models.MLAAttention is MLAAttention
     assert models.GPTNeoXDecoder is GPTNeoXDecoder
     assert models.GPTNeoXMLP is GPTNeoXMLP
     assert models.GPTNeoXModel is GPTNeoXModel
