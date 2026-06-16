@@ -15,6 +15,7 @@
 
 import functools
 import hashlib
+import importlib.metadata
 import json
 import logging
 import operator
@@ -34,6 +35,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 JAXML_CACHE_DIR_ENV = "JAXML_CACHE_DIR"
+AOT_CACHE_METADATA_VERSION = 1
 
 
 _str_to_np_dtype = {
@@ -99,6 +101,28 @@ def _write_bytes_atomically(path: Path, data: bytes):
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+def _aot_cache_metadata() -> dict[str, str | int]:
+    return {
+        "version": AOT_CACHE_METADATA_VERSION,
+        "jax": jax.__version__,
+        "jaxlib": importlib.metadata.version("jaxlib"),
+    }
+
+
+def _encode_aot_cache_metadata() -> bytes:
+    return json.dumps(_aot_cache_metadata(), sort_keys=True).encode("utf-8")
+
+
+def _validate_aot_cache_metadata(path: Path, metadata_path: Path):
+    try:
+        actual = json.loads(metadata_path.read_text())
+    except Exception as e:
+        raise ValueError(f"Failed to load AOT cache metadata from {path}.") from e
+    expected = _aot_cache_metadata()
+    if actual != expected:
+        raise ValueError(f"AOT cache metadata mismatch for {path}: got {actual!r}, expected {expected!r}.")
 
 
 @functools.lru_cache()
@@ -351,6 +375,7 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     path.mkdir(parents=True, exist_ok=True)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
+    metadata_path = path / "metadata.json"
     aot_fn, in_tree, out_tree = serialize(fn)
     if not isinstance(aot_fn, (bytes, bytearray)):
         raise TypeError(f"Serialized AOT executable must be bytes, got {type(aot_fn)}.")
@@ -360,8 +385,10 @@ def save_compiled_fn(fn, name: str, hash: str = "0", **kwargs) -> int:
     _write_bytes_atomically(fn_path, aot_fn)
     io_spec_bytes = pickle.dumps((in_tree, out_tree))
     _write_bytes_atomically(spec_path, io_spec_bytes)
+    metadata_bytes = _encode_aot_cache_metadata()
+    _write_bytes_atomically(metadata_path, metadata_bytes)
     _load_compiled_fn_from_path.cache_clear()
-    return len(aot_fn) + len(io_spec_bytes)
+    return len(aot_fn) + len(io_spec_bytes) + len(metadata_bytes)
 
 
 def _validate_cache_key_part(part: str, label: str, *, allow_integer: bool = False) -> str:
@@ -397,7 +424,8 @@ def compiled_fn_exist(name: str, hash: str = "0"):
     path = compiled_fn_path(name, hash)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
-    return fn_path.is_file() and fn_path.stat().st_size > 0 and spec_path.is_file() and spec_path.stat().st_size > 0
+    metadata_path = path / "metadata.json"
+    return all(path.is_file() and path.stat().st_size > 0 for path in (fn_path, spec_path, metadata_path))
 
 
 @functools.lru_cache()
@@ -407,11 +435,13 @@ def _load_compiled_fn_from_path(path: str):
     path = Path(path)
     fn_path = path / "aot"
     spec_path = path / "in_out_spec"
-    if not fn_path.is_file() or not spec_path.is_file():
+    metadata_path = path / "metadata.json"
+    if not fn_path.is_file() or not spec_path.is_file() or not metadata_path.is_file():
         raise ValueError(f"Cannot find files from the folder {path}")
-    for payload_path in (fn_path, spec_path):
+    for payload_path in (fn_path, spec_path, metadata_path):
         if payload_path.stat().st_size <= 0:
             raise ValueError(f"AOT cache entry from {path} has empty payload file {payload_path.name!r}.")
+    _validate_aot_cache_metadata(path, metadata_path)
 
     try:
         with fn_path.open("rb") as f:

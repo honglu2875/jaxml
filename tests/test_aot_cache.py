@@ -1,3 +1,4 @@
+import json
 import pickle
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 
 from jaxml.utils import (
     JAXML_CACHE_DIR_ENV,
+    _aot_cache_metadata,
     _hash,
     _load_compiled_fn_from_path,
     compiled_fn_exist,
@@ -18,6 +20,14 @@ from jaxml.utils import (
 )
 
 pytestmark = pytest.mark.milestone
+
+
+def _write_aot_cache_entry(cache_entry, payload=b"compiled", in_tree="in-tree", out_tree="out-tree"):
+    cache_entry.mkdir(parents=True)
+    (cache_entry / "aot").write_bytes(payload)
+    with (cache_entry / "in_out_spec").open("wb") as f:
+        pickle.dump((in_tree, out_tree), f)
+    (cache_entry / "metadata.json").write_text(json.dumps(_aot_cache_metadata(), sort_keys=True))
 
 
 def test_compiled_fn_path_defaults_to_project_cache(monkeypatch):
@@ -117,22 +127,23 @@ def test_compiled_fn_exist_requires_payload_files(monkeypatch, tmp_path):
     assert not compiled_fn_exist("decode", "abc")
 
     (cache_entry / "in_out_spec").write_bytes(b"spec")
+    assert not compiled_fn_exist("decode", "abc")
+
+    (cache_entry / "metadata.json").write_text(json.dumps(_aot_cache_metadata(), sort_keys=True))
     assert compiled_fn_exist("decode", "abc")
 
 
-@pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec"])
+@pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec", "metadata.json"])
 def test_compiled_fn_exist_rejects_empty_payload_files(monkeypatch, tmp_path, empty_payload_name):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     cache_entry = compiled_fn_path("decode", "abc")
-    cache_entry.mkdir(parents=True)
-    (cache_entry / "aot").write_bytes(b"compiled")
-    (cache_entry / "in_out_spec").write_bytes(b"spec")
+    _write_aot_cache_entry(cache_entry)
     (cache_entry / empty_payload_name).write_bytes(b"")
 
     assert not compiled_fn_exist("decode", "abc")
 
 
-@pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec"])
+@pytest.mark.parametrize("empty_payload_name", ["aot", "in_out_spec", "metadata.json"])
 def test_load_compiled_fn_rejects_empty_payload_files_before_deserializing(monkeypatch, tmp_path, empty_payload_name):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     deserialize_calls = []
@@ -142,13 +153,28 @@ def test_load_compiled_fn_rejects_empty_payload_files_before_deserializing(monke
     )
     _load_compiled_fn_from_path.cache_clear()
     cache_entry = compiled_fn_path("decode", "abc")
-    cache_entry.mkdir(parents=True)
-    (cache_entry / "aot").write_bytes(b"compiled")
-    with (cache_entry / "in_out_spec").open("wb") as f:
-        pickle.dump(("in-tree", "out-tree"), f)
+    _write_aot_cache_entry(cache_entry)
     (cache_entry / empty_payload_name).write_bytes(b"")
 
     with pytest.raises(ValueError, match="empty payload file"):
+        load_compiled_fn("decode", "abc", log=False)
+
+    assert deserialize_calls == []
+
+
+def test_load_compiled_fn_rejects_metadata_mismatch_before_deserializing(monkeypatch, tmp_path):
+    monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
+    deserialize_calls = []
+    monkeypatch.setattr(
+        "jax.experimental.serialize_executable.deserialize_and_load",
+        lambda *args: deserialize_calls.append(args),
+    )
+    _load_compiled_fn_from_path.cache_clear()
+    cache_entry = compiled_fn_path("decode", "abc")
+    _write_aot_cache_entry(cache_entry)
+    (cache_entry / "metadata.json").write_text(json.dumps(_aot_cache_metadata() | {"jax": "0.0.0"}, sort_keys=True))
+
+    with pytest.raises(ValueError, match="metadata mismatch"):
         load_compiled_fn("decode", "abc", log=False)
 
     assert deserialize_calls == []
@@ -165,10 +191,14 @@ def test_save_compiled_fn_replaces_payloads_atomically(monkeypatch, tmp_path):
 
     byte_count = save_compiled_fn(object(), "decode", "abc", log=False)
 
-    assert byte_count == len(b"new-aot") + len(pickle.dumps(("in-tree", "out-tree")))
+    expected_byte_count = len(b"new-aot")
+    expected_byte_count += len(pickle.dumps(("in-tree", "out-tree")))
+    expected_byte_count += len(json.dumps(_aot_cache_metadata(), sort_keys=True).encode("utf-8"))
+    assert byte_count == expected_byte_count
     assert (cache_entry / "aot").read_bytes() == b"new-aot"
     with (cache_entry / "in_out_spec").open("rb") as f:
         assert pickle.load(f) == ("in-tree", "out-tree")
+    assert json.loads((cache_entry / "metadata.json").read_text()) == _aot_cache_metadata()
     assert not list(cache_entry.glob("*.tmp"))
 
 
@@ -182,6 +212,7 @@ def test_save_compiled_fn_rejects_non_bytes_executable_payload(monkeypatch, tmp_
     cache_entry = compiled_fn_path("decode", "abc")
     assert not (cache_entry / "aot").exists()
     assert not (cache_entry / "in_out_spec").exists()
+    assert not (cache_entry / "metadata.json").exists()
 
 
 def test_save_compiled_fn_rejects_empty_executable_payload(monkeypatch, tmp_path):
@@ -194,6 +225,7 @@ def test_save_compiled_fn_rejects_empty_executable_payload(monkeypatch, tmp_path
     cache_entry = compiled_fn_path("decode", "abc")
     assert not (cache_entry / "aot").exists()
     assert not (cache_entry / "in_out_spec").exists()
+    assert not (cache_entry / "metadata.json").exists()
 
 
 def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
@@ -204,10 +236,7 @@ def test_save_compiled_fn_invalidates_loaded_cache(monkeypatch, tmp_path):
     )
     _load_compiled_fn_from_path.cache_clear()
     cache_entry = compiled_fn_path("decode", "abc")
-    cache_entry.mkdir(parents=True)
-    (cache_entry / "aot").write_bytes(b"old-aot")
-    with (cache_entry / "in_out_spec").open("wb") as f:
-        pickle.dump(("old-in", "old-out"), f)
+    _write_aot_cache_entry(cache_entry, payload=b"old-aot", in_tree="old-in", out_tree="old-out")
 
     first = load_compiled_fn("decode", "abc", log=False)
 
@@ -241,10 +270,7 @@ def test_save_and_load_compiled_fn_round_trips_jax_executable(monkeypatch, tmp_p
 def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tmp_path):
     def write_cache_entry(root, payload):
         cache_entry = compiled_fn_path("decode", "abc", cache_dir=root)
-        cache_entry.mkdir(parents=True)
-        (cache_entry / "aot").write_bytes(payload)
-        with (cache_entry / "in_out_spec").open("wb") as f:
-            pickle.dump(("in-tree", "out-tree"), f)
+        _write_aot_cache_entry(cache_entry, payload=payload)
 
     monkeypatch.setattr(
         "jax.experimental.serialize_executable.deserialize_and_load",
@@ -268,10 +294,7 @@ def test_load_compiled_fn_cache_key_includes_resolved_cache_path(monkeypatch, tm
 def test_load_compiled_fn_cache_key_resolves_relative_paths(monkeypatch, tmp_path):
     def write_cache_entry(cwd, payload):
         cache_entry = cwd / "cache" / "decode_abc"
-        cache_entry.mkdir(parents=True)
-        (cache_entry / "aot").write_bytes(payload)
-        with (cache_entry / "in_out_spec").open("wb") as f:
-            pickle.dump(("in-tree", "out-tree"), f)
+        _write_aot_cache_entry(cache_entry, payload=payload)
 
     monkeypatch.setattr(
         "jax.experimental.serialize_executable.deserialize_and_load",
@@ -297,8 +320,7 @@ def test_load_compiled_fn_wraps_corrupt_spec_payload(monkeypatch, tmp_path):
     monkeypatch.setenv(JAXML_CACHE_DIR_ENV, str(tmp_path))
     _load_compiled_fn_from_path.cache_clear()
     cache_entry = compiled_fn_path("decode", "abc")
-    cache_entry.mkdir(parents=True)
-    (cache_entry / "aot").write_bytes(b"compiled")
+    _write_aot_cache_entry(cache_entry)
     (cache_entry / "in_out_spec").write_bytes(b"not-a-pickle")
 
     with pytest.raises(ValueError, match="Failed to load AOT cache entry") as exc_info:
@@ -316,10 +338,7 @@ def test_load_compiled_fn_wraps_deserializer_failures(monkeypatch, tmp_path):
     )
     _load_compiled_fn_from_path.cache_clear()
     cache_entry = compiled_fn_path("decode", "abc")
-    cache_entry.mkdir(parents=True)
-    (cache_entry / "aot").write_bytes(b"compiled")
-    with (cache_entry / "in_out_spec").open("wb") as f:
-        pickle.dump(("in-tree", "out-tree"), f)
+    _write_aot_cache_entry(cache_entry)
 
     with pytest.raises(ValueError, match="Failed to load AOT cache entry") as exc_info:
         load_compiled_fn("decode", "abc", log=False)
