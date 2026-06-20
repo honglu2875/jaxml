@@ -81,6 +81,7 @@ Current milestone modules:
 - `tests/test_modules.py`
 - `tests/test_neox.py`
 - `tests/test_rope.py`
+- `tests/test_sharding.py` (multi-device cases need `XLA_FLAGS=--xla_force_host_platform_device_count=4`)
 
 Run the push gate before every commit or push:
 

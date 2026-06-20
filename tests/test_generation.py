@@ -320,7 +320,7 @@ def test_engine_prepare_input_uses_configured_device_count(monkeypatch, llama_mo
 
     engine.prepare_input({"input_ids": np.array([[1, 2, 3]], dtype=np.int32)}, dtype=jnp.float32)
 
-    assert captured["mesh_shape"] == (1, 1)
+    assert captured["mesh_shape"] == (1, 1, 1)
     assert captured["devices"] == available_devices[:1]
 
 

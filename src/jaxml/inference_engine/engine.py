@@ -58,24 +58,96 @@ def _normalize_dtype(name: str, value: Any):
 
 @struct.dataclass
 class InferenceConfig:
+    """Sharding spec by axis sizes. The mesh is ``(data=dp_size, model=tp_size,
+    expert=ep_size)``; a size > 1 turns on that parallelism (data/tensor/expert)
+    via the shared :data:`SHARDING_RULES`. The product must equal the device count.
+    """
+
     tp_size: int = 1
     dp_size: int = 1
+    ep_size: int = 1
 
     def __post_init__(self):
         tp_size = _normalize_count("tp_size", self.tp_size)
         dp_size = _normalize_count("dp_size", self.dp_size)
+        ep_size = _normalize_count("ep_size", self.ep_size)
         object.__setattr__(self, "tp_size", tp_size)
         object.__setattr__(self, "dp_size", dp_size)
+        object.__setattr__(self, "ep_size", ep_size)
         if tp_size <= 0:
             raise ValueError(f"tp_size must be positive, got {tp_size}.")
         if dp_size <= 0:
             raise ValueError(f"dp_size must be positive, got {dp_size}.")
+        if ep_size <= 0:
+            raise ValueError(f"ep_size must be positive, got {ep_size}.")
+
+    @property
+    def num_devices(self) -> int:
+        return self.tp_size * self.dp_size * self.ep_size
+
+    @property
+    def mesh_layout(self) -> tuple[int, int, int]:
+        return (self.dp_size, self.tp_size, self.ep_size)
 
 
 def _normalize_inference_config(config: InferenceConfig) -> InferenceConfig:
     if not isinstance(config, InferenceConfig):
         raise TypeError(f"config must be an InferenceConfig, got {type(config)}.")
     return config
+
+
+# Logical mesh axes, ordered to match InferenceConfig.mesh_layout = (dp, tp, ep).
+MESH_AXIS_NAMES = ("data", "model", "expert")
+
+# Single source of truth mapping every logical tensor axis to a mesh axis (or None =
+# replicated). A non-trivial axis size in InferenceConfig turns the corresponding
+# parallelism on: batch->data is DDP, the model-axis group is tensor/model parallelism,
+# expert->expert is expert parallelism. embed->None / length->None leave room for FSDP
+# (embed->data) and sequence parallelism (length->...) without changing the notation.
+SHARDING_RULES = (
+    ("batch", "data"),
+    ("heads", "model"),
+    ("heads_merged", "model"),
+    ("intermediate", "model"),
+    ("vocab", "model"),
+    ("expert", "expert"),
+    ("embed", None),
+    ("length", None),
+    ("kv_length", None),
+    ("head_states", None),
+    ("q_lora", None),
+    ("kv_lora", None),
+    ("kv_lora_rope", None),
+)
+
+
+def _logical_axes_in_spec(partition_spec_tree: Any) -> set:
+    """Collect every logical axis name appearing in a get_partition_spec pytree."""
+    axes = set()
+    for leaf in jax.tree.leaves(partition_spec_tree, is_leaf=lambda x: isinstance(x, PartitionSpec)):
+        if isinstance(leaf, PartitionSpec):
+            for entry in leaf:
+                if entry is None:
+                    continue
+                for name in (entry if isinstance(entry, tuple) else (entry,)):
+                    if name is not None:
+                        axes.add(name)
+    return axes
+
+
+def _validate_rules_cover_axes(partition_spec_tree: Any, rules=SHARDING_RULES):
+    """Fail loudly if a model annotates a logical axis with no sharding rule.
+
+    Without a rule, logical_to_mesh_sharding silently replicates the axis, which is a
+    hard-to-spot correctness/performance footgun (e.g. an unsharded expert axis).
+    """
+    known = {name for name, _ in rules}
+    missing = _logical_axes_in_spec(partition_spec_tree) - known
+    if missing:
+        raise ValueError(
+            f"Model uses logical axes with no entry in SHARDING_RULES: {sorted(missing)}. "
+            "Add them to jaxml.inference_engine.engine.SHARDING_RULES."
+        )
 
 
 class Engine:
@@ -94,12 +166,13 @@ class Engine:
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
             raise ValueError(f"cache_stride must be positive, got {cache_stride}.")
-        required_devices = config.tp_size * config.dp_size
+        required_devices = config.num_devices
         available_devices = jax.device_count()
-        if required_devices > available_devices:
+        if required_devices != available_devices:
             raise ValueError(
-                f"InferenceConfig requires {required_devices} devices "
-                f"(tp_size={config.tp_size}, dp_size={config.dp_size}), but only {available_devices} are available."
+                f"InferenceConfig sharding requires exactly {required_devices} devices "
+                f"(dp_size={config.dp_size}, tp_size={config.tp_size}, ep_size={config.ep_size}), "
+                f"but {available_devices} are available."
             )
         self.model = model
         self.config = config
@@ -143,17 +216,18 @@ class Engine:
         return NamedSharding(mesh, pspec)
 
     def _create_configured_mesh(self) -> Mesh:
-        mesh_layout = (self.config.dp_size, self.config.tp_size)
-        required_devices = self.config.dp_size * self.config.tp_size
+        mesh_layout = self.config.mesh_layout  # (dp, tp, ep)
+        required_devices = self.config.num_devices
         devices = tuple(jax.devices()[:required_devices])
         if len(devices) != required_devices:
             raise ValueError(
                 f"InferenceConfig requires {required_devices} devices "
-                f"(tp_size={self.config.tp_size}, dp_size={self.config.dp_size}), but only {len(devices)} are available."
+                f"(dp_size={self.config.dp_size}, tp_size={self.config.tp_size}, "
+                f"ep_size={self.config.ep_size}), but only {len(devices)} are available."
             )
         return Mesh(
             devices=mesh_utils.create_device_mesh(mesh_layout, devices=devices),
-            axis_names=("data", "model"),
+            axis_names=MESH_AXIS_NAMES,
         )
 
     def _shard_params(self, x: Any, y: PartitionSpec):
@@ -236,41 +310,25 @@ class Engine:
         """
         use_tpu = _normalize_bool("use_tpu", use_tpu)
         reinit_weight = _normalize_bool("reinit_weight", reinit_weight)
-        tp_size = self.config.tp_size
-        dp_size = self.config.dp_size
         if weights is None:
             weights = self.params
         if not reinit_weight:
             self._validate_param_weights(weights)
         # whether: use 1 single TPU or CPU
-        is_single_device = (tp_size * dp_size == 1) or not use_tpu
+        is_single_device = (self.config.num_devices == 1) or not use_tpu
 
         key = jax.random.PRNGKey(0)
 
-        # (dp, tp)
-        mesh_layout = (dp_size, tp_size)
-
-        dummy_input = jnp.array([[1 for _ in range(mesh_layout[1])] for _ in range(mesh_layout[0])])
+        # Tiny (dp, tp)-shaped token batch only used to trace the model for shapes.
+        dummy_input = jnp.array([[1 for _ in range(self.config.tp_size)] for _ in range(self.config.dp_size)])
         abstract_variables = jax.eval_shape(self.model.init, key, dummy_input)
-
-        # The sharding rules mapping named logical axis to named axis
-        # Changing sharding configuration requires changing this tuple.
-        rules = (
-            ("batch", "data"),
-            ("heads", "model"),
-            ("kv_length", None),
-            ("length", None),
-            ("embed", None),
-            ("intermediate", "model"),
-            ("heads_merged", "model"),
-            ("head_states", None),
-        )
 
         if not is_single_device:
             mesh = self._create_configured_mesh()
 
             logical_state_spec = nn.get_partition_spec(abstract_variables)
-            logical_state_sharding = logical_to_mesh_sharding(logical_state_spec, mesh, rules)
+            _validate_rules_cover_axes(logical_state_spec)
+            logical_state_sharding = logical_to_mesh_sharding(logical_state_spec, mesh, SHARDING_RULES)
             input_sharding = self.mesh_sharding(PartitionSpec("data", None), mesh)
             params_fn = jax.jit(
                 self.model.init,
