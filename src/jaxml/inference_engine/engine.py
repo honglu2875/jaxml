@@ -18,7 +18,7 @@ from jax.experimental import mesh_utils
 from jax.sharding import Mesh, NamedSharding, PartitionSpec
 
 from jaxml._validation import contains_tracer as _contains_tracer
-from jaxml.cache import KVCache
+from jaxml.cache import KVCache, is_model_cache, model_cache_batch_size, model_cache_is_populated
 from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
 from jaxml.utils import _hash, timeit
@@ -190,7 +190,7 @@ class Engine:
             model_call_parameters = {}
         self._supports_logits_positions = "logits_positions" in model_call_parameters
 
-    def init_cache(self, max_seq_len: int) -> tuple[KVCache, ...]:
+    def init_cache(self, max_seq_len: int) -> tuple:
         max_seq_len = _normalize_count("max_seq_len", max_seq_len)
         if max_seq_len <= 0:
             raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
@@ -201,6 +201,20 @@ class Engine:
         num_layers = _normalize_count("model.config.num_layers", num_layers)
         if num_layers <= 0:
             raise ValueError(f"model.config.num_layers must be positive, got {num_layers}.")
+        model_cache_init = getattr(self.model, "init_cache", None)
+        if callable(model_cache_init):
+            caches = tuple(model_cache_init(max_seq_len=max_seq_len, dtype=self.dtype))
+            if len(caches) != num_layers:
+                raise ValueError(
+                    f"model.init_cache must return one cache per layer, got {len(caches)} and expected {num_layers}."
+                )
+            for idx, cache in enumerate(caches):
+                if not is_model_cache(cache):
+                    raise TypeError(
+                        f"model.init_cache entries must implement the model cache protocol, got {type(cache)} at index {idx}."
+                    )
+                cache.validate_state()
+            return caches
         return tuple(KVCache.init(max_seq_len, None, None, dtype=self.dtype) for _ in range(num_layers))
 
     def _model_vocab_size(self) -> int:
@@ -445,7 +459,7 @@ class Engine:
         use_cache=True,
         gather_prefill_logits=False,
         prefill_logits_tail=1,
-    ) -> tuple[jnp.ndarray, tuple[KVCache, ...]]:
+    ) -> tuple[jnp.ndarray, tuple]:
 
         gather_prefill_logits = _normalize_bool("gather_prefill_logits", gather_prefill_logits)
         gather_last_valid_logit = gather_prefill_logits and attention_mask is not None
@@ -544,7 +558,7 @@ class Engine:
         max_new_tokens: int,
         expected_cache_count: int,
         vocab_size: int,
-    ) -> tuple[jnp.ndarray, tuple[KVCache, ...], jnp.ndarray]:
+    ) -> tuple[jnp.ndarray, tuple, jnp.ndarray]:
         if not isinstance(step_output, GenerationOutput):
             raise TypeError(f"Internal generation must return a GenerationOutput, got {type(step_output)}.")
 
@@ -580,7 +594,7 @@ class Engine:
         if len(kv_caches) != expected_cache_count:
             raise ValueError(f"Internal generation returned {len(kv_caches)} KV caches, expected {expected_cache_count}.")
         for idx, kv_cache in enumerate(kv_caches):
-            if not isinstance(kv_cache, KVCache):
+            if not is_model_cache(kv_cache):
                 raise TypeError(
                     f"Internal generation kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}."
                 )
@@ -588,18 +602,19 @@ class Engine:
                 kv_cache.validate_state()
             except (TypeError, ValueError) as e:
                 raise type(e)(f"Invalid internal generation KV cache at index {idx}: {e}") from e
-            if kv_cache.k is not None and kv_cache.k.shape[0] != batch_size:
+            cache_batch_size = model_cache_batch_size(kv_cache)
+            if cache_batch_size is not None and cache_batch_size != batch_size:
                 raise ValueError(
                     "Internal generation KV cache batch size must match generated token batch size; "
-                    f"got {kv_cache.k.shape[0]} and {batch_size} at index {idx}."
+                    f"got {cache_batch_size} and {batch_size} at index {idx}."
                 )
 
         return tokens, kv_caches, rng
 
     @staticmethod
-    def _validate_prefilled_generation_caches(kv_caches: tuple[KVCache, ...]):
+    def _validate_prefilled_generation_caches(kv_caches: tuple):
         for idx, kv_cache in enumerate(kv_caches):
-            if kv_cache.k is None or kv_cache.v is None or kv_cache.mask is None or kv_cache.pos_id is None:
+            if not model_cache_is_populated(kv_cache):
                 raise ValueError(
                     f"Internal generation must return prefilled KV caches before continuation; got empty cache at index {idx}."
                 )

@@ -26,6 +26,46 @@ from ._validation import validate_finite_values as _validate_finite_values
 from .utils import get_default_pos_ids
 
 
+def is_model_cache(value: Any) -> bool:
+    """Whether ``value`` implements the cache protocol used by generation.
+
+    ``KVCache`` remains the default implementation. Hybrid architectures such
+    as Kimi Linear can provide a structurally compatible recurrent cache
+    without making the engine depend on a model-specific class.
+    """
+    protocol_members = (
+        callable(getattr(value, "validate_state", None)),
+        callable(getattr(value, "resize", None)),
+        hasattr(value, "mask"),
+        hasattr(value, "pos_id"),
+        hasattr(value, "max_seq_len"),
+    )
+    return isinstance(value, KVCache) or all(protocol_members)
+
+
+def model_cache_is_populated(value: Any) -> bool:
+    if not is_model_cache(value):
+        return False
+    populated = getattr(value, "is_populated", None)
+    if callable(populated):
+        return bool(populated())
+    if populated is not None:
+        return bool(populated)
+    return getattr(value, "mask", None) is not None and getattr(value, "pos_id", None) is not None
+
+
+def model_cache_batch_size(value: Any) -> int | None:
+    if not is_model_cache(value):
+        return None
+    batch_size = getattr(value, "batch_size", None)
+    if callable(batch_size):
+        batch_size = batch_size()
+    if batch_size is not None:
+        return int(batch_size)
+    mask = getattr(value, "mask", None)
+    return None if mask is None else mask.shape[0]
+
+
 def _normalize_count(name: str, value: int) -> int:
     if isinstance(value, (bool, np.bool_)):
         raise TypeError(f"{name} must be an integer, got {type(value)}.")
@@ -101,6 +141,14 @@ class KVCache(struct.PyTreeNode):
     @property
     def next_mask(self):
         return self.mask
+
+    @property
+    def is_populated(self) -> bool:
+        return self.k is not None
+
+    @property
+    def batch_size(self) -> int | None:
+        return None if self.k is None else self.k.shape[0]
 
     def _pad(self, x):
         x, value, max_seq_len = x

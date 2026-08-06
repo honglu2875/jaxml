@@ -298,12 +298,24 @@ def test_model_config_from_hf_accepts_deepseek_v3_config():
     assert config.norm_topk_prob is True
 
 
-def test_model_config_from_hf_rejects_deepseek_yarn_scaling():
+def test_model_config_from_hf_accepts_deepseek_yarn_scaling():
     config = _tiny_deepseek_config()
-    config.rope_parameters = {"rope_theta": 10000.0, "rope_type": "yarn", "factor": 4.0}
+    config.rope_parameters = {
+        "rope_theta": 10000.0,
+        "rope_type": "yarn",
+        "factor": 4.0,
+        "original_max_position_embeddings": 64,
+        "beta_fast": 16.0,
+        "beta_slow": 2.0,
+    }
 
-    with pytest.raises(NotImplementedError, match="YaRN"):
-        ModelConfig.from_hf(config)
+    mapped = ModelConfig.from_hf(config)
+
+    assert mapped.rope_type == "yarn"
+    assert mapped.rope_factor == 4.0
+    assert mapped.rope_original_max_position_embeddings == 64
+    assert mapped.rope_beta_fast == 16.0
+    assert mapped.rope_beta_slow == 2.0
 
 
 def test_model_config_defaults_have_no_mla_or_moe():

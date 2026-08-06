@@ -24,7 +24,7 @@ import numpy as np
 import tqdm
 
 from jaxml._validation import contains_tracer as _contains_tracer
-from jaxml.cache import KVCache
+from jaxml.cache import is_model_cache, model_cache_is_populated
 from jaxml.inference_engine.sampling import SamplingMethod, normalize_sampling_params
 from jaxml.outputs import GenerationOutput
 from jaxml.utils import _validate_cache_key_part, load_if_exists
@@ -139,27 +139,27 @@ def _unpack_prefill_output(prefill_output, batch_size: int, fallback_rng: jnp.nd
     return first_generated_tok, kv_caches, rng
 
 
-def _validate_kv_caches(kv_caches) -> tuple[KVCache, ...]:
+def _validate_kv_caches(kv_caches) -> tuple:
     try:
         kv_caches = tuple(kv_caches)
     except TypeError as e:
         raise TypeError("kv_caches must be a sequence of KVCache instances.") from e
     for idx, kv_cache in enumerate(kv_caches):
-        if not isinstance(kv_cache, KVCache):
+        if not is_model_cache(kv_cache):
             raise TypeError(f"kv_caches entries must be KVCache instances, got {type(kv_cache)} at index {idx}.")
         kv_cache.validate_state()
     return kv_caches
 
 
-def _validate_prefilled_kv_caches(kv_caches: tuple[KVCache, ...]):
+def _validate_prefilled_kv_caches(kv_caches: tuple):
     if not kv_caches:
         raise ValueError("skip_prefill=True requires at least one prefilled KV cache.")
     for idx, kv_cache in enumerate(kv_caches):
-        if kv_cache.k is None or kv_cache.v is None or kv_cache.mask is None or kv_cache.pos_id is None:
+        if not model_cache_is_populated(kv_cache):
             raise ValueError(f"skip_prefill=True requires kv_caches[{idx}] to be prefilled.")
 
 
-def _attention_mask_expected_shape(prompt_tokens, kv_caches: tuple[KVCache, ...], skip_prefill: bool):
+def _attention_mask_expected_shape(prompt_tokens, kv_caches: tuple, skip_prefill: bool):
     if not skip_prefill:
         return prompt_tokens.shape
     populated_mask_shapes = tuple(kv_cache.mask.shape for kv_cache in kv_caches if kv_cache.mask is not None)
@@ -220,7 +220,7 @@ def generate(
     eval_fn,
     prompt_tokens: jnp.ndarray,
     attention_mask: Optional[jnp.ndarray],
-    kv_caches: tuple[KVCache, ...],
+    kv_caches: tuple,
     call_hash: str,
     sampling_method: SamplingMethod,
     seed: int = 0,

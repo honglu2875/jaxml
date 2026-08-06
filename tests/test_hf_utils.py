@@ -467,10 +467,10 @@ def test_gemma_hf_loader_rejects_missing_text_config_before_param_conversion(mon
 def test_load_model_from_hf_auto_accepts_gemma_text_config(monkeypatch):
     calls = []
 
-    class FakeAutoConfig:
+    class FakePretrainedConfig:
         @classmethod
-        def from_pretrained(cls, *args, **kwargs):
-            return SimpleNamespace(model_type="gemma3_text")
+        def get_config_dict(cls, *args, **kwargs):
+            return {"model_type": "gemma3_text"}, {}
 
     def fake_load_gemma(name, dtype, **kwargs):
         calls.append((name, dtype, kwargs))
@@ -478,7 +478,7 @@ def test_load_model_from_hf_auto_accepts_gemma_text_config(monkeypatch):
 
     import transformers
 
-    monkeypatch.setattr(transformers, "AutoConfig", FakeAutoConfig)
+    monkeypatch.setattr(transformers, "PretrainedConfig", FakePretrainedConfig)
     monkeypatch.setattr("jaxml.hf_utils.load_gemma_from_hf", fake_load_gemma)
 
     model, params = load_model_from_hf("some/model", dtype="float32", local_files_only=True)

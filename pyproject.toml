@@ -21,6 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 hf = [
+    "safetensors==0.8.0",
     "torch==2.12.0",
     "transformers==5.12.1",
 ]
@@ -34,6 +35,7 @@ dev = [
     "black==26.5.1",
     "isort==8.0.1",
     "flake8==7.3.0",
+    "safetensors==0.8.0",
     "torch==2.12.0",
     "transformers==5.12.1",
 ]

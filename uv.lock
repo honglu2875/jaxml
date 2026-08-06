@@ -466,10 +466,12 @@ dev = [
     { name = "flake8" },
     { name = "isort" },
     { name = "pytest" },
+    { name = "safetensors" },
     { name = "torch" },
     { name = "transformers" },
 ]
 hf = [
+    { name = "safetensors" },
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -493,6 +495,8 @@ requires-dist = [
     { name = "libtpu", marker = "extra == 'tpu'", specifier = "==0.0.42" },
     { name = "numpy", specifier = "==2.4.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.0" },
+    { name = "safetensors", marker = "extra == 'dev'", specifier = "==0.8.0" },
+    { name = "safetensors", marker = "extra == 'hf'", specifier = "==0.8.0" },
     { name = "torch", marker = "extra == 'dev'", specifier = "==2.12.0" },
     { name = "torch", marker = "extra == 'hf'", specifier = "==2.12.0" },
     { name = "tqdm", specifier = "==4.68.2" },

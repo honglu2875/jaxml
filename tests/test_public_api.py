@@ -73,6 +73,14 @@ def test_models_package_exports_architecture_entry_points():
     from jaxml.models.deepseek import DeepseekDecoder, DeepseekModel, DeepseekModelWithHead, DeepseekMoE, MLAAttention
     from jaxml.models.gemma3 import GemmaDecoder, GemmaMLP, GemmaModel, GemmaModelWithHead, GemmaRMSNorm
     from jaxml.models.gpt_neox import GPTNeoXDecoder, GPTNeoXMLP, GPTNeoXModel, GPTNeoXModelWithHead
+    from jaxml.models.kimi_linear import (
+        KDACache,
+        KimiDeltaAttention,
+        KimiLinearDecoder,
+        KimiLinearModel,
+        KimiLinearModelWithHead,
+        kda_recurrent_scan,
+    )
     from jaxml.models.llama import LlamaDecoder, LlamaMLP, LlamaModel, LlamaModelWithHead
 
     assert models.__all__ == [
@@ -90,10 +98,16 @@ def test_models_package_exports_architecture_entry_points():
         "GemmaModel",
         "GemmaModelWithHead",
         "GemmaRMSNorm",
+        "KDACache",
+        "KimiDeltaAttention",
+        "KimiLinearDecoder",
+        "KimiLinearModel",
+        "KimiLinearModelWithHead",
         "LlamaDecoder",
         "LlamaMLP",
         "LlamaModel",
         "LlamaModelWithHead",
+        "kda_recurrent_scan",
     ]
     assert models.DeepseekDecoder is DeepseekDecoder
     assert models.DeepseekModel is DeepseekModel
@@ -109,10 +123,16 @@ def test_models_package_exports_architecture_entry_points():
     assert models.GemmaModel is GemmaModel
     assert models.GemmaModelWithHead is GemmaModelWithHead
     assert models.GemmaRMSNorm is GemmaRMSNorm
+    assert models.KDACache is KDACache
+    assert models.KimiDeltaAttention is KimiDeltaAttention
+    assert models.KimiLinearDecoder is KimiLinearDecoder
+    assert models.KimiLinearModel is KimiLinearModel
+    assert models.KimiLinearModelWithHead is KimiLinearModelWithHead
     assert models.LlamaDecoder is LlamaDecoder
     assert models.LlamaMLP is LlamaMLP
     assert models.LlamaModel is LlamaModel
     assert models.LlamaModelWithHead is LlamaModelWithHead
+    assert models.kda_recurrent_scan is kda_recurrent_scan
 
 
 def test_nn_package_exports_component_entry_points():

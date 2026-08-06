@@ -22,7 +22,10 @@ Currently supported:
 - [x] Mistral (full-attention configs; sliding-window not yet supported)
 - [x] GPT-NeoX
 - [x] Gemma3
-- [x] DeepSeek-V3 / R1 (MLA + fine-grained MoE; default RoPE only — YaRN long-context scaling not yet supported)
+- [x] DeepSeek-V3 / R1 (MLA + fine-grained MoE, including YaRN)
+- [x] GLM-4.7-Flash (`glm4_moe_lite`, through the shared MLA/MoE implementation)
+- [x] Kimi-K2 text architecture (DeepSeek-V3-compatible MLA/MoE + YaRN)
+- [x] Kimi Linear (hybrid KDA/NoPE-MLA reference path; optimized TPU KDA prefill is still pending)
 
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)
@@ -72,6 +75,26 @@ same dtype unless `engine_dtype` is explicitly overridden.
 
 The lower-level engine still accepts token arrays directly through `jaxml.inference_engine.Engine`.
 
+## TPU v4-8 guidance
+
+A v4-8 is four TPU chips, so the intended starting topology for the MoE models is
+`InferenceConfig(tp_size=4, dp_size=1, ep_size=1)`. The expert weights already
+shard along tensor-parallel intermediate dimensions; expert-parallel collectives
+are not required for the first useful single-host setup.
+
+GLM-4.7-Flash is the practical first large checkpoint for this topology. Kimi
+Linear is also a plausible target but leaves much less HBM for caches and
+temporaries. Its current pure-JAX KDA scan is a correctness implementation;
+long-prompt throughput will need a chunkwise Pallas kernel. Kimi-K2 model/config
+compatibility is included for completeness, but its trillion-parameter released
+checkpoint is not a v4-8 deployment target.
+
+Checkpoint conversion currently materializes the converted parameter tree on the
+host before the engine shards it. The Kimi Linear loader reads one safetensors
+shard at a time and does not import the official Torch/FLA model, but its converted
+tree still needs substantial host RAM. Direct safetensors-to-device streaming is
+the next loader milestone.
+
 # Development
 
 Tests are split by cadence:
@@ -100,7 +123,9 @@ Current milestone modules:
 - `tests/test_experimental_rnn_discrete.py`
 - `tests/test_gemma.py`
 - `tests/test_generation.py`
+- `tests/test_glm_kimi.py`
 - `tests/test_hf_utils.py`
+- `tests/test_kimi_linear.py`
 - `tests/test_llama.py`
 - `tests/test_model_heads.py`
 - `tests/test_model_inputs.py`

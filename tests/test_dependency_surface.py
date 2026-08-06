@@ -201,13 +201,13 @@ def test_base_dependencies_declare_the_runtime_import_surface_directly():
     assert {"chex", "flax", "jax", "jaxlib", "numpy", "tqdm"} <= base_pins.keys()
 
 
-def test_hf_extra_owns_torch_and_transformers_dependencies():
+def test_hf_extra_owns_checkpoint_conversion_dependencies():
     pyproject = _project_config()
     base_pins = _exact_pin_map(pyproject["project"]["dependencies"])
     hf_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["hf"])
     dev_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["dev"])
 
-    assert set(hf_pins) == {"torch", "transformers"}
+    assert set(hf_pins) == {"safetensors", "torch", "transformers"}
     assert set(hf_pins).isdisjoint(base_pins)
     assert {name: dev_pins[name] for name in hf_pins} == hf_pins
 

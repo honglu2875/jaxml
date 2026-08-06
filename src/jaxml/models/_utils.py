@@ -5,7 +5,7 @@ import numpy as np
 
 from .._validation import contains_tracer as _contains_tracer
 from .._validation import validate_finite_values
-from ..cache import KVCache
+from ..cache import is_model_cache
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -133,7 +133,7 @@ def prepare_model_inputs(input_ids, attention_mask, kv_caches, num_layers: int, 
         if len(kv_caches) != num_layers:
             raise ValueError(f"kv_caches must contain one cache per layer, got {len(kv_caches)} and expected {num_layers}.")
         for idx, kv_cache in enumerate(kv_caches):
-            if kv_cache is not None and not isinstance(kv_cache, KVCache):
+            if kv_cache is not None and not is_model_cache(kv_cache):
                 raise TypeError(f"kv_caches entries must be KVCache instances or None, got {type(kv_cache)} at index {idx}.")
             if kv_cache is not None:
                 kv_cache.validate_state()

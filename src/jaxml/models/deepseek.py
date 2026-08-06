@@ -17,6 +17,7 @@
 # routing and MLA math mirror transformers' modeling_deepseek_v3 so the modules
 # can be checked for forward-parity against the reference implementation.
 
+import math
 from typing import Any, Optional
 
 import jax
@@ -347,8 +348,13 @@ class MLAAttention(Attention):
         sliding_window: int | None = None,
     ) -> AttentionOutput:
         hidden_states = _validate_hidden_states(hidden_states)
-        cos, sin = _validate_cos_sin(cos_sin)
         cfg = self.config
+        if cfg.mla_use_nope:
+            if cos_sin is not None:
+                raise ValueError("cos_sin must be None when mla_use_nope=True.")
+            cos = sin = None
+        else:
+            cos, sin = _validate_cos_sin(cos_sin)
         bsz, seq_len, _ = hidden_states.shape
         nh = cfg.num_heads
         nope, rope, v = cfg.qk_nope_head_dim, cfg.qk_rope_head_dim, cfg.v_head_dim
@@ -369,7 +375,8 @@ class MLAAttention(Attention):
         k_nope, value = kv[..., :nope], kv[..., nope:]
         k_rot = k_rot.reshape(bsz, seq_len, 1, rope)
 
-        q_rot, k_rot = _apply_rope_interleave(q_rot, k_rot, cos, sin)
+        if not cfg.mla_use_nope:
+            q_rot, k_rot = _apply_rope_interleave(q_rot, k_rot, cos, sin)
         k_rot = jnp.broadcast_to(k_rot, (bsz, seq_len, nh, rope))
 
         query_states = jnp.concatenate([q_nope, q_rot], axis=-1)  # (b, s, nh, qk_head_dim)
@@ -407,17 +414,63 @@ class MLAAttention(Attention):
         )
 
 
-def _deepseek_cos_sin(position_ids: jnp.ndarray, rope_dim: int, base: float, dtype) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Default (non-scaled) DeepSeek rotary tables for the decoupled rope slice.
+def _yarn_get_mscale(scale: float, mscale: float = 1.0) -> float:
+    if scale <= 1.0:
+        return 1.0
+    return 0.1 * mscale * math.log(scale) + 1.0
 
-    Matches transformers' compute_default_rope_parameters + rotary forward: the
-    angles are ``cat(freqs, freqs)`` so the interleaved application can take the
-    first half. Returns cos/sin of shape ``(batch, seq, rope_dim)``.
+
+def _deepseek_yarn_inv_freq(config) -> tuple[jnp.ndarray, float]:
+    """Return YaRN inverse frequencies and cosine/sine scaling.
+
+    This mirrors Transformers' ``_compute_yarn_parameters`` for the decoupled
+    MLA rotary width (``qk_rope_head_dim``), including Kimi-K2's mscale fields.
     """
-    inv_freq = 1.0 / (base ** (jnp.arange(0, rope_dim, 2, dtype=jnp.float32) / rope_dim))
+    dim = config.qk_rope_head_dim
+    base = config.rope_theta
+    factor = config.rope_factor
+    original_max = config.rope_original_max_position_embeddings
+
+    attention_factor = config.rope_attention_factor
+    if attention_factor is None:
+        if config.rope_mscale and config.rope_mscale_all_dim:
+            attention_factor = _yarn_get_mscale(factor, config.rope_mscale) / _yarn_get_mscale(
+                factor, config.rope_mscale_all_dim
+            )
+        else:
+            attention_factor = _yarn_get_mscale(factor)
+
+    def correction_dim(num_rotations):
+        return (dim * math.log(original_max / (num_rotations * 2 * math.pi))) / (2 * math.log(base))
+
+    low = correction_dim(config.rope_beta_fast)
+    high = correction_dim(config.rope_beta_slow)
+    if config.rope_truncate:
+        low, high = math.floor(low), math.ceil(high)
+    low, high = max(low, 0), min(high, dim - 1)
+    if low == high:
+        high += 0.001
+
+    pair_index = jnp.arange(dim // 2, dtype=jnp.float32)
+    ramp = jnp.clip((pair_index - low) / (high - low), 0.0, 1.0)
+    pos_freq = base ** (jnp.arange(0, dim, 2, dtype=jnp.float32) / dim)
+    inv_freq_extrapolation = 1.0 / pos_freq
+    inv_freq_interpolation = 1.0 / (factor * pos_freq)
+    inv_freq = inv_freq_interpolation * ramp + inv_freq_extrapolation * (1.0 - ramp)
+    return inv_freq, attention_factor
+
+
+def _deepseek_cos_sin(position_ids: jnp.ndarray, config, dtype) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Build default or YaRN rotary tables for the decoupled MLA RoPE slice."""
+    rope_dim = config.qk_rope_head_dim
+    if config.rope_type == "yarn":
+        inv_freq, attention_factor = _deepseek_yarn_inv_freq(config)
+    else:
+        inv_freq = 1.0 / (config.rope_theta ** (jnp.arange(0, rope_dim, 2, dtype=jnp.float32) / rope_dim))
+        attention_factor = 1.0
     freqs = position_ids.astype(jnp.float32)[..., None] * inv_freq[None, None, :]
     emb = jnp.concatenate([freqs, freqs], axis=-1)
-    return jnp.cos(emb).astype(dtype), jnp.sin(emb).astype(dtype)
+    return (jnp.cos(emb) * attention_factor).astype(dtype), (jnp.sin(emb) * attention_factor).astype(dtype)
 
 
 class DeepseekDecoder(Block):
@@ -476,12 +529,14 @@ class DeepseekModel(Block):
         cfg = self.config
         if not (cfg.is_mla and cfg.is_moe):
             raise ValueError("DeepseekModel requires an MLA + MoE config.")
+        if cfg.architecture == "kimi_linear" or cfg.mla_use_nope or cfg.kda_layers:
+            raise ValueError("Kimi Linear configs require KimiLinearModel, not DeepseekModel.")
         self.embed_tokens = Embed(num_embeddings=cfg.vocab_size, features=self.hidden_size, dtype=self.dtype)
         self.layers = [
             DeepseekDecoder(
                 cfg,
                 dtype=self.dtype,
-                use_moe=(idx >= cfg.first_k_dense_replace),
+                use_moe=cfg.is_moe_layer(idx),
                 moe_implementation=self.moe_implementation,
             )
             for idx in range(self.num_layers)
@@ -527,7 +582,7 @@ class DeepseekModel(Block):
         inputs_embeds = self.embed_tokens(input_ids).astype(self.dtype)
         hidden_states = inputs_embeds
 
-        cos_sin = _deepseek_cos_sin(resolved_position_ids, cfg.qk_rope_head_dim, cfg.rope_theta, self.dtype)
+        cos_sin = _deepseek_cos_sin(resolved_position_ids, cfg, self.dtype)
 
         all_hidden_states = []
         all_self_attns = []
