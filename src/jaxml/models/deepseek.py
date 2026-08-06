@@ -58,8 +58,8 @@ class DeepseekMoE(Block):
       ``megablox.gmm``, and combines via a weighted scatter-add. Equivalent to the
       dense path up to TPU bf16, and avoids the ``n_routed_experts`` x blowup.
 
-    ``moe_implementation`` selects the path: ``"auto"`` uses gmm on TPU for
-    multi-token (prefill) calls and dense otherwise (single-token decode, CPU).
+    ``moe_implementation`` selects the path: ``"auto"`` uses gmm on TPU and
+    dense otherwise.
     """
 
     kernel_init: Any = nn.initializers.normal(stddev=0.02)
@@ -169,8 +169,9 @@ class DeepseekMoE(Block):
             raise ValueError(f"moe_implementation must be 'auto', 'dense', or 'gmm', got {impl!r}.")
         if impl != "auto":
             return impl
-        # gmm only pays off for many tokens (prefill) and only runs on TPU.
-        if seq_len > 1 and jax.default_backend() == "tpu":
+        # The sparse kernel avoids evaluating every routed expert during both
+        # prefill and single-token decode, and is only available on TPU.
+        if jax.default_backend() == "tpu":
             return "gmm"
         return "dense"
 
@@ -585,6 +586,7 @@ class DeepseekModelWithHead(Block):
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         keep_last_n_logits: int = 0,
+        logits_positions: Optional[jnp.ndarray] = None,
     ) -> CausalLMOutputWithCache:
         outputs = self.model(
             input_ids,
@@ -595,7 +597,11 @@ class DeepseekModelWithHead(Block):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-        hidden_states = slice_last_n_logits_hidden_states(outputs.last_hidden_state, keep_last_n_logits)
+        hidden_states = slice_last_n_logits_hidden_states(
+            outputs.last_hidden_state,
+            keep_last_n_logits,
+            logits_positions=logits_positions,
+        )
         logits = self.lm_head(hidden_states)
         return CausalLMOutputWithCache(
             logits=logits,

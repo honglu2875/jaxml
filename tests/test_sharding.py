@@ -27,8 +27,10 @@ from jaxml.inference_engine.engine import (
     SHARDING_RULES,
     Engine,
     InferenceConfig,
+    _logical_axes_in_spec,
     _validate_rules_cover_axes,
 )
+from jaxml.models.gpt_neox import GPTNeoXModelWithHead
 from jaxml.models.llama import LlamaModelWithHead
 
 pytestmark = pytest.mark.milestone
@@ -97,6 +99,16 @@ def test_inference_config_rejects_non_positive_ep_size():
 def test_sharding_rules_cover_llama_axes():
     model = LlamaModelWithHead(_llama_config())
     spec = nn.get_partition_spec(jax.eval_shape(model.init, jax.random.PRNGKey(0), jax.numpy.ones((1, 1), int)))
+    _validate_rules_cover_axes(spec)  # must not raise
+
+
+def test_sharding_rules_cover_gpt_neox_fused_qkv_axis():
+    config = _llama_config().replace(num_kv_heads=4, use_bias=True)
+    model = GPTNeoXModelWithHead(config)
+    spec = nn.get_partition_spec(jax.eval_shape(model.init, jax.random.PRNGKey(0), jax.numpy.ones((1, 1), int)))
+
+    assert "qkv" in _logical_axes_in_spec(spec)
+    assert dict(SHARDING_RULES)["qkv"] is None
     _validate_rules_cover_axes(spec)  # must not raise
 
 

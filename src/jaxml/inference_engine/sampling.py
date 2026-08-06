@@ -66,9 +66,12 @@ def top_p_filtering(rng, logits, top_k, top_p, min_p, *args):
 def min_p_filtering(rng, logits, top_k, top_p, min_p, *args):
     logits = _validate_logits(logits)
     min_p = _normalize_probability("min_p", min_p)
-    mask = jax.nn.softmax(logits, axis=-1) >= min_p
-    has_allowed_token = jnp.any(mask, axis=-1, keepdims=True)
-    return jnp.where(has_allowed_token, jnp.where(mask, logits, NEG_INF), logits)
+    probs = jax.nn.softmax(logits, axis=-1)
+    # Match the common Hugging Face/llama.cpp definition: min_p is relative to
+    # the most likely token in each row, rather than an absolute probability
+    # floor. The maximum-probability token therefore always remains eligible.
+    threshold = min_p * jnp.max(probs, axis=-1, keepdims=True)
+    return jnp.where(probs >= threshold, logits, NEG_INF)
 
 
 def greedy_fn(rng, logits, *args):
@@ -161,18 +164,23 @@ class SamplingMethod:
             return greedy_fn
 
         pipeline = []
-        if self.use_min_p:
-            pipeline.append(min_p_filtering)
         if self.use_top_k:
             pipeline.append(top_k_filtering)
         if self.use_top_p:
             pipeline.append(top_p_filtering)
+        if self.use_min_p:
+            pipeline.append(min_p_filtering)
 
         def _sampling_fn(rng, logits, top_k, top_p, min_p, temp):
             logits = _validate_logits(logits)
             temp = _normalize_sampling_temperature(temp)
+            # Temperature is a logits warper, so it must run before probability-
+            # based filters such as top-p and min-p. Applying it only at the final
+            # categorical draw produces a different candidate set from HF-style
+            # generation whenever temperature != 1.
+            logits = logits / temp
             for fn in pipeline:
                 logits = fn(rng, logits, top_k, top_p, min_p, temp)
-            return jax.random.categorical(rng, logits / temp)
+            return jax.random.categorical(rng, logits)
 
         return _sampling_fn

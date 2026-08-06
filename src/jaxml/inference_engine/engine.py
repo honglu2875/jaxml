@@ -1,3 +1,5 @@
+import functools
+import inspect
 import logging
 import operator
 import warnings
@@ -23,7 +25,7 @@ from jaxml.utils import _hash, timeit
 
 logger = logging.getLogger(__name__)
 
-GENERATION_AOT_CACHE_VERSION = "generate_v6"
+GENERATION_AOT_CACHE_VERSION = "generate_v7"
 
 
 def _normalize_count(name: str, value: int) -> int:
@@ -45,8 +47,8 @@ def _normalize_optional_dtype(name: str, value: Any):
     if value is None:
         return None
     try:
-        return jnp.dtype(value)
-    except TypeError as e:
+        return jax.dtypes.canonicalize_dtype(jnp.dtype(value))
+    except (TypeError, ValueError) as e:
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
 
 
@@ -115,6 +117,7 @@ SHARDING_RULES = (
     ("length", None),
     ("kv_length", None),
     ("head_states", None),
+    ("qkv", None),
     ("q_lora", None),
     ("kv_lora", None),
     ("kv_lora_rope", None),
@@ -158,10 +161,12 @@ class Engine:
         model: nn.Module,
         config: InferenceConfig,
         params: FrozenDict,
-        dtype: Any = jnp.float32,
+        dtype: Any = None,
         cache_stride: int = 256,
     ):
         config = _normalize_inference_config(config)
+        if dtype is None:
+            dtype = getattr(model, "dtype", None) or jnp.float32
         dtype = _normalize_dtype("dtype", dtype)
         cache_stride = _normalize_count("cache_stride", cache_stride)
         if cache_stride <= 0:
@@ -179,6 +184,11 @@ class Engine:
         self.params = params
         self.dtype = dtype
         self.cache_stride = cache_stride
+        try:
+            model_call_parameters = inspect.signature(model.__call__).parameters
+        except (AttributeError, TypeError, ValueError):
+            model_call_parameters = {}
+        self._supports_logits_positions = "logits_positions" in model_call_parameters
 
     def init_cache(self, max_seq_len: int) -> tuple[KVCache, ...]:
         max_seq_len = _normalize_count("max_seq_len", max_seq_len)
@@ -202,6 +212,22 @@ class Engine:
         if vocab_size <= 0:
             raise ValueError(f"model.config.vocab_size must be positive, got {vocab_size}.")
         return vocab_size
+
+    def _model_max_position_embeddings(self) -> Optional[int]:
+        """Return the model context limit when the adapter exposes one."""
+        config = getattr(self.model, "config", None)
+        max_position_embeddings = getattr(config, "max_position_embeddings", None)
+        if max_position_embeddings is None:
+            # Preserve support for custom adapters that predate this optional
+            # part of the Engine model contract.
+            return None
+        max_position_embeddings = _normalize_count(
+            "model.config.max_position_embeddings",
+            max_position_embeddings,
+        )
+        if max_position_embeddings <= 0:
+            raise ValueError(f"model.config.max_position_embeddings must be positive, got {max_position_embeddings}.")
+        return max_position_embeddings
 
     @staticmethod
     def _validate_token_ids_in_vocab(name: str, token_ids: jnp.ndarray, vocab_size: int) -> jnp.ndarray:
@@ -417,7 +443,31 @@ class Engine:
         attention_mask=None,
         kv_caches=None,
         use_cache=True,
+        gather_prefill_logits=False,
+        prefill_logits_tail=1,
     ) -> tuple[jnp.ndarray, tuple[KVCache, ...]]:
+
+        gather_prefill_logits = _normalize_bool("gather_prefill_logits", gather_prefill_logits)
+        gather_last_valid_logit = gather_prefill_logits and attention_mask is not None
+        prefill_logits_tail = _normalize_count("prefill_logits_tail", prefill_logits_tail)
+        if prefill_logits_tail <= 0:
+            raise ValueError(f"prefill_logits_tail must be positive, got {prefill_logits_tail}.")
+        effective_logits_tail = prefill_logits_tail if gather_last_valid_logit else 1
+        if effective_logits_tail > input_token.shape[1]:
+            raise ValueError(
+                "prefill_logits_tail must not exceed the prefill token length; "
+                f"got {effective_logits_tail} and {input_token.shape[1]}."
+            )
+        logits_positions = None
+        if gather_last_valid_logit:
+            positions = jnp.arange(attention_mask.shape[1])[None, :]
+            logits_positions = jnp.max(jnp.where(attention_mask, positions, -1), axis=1)
+
+        use_logits_positions = gather_last_valid_logit and self._supports_logits_positions
+        keep_last_n_logits = 0 if use_logits_positions else effective_logits_tail
+        model_kwargs = {}
+        if self._supports_logits_positions:
+            model_kwargs["logits_positions"] = logits_positions if use_logits_positions else None
 
         out, _ = self.model.apply(
             params,
@@ -429,10 +479,17 @@ class Engine:
             # output_attentions=False, # TODO: maybe allow for toggling of attn wts in the future
             kv_caches=kv_caches,
             use_cache=use_cache,
-            keep_last_n_logits=1,
+            keep_last_n_logits=keep_last_n_logits,
+            **model_kwargs,
         )  # return a tuple (CausalLMOutputWithCache, dict) where dict is the mutable cache
 
-        return out.logits, out.kv_caches
+        logits = out.logits
+        if gather_last_valid_logit and not self._supports_logits_positions:
+            tail_start = input_token.shape[1] - effective_logits_tail
+            tail_positions = logits_positions - tail_start
+            logits = logits[jnp.arange(logits.shape[0]), tail_positions][:, None, :]
+
+        return logits, out.kv_caches
 
     @staticmethod
     def _prepare_generation_inputs(
@@ -473,6 +530,10 @@ class Engine:
         attention_mask = attention_mask.astype(bool)
         if not _contains_tracer(attention_mask) and not bool(jnp.all(jnp.any(attention_mask, axis=1))):
             raise ValueError("attention_mask must contain at least one valid token per batch row.")
+        if not _contains_tracer(attention_mask) and attention_mask.shape[1] > 1:
+            has_valid_token_after_padding = jnp.any(~attention_mask[:, :-1] & attention_mask[:, 1:])
+            if bool(has_valid_token_after_padding):
+                raise ValueError("attention_mask must be right padded: valid tokens cannot appear after masked positions.")
 
         return prompt_tokens, attention_mask
 
@@ -563,7 +624,6 @@ class Engine:
         fuse_decoding = _normalize_bool("fuse_decoding", fuse_decoding)
         include_prompt = _normalize_bool("include_prompt", include_prompt)
         prompt_tokens, attention_mask = self._prepare_generation_inputs(prompt_tokens, attention_mask)
-        apply = self.wrapped_apply_fn
         vocab_size = self._model_vocab_size()
         prompt_tokens = self._validate_token_ids_in_vocab("prompt_tokens", prompt_tokens, vocab_size)
 
@@ -588,17 +648,60 @@ class Engine:
         # For every unique model call, cache the AOT-compiled function to disk
         # Note: top_k value cannot be traced and need to be hashed as well.
         prompt_len = prompt_tokens.shape[1]
+        max_valid_prompt_len = prompt_len
+        if attention_mask is not None and not _contains_tracer(attention_mask):
+            max_valid_prompt_len = int(jnp.max(jnp.sum(attention_mask, axis=1)))
+        context_limit = self._model_max_position_embeddings()
+        if context_limit is not None and prompt_len > context_limit:
+            raise ValueError(
+                f"physical prompt length must not exceed model.config.max_position_embeddings={context_limit}; "
+                f"got {prompt_len}."
+            )
+        requested_sequence_len = max_valid_prompt_len + max_new_tokens
+        if context_limit is not None and requested_sequence_len > context_limit:
+            raise ValueError(
+                "maximum valid prompt length plus max_new_tokens must not exceed "
+                f"model.config.max_position_embeddings={context_limit}; got "
+                f"{max_valid_prompt_len} + {max_new_tokens} = {requested_sequence_len}."
+            )
 
         if max_new_tokens == 0:
             if include_prompt:
                 return prompt_tokens
             return jnp.empty((prompt_tokens.shape[0], 0), dtype=prompt_tokens.dtype)
 
+        # The model normally computes only the physical last prompt logit. For a
+        # right-padded batch, that position belongs to padding in shorter rows, so
+        # gather each row's last valid hidden state before the LM head. Keep the
+        # one-logit fast path for unmasked and fully valid batches.
+        gather_prefill_logits = attention_mask is not None and (
+            _contains_tracer(attention_mask) or not bool(jnp.all(attention_mask[:, -1]))
+        )
+        prefill_logits_tail = 1
+        if gather_prefill_logits and not self._supports_logits_positions:
+            if _contains_tracer(attention_mask):
+                prefill_logits_tail = prompt_len
+            else:
+                positions = jnp.arange(prompt_len)[None, :]
+                last_valid_positions = jnp.max(jnp.where(attention_mask, positions, -1), axis=1)
+                prefill_logits_tail = prompt_len - int(jnp.min(last_valid_positions))
+
+        prepared_inputs = {"prompt_tokens": prompt_tokens}
+        if attention_mask is not None:
+            prepared_inputs["attention_mask"] = attention_mask
+        prepared_inputs = self.prepare_input(prepared_inputs)
+        prompt_tokens = prepared_inputs["prompt_tokens"]
+        attention_mask = prepared_inputs.get("attention_mask")
+
         output_tokens = []
         next_input_tokens = prompt_tokens
         generated_count = 0
         rng = jax.random.PRNGKey(seed)
         initial_buffer_len = (prompt_len // self.cache_stride + 1) * self.cache_stride
+        if context_limit is not None:
+            # Stride rounding can otherwise exceed a non-aligned cached RoPE
+            # table even when the actual token request remains in context.
+            initial_buffer_len = min(initial_buffer_len, context_limit)
         kv_caches = self.init_cache(max_seq_len=initial_buffer_len)
         cache_len = initial_buffer_len
         params_signature = self._pytree_signature(self.params)
@@ -606,15 +709,27 @@ class Engine:
         while generated_count < max_new_tokens:
             # Every step, the kv-cache max length (`cache_len`) is set up to be a multiple of self.cache_stride.
             # `new_token_count` is bounded by both the remaining request and the available cache capacity.
-            cache_capacity = cache_len - (prompt_len + generated_count)
+            cache_capacity = cache_len - (max_valid_prompt_len + generated_count)
             new_token_count = min(max_new_tokens - generated_count, cache_capacity)
 
             if new_token_count <= 0:
-                cache_len += self.cache_stride
+                next_cache_len = cache_len + self.cache_stride
+                if context_limit is not None:
+                    next_cache_len = min(next_cache_len, context_limit)
+                if next_cache_len <= cache_len:
+                    raise RuntimeError("KV cache cannot grow enough to satisfy the validated generation request.")
+                cache_len = next_cache_len
                 kv_caches = tuple(c.resize(cache_len) for c in kv_caches)
                 continue
 
             step_attention_mask = attention_mask if generated_count == 0 else None
+            step_gather_prefill_logits = gather_prefill_logits and step_attention_mask is not None
+            step_prefill_logits_tail = prefill_logits_tail if step_gather_prefill_logits else 1
+            apply = functools.partial(
+                self.wrapped_apply_fn,
+                gather_prefill_logits=step_gather_prefill_logits,
+                prefill_logits_tail=step_prefill_logits_tail,
+            )
             input_signature = self._pytree_signature((next_input_tokens, step_attention_mask))
             kv_cache_signature = self._pytree_signature(kv_caches)
             call_hash = _hash(
@@ -625,10 +740,19 @@ class Engine:
                 platform_signature,
                 input_signature,
                 kv_cache_signature,
+                str(self._supports_logits_positions),
+                str(step_gather_prefill_logits),
+                str(step_prefill_logits_tail),
                 str(sampling_method),
                 str(top_k),
+                str(top_p),
+                str(min_p),
+                str(temperature),
                 str(cache_len),
-                str(new_token_count),
+                # A fused scan specializes on its length. The non-fused path
+                # compiles one decode step, so chunk length must not multiply
+                # otherwise identical AOT artifacts.
+                str(new_token_count) if fuse_decoding else "single_step",
             )
 
             step_output: GenerationOutput = generate(

@@ -1,7 +1,9 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
-from jaxml.config import ModelConfig
+from jaxml.config import ModelConfig, _infer_hf_rope_scale
 
 pytestmark = pytest.mark.milestone
 
@@ -509,6 +511,43 @@ def test_model_config_from_hf_accepts_integer_like_rope_scaling_factor():
     config = ModelConfig.from_hf(hf_config)
 
     assert config.rope_scale == 2.0
+
+
+def test_model_config_from_hf_rejects_rope_types_that_linear_scaling_cannot_represent():
+    from transformers import LlamaConfig
+
+    hf_config = LlamaConfig(
+        hidden_size=48,
+        intermediate_size=144,
+        num_hidden_layers=2,
+        max_position_embeddings=256,
+        vocab_size=1024,
+        num_attention_heads=6,
+        num_key_value_heads=3,
+    )
+    hf_config.__dict__["rope_parameters"] = {
+        "factor": 8.0,
+        "rope_theta": 500000.0,
+        "rope_type": "llama3",
+        "low_freq_factor": 1.0,
+        "high_freq_factor": 4.0,
+        "original_max_position_embeddings": 8192,
+    }
+
+    with pytest.raises(NotImplementedError, match="rope_type='llama3'"):
+        ModelConfig.from_hf(hf_config)
+
+
+@pytest.mark.parametrize(
+    ("config", "match"),
+    [
+        (SimpleNamespace(rope_scaling={"type": "linear"}), "rope_scaling"),
+        (SimpleNamespace(rope_parameters={"rope_type": "linear"}), "rope_parameters"),
+    ],
+)
+def test_hf_linear_rope_sources_require_a_scaling_factor(config, match):
+    with pytest.raises(ValueError, match=match):
+        _infer_hf_rope_scale(config)
 
 
 @pytest.mark.parametrize(

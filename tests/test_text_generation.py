@@ -614,6 +614,42 @@ def test_from_hf_wires_loader_engine_and_tokenizer(monkeypatch):
     assert calls["use_tpu"] is True
 
 
+def test_from_hf_delegates_default_cache_dtype_to_engine_for_supported_model_dtypes(monkeypatch):
+    import torch
+
+    calls = {"engine_dtypes": [], "model_dtypes": []}
+
+    class FakeEngine:
+        def __init__(self, model, config, params, dtype, cache_stride):
+            del model, config, params, cache_stride
+            calls["engine_dtypes"].append(dtype)
+
+        def init_params(self, use_tpu):
+            del use_tpu
+
+        def generate(self, input_ids, attention_mask=None, **kwargs):
+            raise AssertionError("generate should not be called by from_hf.")
+
+    monkeypatch.setattr("jaxml.text_generation.Engine", FakeEngine)
+
+    def fake_load_model_from_hf(*args, **kwargs):
+        del args
+        calls["model_dtypes"].append(kwargs["dtype"])
+        return "model", {"params": "params"}
+
+    monkeypatch.setattr("jaxml.text_generation.load_model_from_hf", fake_load_model_from_hf)
+
+    for model_dtype in ("bfloat16", torch.float32):
+        TextGenerationPipeline.from_hf(
+            "some/model",
+            model_dtype=model_dtype,
+            tokenizer=DummyTokenizer(),
+        )
+
+    assert calls["model_dtypes"] == ["bfloat16", torch.float32]
+    assert calls["engine_dtypes"] == [None, None]
+
+
 @pytest.mark.parametrize(
     "name,exception,match",
     [
@@ -653,7 +689,6 @@ def test_from_hf_rejects_invalid_name_before_tokenizer_or_model_loading(monkeypa
         ({"architecture": "unknown"}, ValueError, "Unsupported Hugging Face architecture"),
         ({"model_dtype": np.float32}, TypeError, "Expected dtype"),
         ({"model_dtype": "bad"}, ValueError, "Unsupported dtype"),
-        ({"engine_dtype": None}, TypeError, "engine_dtype must be a valid JAX dtype"),
         ({"engine_dtype": "not-a-dtype"}, TypeError, "engine_dtype must be a valid JAX dtype"),
     ],
 )
@@ -721,7 +756,7 @@ def test_from_hf_normalizes_pathlike_name_for_tokenizer_and_model_loader(monkeyp
     assert calls["tokenizer"] == ("local-model", {"local_files_only": True})
     assert calls["load_model"] == ("local-model", "neox", "float32", {"trust_remote_code": True})
     assert calls["engine_init"][0] == "model"
-    assert calls["engine_init"][3] == jnp.dtype("float32")
+    assert calls["engine_init"][3] is None
     assert calls["use_tpu"] is False
 
 

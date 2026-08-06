@@ -1,10 +1,43 @@
 import importlib
 import logging
+import os
+import subprocess
 import sys
+import textwrap
 
 import pytest
 
 pytestmark = pytest.mark.critical
+
+
+def test_package_root_import_does_not_require_hf_dependencies():
+    script = textwrap.dedent("""
+        import importlib.abc
+        import sys
+
+        class BlockHfDependencies(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname.partition(".")[0] in {"torch", "transformers"}:
+                    raise ModuleNotFoundError(f"blocked optional dependency: {fullname}")
+                return None
+
+        sys.meta_path.insert(0, BlockHfDependencies())
+        import jaxml
+
+        assert "torch" not in sys.modules
+        assert "transformers" not in sys.modules
+        """)
+    env = os.environ.copy()
+    env["JAX_PLATFORMS"] = "cpu"
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_inference_engine_exports_documented_entry_points():

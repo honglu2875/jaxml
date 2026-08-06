@@ -58,7 +58,16 @@ def validate_mlp_input(module_name: str, x, hidden_size: int) -> jnp.ndarray:
     return x
 
 
-def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_logits: int) -> jnp.ndarray:
+def slice_last_n_logits_hidden_states(
+    hidden_states: jnp.ndarray,
+    keep_last_n_logits: int,
+    logits_positions: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Select the hidden states projected by an LM head.
+
+    ``logits_positions`` gathers one absolute sequence position per batch row
+    and is mutually exclusive with the trailing ``keep_last_n_logits`` slice.
+    """
     hidden_states = jnp.asarray(hidden_states)
     if hidden_states.ndim != 3:
         raise ValueError(f"hidden_states must be a 3D array, got shape {hidden_states.shape}.")
@@ -70,6 +79,26 @@ def slice_last_n_logits_hidden_states(hidden_states: jnp.ndarray, keep_last_n_lo
     keep_last_n_logits = _normalize_count("keep_last_n_logits", keep_last_n_logits)
     if keep_last_n_logits < 0:
         raise ValueError(f"keep_last_n_logits must be non-negative, got {keep_last_n_logits}.")
+    if logits_positions is not None:
+        if keep_last_n_logits != 0:
+            raise ValueError("keep_last_n_logits must be 0 when logits_positions is provided.")
+        logits_positions = jnp.asarray(logits_positions)
+        if logits_positions.ndim != 1:
+            raise ValueError(f"logits_positions must be a 1D array, got shape {logits_positions.shape}.")
+        if logits_positions.shape[0] != hidden_states.shape[0]:
+            raise ValueError(
+                "logits_positions must contain one position per batch row, "
+                f"got {logits_positions.shape[0]} and expected {hidden_states.shape[0]}."
+            )
+        if not jnp.issubdtype(logits_positions.dtype, jnp.integer):
+            raise TypeError(f"logits_positions must contain integer positions, got dtype {logits_positions.dtype}.")
+        if not _contains_tracer(logits_positions):
+            if bool(jnp.any(logits_positions < 0)):
+                raise ValueError("logits_positions must contain non-negative positions.")
+            if bool(jnp.any(logits_positions >= hidden_states.shape[1])):
+                raise ValueError(f"logits_positions must be less than sequence length {hidden_states.shape[1]}.")
+        batch_indices = jnp.arange(hidden_states.shape[0])
+        return hidden_states[batch_indices, logits_positions][:, None, :]
     if keep_last_n_logits == 0:
         return hidden_states
     return hidden_states[:, -keep_last_n_logits:]

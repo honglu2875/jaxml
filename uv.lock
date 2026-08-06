@@ -414,20 +414,6 @@ wheels = [
 ]
 
 [[package]]
-name = "jax-tqdm"
-version = "0.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "chex" },
-    { name = "jax" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d9/dd/b132ae4a7e22604c2738dff805d151fd81f6a3e77fab36c8dcbd43003f9e/jax_tqdm-0.4.0.tar.gz", hash = "sha256:d76a7ab07286ed8024fa019add2668b4d1d6ddf3bcaa166f2e1466d9e51b99a0", size = 5589, upload-time = "2025-05-09T22:28:38.994Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/2d/a94edc83d0012a5968abe1a16a6dc402100a76323fb30e229afe0f75bfe3/jax_tqdm-0.4.0-py3-none-any.whl", hash = "sha256:973d81946ea22d2cad30f2a0434c072b7471ecc23baea2c42ec65e0b2bc2f41f", size = 7175, upload-time = "2025-05-09T22:28:37.957Z" },
-]
-
-[[package]]
 name = "jaxlib"
 version = "0.10.1"
 source = { registry = "https://pypi.org/simple" }
@@ -463,13 +449,15 @@ wheels = [
 
 [[package]]
 name = "jaxml"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "chex" },
     { name = "flax" },
     { name = "jax" },
-    { name = "jax-tqdm" },
     { name = "jaxlib" },
+    { name = "numpy" },
+    { name = "tqdm" },
 ]
 
 [package.optional-dependencies]
@@ -478,6 +466,10 @@ dev = [
     { name = "flake8" },
     { name = "isort" },
     { name = "pytest" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+hf = [
     { name = "torch" },
     { name = "transformers" },
 ]
@@ -490,20 +482,24 @@ tpu = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = "==26.5.1" },
+    { name = "chex", specifier = "==0.1.92" },
     { name = "flake8", marker = "extra == 'dev'", specifier = "==7.3.0" },
     { name = "flax", specifier = "==0.12.7" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==8.0.1" },
     { name = "jax", specifier = "==0.10.1" },
     { name = "jax", marker = "extra == 'tpu'", specifier = "==0.10.1" },
-    { name = "jax-tqdm", specifier = "==0.4.0" },
     { name = "jaxlib", specifier = "==0.10.1" },
     { name = "jaxlib", marker = "extra == 'tpu'", specifier = "==0.10.1" },
     { name = "libtpu", marker = "extra == 'tpu'", specifier = "==0.0.42" },
+    { name = "numpy", specifier = "==2.4.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.0" },
     { name = "torch", marker = "extra == 'dev'", specifier = "==2.12.0" },
+    { name = "torch", marker = "extra == 'hf'", specifier = "==2.12.0" },
+    { name = "tqdm", specifier = "==4.68.2" },
     { name = "transformers", marker = "extra == 'dev'", specifier = "==5.12.1" },
+    { name = "transformers", marker = "extra == 'hf'", specifier = "==5.12.1" },
 ]
-provides-extras = ["tpu", "dev"]
+provides-extras = ["hf", "tpu", "dev"]
 
 [[package]]
 name = "jinja2"

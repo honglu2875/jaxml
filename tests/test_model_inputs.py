@@ -16,7 +16,7 @@ from jaxml.models.gemma3 import GemmaModel
 from jaxml.models.gpt_neox import GPTNeoXDecoder, GPTNeoXModel
 from jaxml.models.llama import LlamaDecoder, LlamaModel
 
-pytestmark = pytest.mark.critical
+pytestmark = pytest.mark.milestone
 
 MODEL_FIXTURES = ["llama_model", "neox_model", "gemma_model"]
 

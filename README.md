@@ -29,6 +29,26 @@ Inference engine features:
 - [x] AOT-compile prefill and decode functions, and cache them!
 - [ ] (pending a bug fix in JAX) Allow JAX-flash-attention (`jax.experimental.pallas.ops.flash_attention`)
 
+# Installation
+
+Install the base package for the JAX model and lower-level inference APIs:
+
+```bash
+pip install jaxml
+```
+
+Hugging Face checkpoint loading and text tokenization use optional PyTorch and Transformers dependencies:
+
+```bash
+pip install "jaxml[hf]"
+```
+
+Add the TPU runtime extra when running on TPU. From a source checkout, use `.` in place of `jaxml` in these commands.
+
+```bash
+pip install "jaxml[hf,tpu]"
+```
+
 # Quick start
 
 ```python
@@ -47,37 +67,43 @@ text = pipeline.generate_text(
 print(text)
 ```
 
+`model_dtype` controls converted weights and model compute; the KV cache uses the
+same dtype unless `engine_dtype` is explicitly overridden.
+
 The lower-level engine still accepts token arrays directly through `jaxml.inference_engine.Engine`.
 
 # Development
 
 Tests are split by cadence:
 
-- `critical`: required CPU push gate for broad API, generation, cache, and dependency-surface coverage.
-- `milestone`: full CPU suite for model internals, conversion utilities, and broader regression coverage.
+- `critical`: focused CPU push gate for public API, generation, cache, sampling, and validation coverage.
+- `milestone`: full CPU suite for model internals, conversion utilities, dependency/tooling checks, and exhaustive regressions.
 - `tpu`: TPU-only checks for the local TPU runtime and JAX/libtpu setup.
 
 Current critical modules:
 
 - `tests/test_cache.py`
-- `tests/test_dependency_surface.py`
 - `tests/test_generate_core.py`
-- `tests/test_generation.py`
-- `tests/test_model_inputs.py`
+- selected runtime smoke cases in `tests/test_generation.py`
 - `tests/test_public_api.py`
 - `tests/test_sampling.py`
 - `tests/test_text_generation.py`
+- `tests/test_validation.py`
 
 Current milestone modules:
 
 - `tests/test_aot_cache.py`
 - `tests/test_attention.py`
 - `tests/test_config.py`
+- `tests/test_deepseek.py`
+- `tests/test_dependency_surface.py`
 - `tests/test_experimental_rnn_discrete.py`
 - `tests/test_gemma.py`
+- `tests/test_generation.py`
 - `tests/test_hf_utils.py`
 - `tests/test_llama.py`
 - `tests/test_model_heads.py`
+- `tests/test_model_inputs.py`
 - `tests/test_modules.py`
 - `tests/test_neox.py`
 - `tests/test_rope.py`
@@ -103,7 +129,7 @@ TPU validation is intentionally split out because it requires a visible TPU runt
 uv run --frozen --extra dev --extra tpu make verify-tpu
 ```
 
-Before changing pinned dependencies, audit direct dependency drift across dev and TPU extras:
+Before changing pinned dependencies, audit direct dependency drift across the base, HF, dev, and TPU dependency sets:
 
 ```bash
 uv run --frozen --extra dev make dependency-drift

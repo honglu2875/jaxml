@@ -12,7 +12,7 @@ _SPECIFIER_OPERATORS = ("==", ">=", "<=", "~=", "!=", ">", "<")
 _SUPPORTED_CI_PYTHON_VERSIONS = ("3.11", "3.12")
 _CPU_CADENCE_MARKERS = ("critical", "milestone")
 
-pytestmark = pytest.mark.critical
+pytestmark = pytest.mark.milestone
 
 
 def _project_config():
@@ -102,7 +102,12 @@ def _test_modules():
 
 def _test_module_cadence_markers(path: Path):
     text = path.read_text()
-    return tuple(marker for marker in _CPU_CADENCE_MARKERS if f"pytest.mark.{marker}" in text)
+    module_markers = re.findall(
+        r"^pytestmark\s*=\s*pytest\.mark\.(critical|milestone)\s*$",
+        text,
+        re.MULTILINE,
+    )
+    return tuple(marker for marker in _CPU_CADENCE_MARKERS if marker in module_markers)
 
 
 def _exact_direct_pins():
@@ -188,6 +193,33 @@ def test_project_runtime_requirements_are_exactly_pinned():
     assert unpinned == []
 
 
+def test_base_dependencies_declare_the_runtime_import_surface_directly():
+    pyproject = _project_config()
+    base_pins = _exact_pin_map(pyproject["project"]["dependencies"])
+
+    assert "jax-tqdm" not in base_pins
+    assert {"chex", "flax", "jax", "jaxlib", "numpy", "tqdm"} <= base_pins.keys()
+
+
+def test_hf_extra_owns_torch_and_transformers_dependencies():
+    pyproject = _project_config()
+    base_pins = _exact_pin_map(pyproject["project"]["dependencies"])
+    hf_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["hf"])
+    dev_pins = _exact_pin_map(pyproject["project"]["optional-dependencies"]["dev"])
+
+    assert set(hf_pins) == {"torch", "transformers"}
+    assert set(hf_pins).isdisjoint(base_pins)
+    assert {name: dev_pins[name] for name in hf_pins} == hf_pins
+
+
+def test_readme_documents_base_hf_and_tpu_installation():
+    readme = _readme_text()
+
+    assert "pip install jaxml" in readme
+    assert 'pip install "jaxml[hf]"' in readme
+    assert 'pip install "jaxml[hf,tpu]"' in readme
+
+
 def test_tpu_extra_keeps_jax_runtime_pins_aligned_with_base_dependencies():
     pyproject = _project_config()
     base_pins = _exact_pin_map(pyproject["project"]["dependencies"])
@@ -243,7 +275,7 @@ def test_cpu_test_targets_use_expected_pytest_markers():
     assert recipes["pytest-cpu"] == ["${CPU_TESTS}"]
 
 
-def test_cpu_test_modules_are_assigned_to_exactly_one_cadence_marker():
+def test_cpu_test_modules_are_assigned_to_exactly_one_default_cadence_marker():
     incorrectly_marked = {}
     for path in _test_modules():
         if path.name == "test_tpu.py":

@@ -68,6 +68,14 @@ def _infer_hf_rope_theta(config, *, fallback_attr: str = "rope_theta", attention
 
 
 def _infer_hf_rope_scale(config, *, attention_kind: str | None = None) -> float:
+    def _validate_supported_rope_type(parameters: Mapping, source: str):
+        rope_type = parameters.get("rope_type", parameters.get("type"))
+        if rope_type not in (None, "default", "linear"):
+            raise NotImplementedError(
+                f"{source} rope_type={rope_type!r} is not supported; jaxml currently supports only default and linear RoPE."
+            )
+        return rope_type
+
     rope_scaling = getattr(config, "rope_scaling", None)
     if rope_scaling is not None and not isinstance(rope_scaling, Mapping):
         raise TypeError(f"rope_scaling must be a mapping when set, got {type(rope_scaling)}.")
@@ -79,14 +87,18 @@ def _infer_hf_rope_scale(config, *, attention_kind: str | None = None) -> float:
                 raise TypeError(
                     f"rope_scaling[{attention_kind!r}] must be a mapping when set, got {type(rope_scaling_for_attention)}."
                 )
+        rope_type = _validate_supported_rope_type(rope_scaling_for_attention, "rope_scaling")
         if "factor" in rope_scaling_for_attention:
             return _normalize_float("rope_scaling factor", rope_scaling_for_attention["factor"])
-        if rope_scaling_for_attention.get("rope_type") not in (None, "default"):
+        if rope_type == "linear":
             raise ValueError("rope_scaling must include a factor when set.")
 
     rope_parameters = _infer_hf_rope_parameters(config, attention_kind=attention_kind)
+    rope_type = _validate_supported_rope_type(rope_parameters, "rope_parameters")
     if "factor" in rope_parameters:
         return _normalize_float("rope_parameters factor", rope_parameters["factor"])
+    if rope_type == "linear":
+        raise ValueError("rope_parameters must include a factor when set.")
     return 1.0
 
 

@@ -7,9 +7,9 @@ from flax.core import FrozenDict
 
 from jaxml.cache import KVCache
 from jaxml.inference_engine.engine import Engine, InferenceConfig
-from jaxml.outputs import GenerationOutput
+from jaxml.outputs import CausalLMOutputWithCache, GenerationOutput
 
-pytestmark = pytest.mark.critical
+pytestmark = pytest.mark.milestone
 
 
 class FakeSharding:
@@ -62,6 +62,64 @@ class FakeCacheModel:
     config: object
 
 
+@struct.dataclass
+class TokenEchoModelConfig:
+    num_layers: int = 1
+    vocab_size: int = 16
+    max_position_embeddings: int = 16
+
+
+class TokenEchoGenerationModel:
+    """Tiny model whose next-token argmax echoes the evaluated input token."""
+
+    def __init__(self, max_position_embeddings=16):
+        self.config = TokenEchoModelConfig(max_position_embeddings=max_position_embeddings)
+        self.keep_last_n_logits_calls = []
+
+    def __call__(self, input_ids, logits_positions=None):
+        del input_ids, logits_positions
+        raise AssertionError("Engine tests should invoke the model through apply().")
+
+    def apply(
+        self,
+        params,
+        input_ids,
+        attention_mask=None,
+        kv_caches=None,
+        keep_last_n_logits=0,
+        logits_positions=None,
+        **kwargs,
+    ):
+        del params, kwargs
+        self.keep_last_n_logits_calls.append(keep_last_n_logits)
+
+        logits_input_ids = input_ids
+        if logits_positions is not None:
+            batch_indices = jnp.arange(input_ids.shape[0])
+            logits_input_ids = input_ids[batch_indices, logits_positions][:, None]
+        elif keep_last_n_logits > 0:
+            logits_input_ids = input_ids[:, -keep_last_n_logits:]
+        logits = 10.0 * jax.nn.one_hot(logits_input_ids, self.config.vocab_size, dtype=jnp.float32)
+
+        states = input_ids.astype(jnp.float32)[:, :, None, None]
+        next_kv_caches = tuple(cache.update(states, states, attention_mask) for cache in kv_caches)
+        return CausalLMOutputWithCache(logits=logits, kv_caches=next_kv_caches), {}
+
+
+class LegacyTokenEchoGenerationModel(TokenEchoGenerationModel):
+    def __call__(self, input_ids):
+        del input_ids
+        raise AssertionError("Engine tests should invoke the model through apply().")
+
+
+def _disable_generation_aot_cache(monkeypatch):
+    def eager_load_if_exists(name, hash, log=True):
+        del name, hash, log
+        return lambda fn: fn
+
+    monkeypatch.setattr("jaxml._generate.load_if_exists", eager_load_if_exists)
+
+
 def _prefill_fake_caches(kv_caches, batch_size=1):
     k = jnp.ones((batch_size, 1, 1, 2), dtype=jnp.float32)
     return tuple(
@@ -72,6 +130,72 @@ def _prefill_fake_caches(kv_caches, batch_size=1):
 def _populated_cache_like(cache, batch_size):
     k = jnp.ones((batch_size, 1, 1, 2), dtype=cache.dtype)
     return KVCache.init(cache.max_seq_len, k=k, v=k, mask=jnp.ones((batch_size, 1), dtype=bool), dtype=cache.dtype)
+
+
+@pytest.mark.critical
+def test_engine_generate_gathers_last_valid_prefill_logits_and_preserves_cache_continuation(monkeypatch):
+    _disable_generation_aot_cache(monkeypatch)
+    model = TokenEchoGenerationModel()
+    engine = Engine(model, InferenceConfig(), {"params": {}}, cache_stride=4)
+    input_ids = jnp.array([[5, 6, 0, 0], [7, 8, 9, 10]], dtype=jnp.int32)
+    attention_mask = jnp.array([[1, 1, 0, 0], [1, 1, 1, 1]], dtype=jnp.int32)
+
+    output = engine.generate(
+        input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=5,
+        temperature=0.0,
+        include_prompt=False,
+    )
+
+    assert np.array_equal(
+        np.array(output),
+        np.array([[6, 6, 6, 6, 6], [10, 10, 10, 10, 10]], dtype=np.int32),
+    )
+    assert model.keep_last_n_logits_calls == [0, 1, 1, 1, 1]
+
+
+def test_engine_generate_falls_back_for_legacy_model_without_logits_positions(monkeypatch):
+    _disable_generation_aot_cache(monkeypatch)
+    model = LegacyTokenEchoGenerationModel()
+    engine = Engine(model, InferenceConfig(), {"params": {}}, cache_stride=4)
+    input_ids = jnp.array([[5, 6, 0, 0], [7, 8, 9, 10]], dtype=jnp.int32)
+    attention_mask = jnp.array([[1, 1, 0, 0], [1, 1, 1, 1]], dtype=jnp.int32)
+
+    output = engine.generate(
+        input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=1,
+        temperature=0.0,
+        include_prompt=False,
+    )
+
+    assert np.array_equal(np.array(output), np.array([[6], [10]], dtype=np.int32))
+    assert model.keep_last_n_logits_calls == [3]
+
+
+@pytest.mark.parametrize(
+    "with_attention_mask",
+    [False, True],
+    ids=["unmasked", "fully-valid-mask"],
+)
+def test_engine_generate_retains_last_logit_optimization_without_padding(monkeypatch, with_attention_mask):
+    _disable_generation_aot_cache(monkeypatch)
+    model = TokenEchoGenerationModel()
+    engine = Engine(model, InferenceConfig(), {"params": {}}, cache_stride=2)
+    input_ids = jnp.array([[3, 4], [5, 6]], dtype=jnp.int32)
+    attention_mask = jnp.ones_like(input_ids) if with_attention_mask else None
+
+    output = engine.generate(
+        input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=1,
+        temperature=0.0,
+        include_prompt=False,
+    )
+
+    assert np.array_equal(np.array(output), np.array([[4], [6]], dtype=np.int32))
+    assert model.keep_last_n_logits_calls == [1]
 
 
 @pytest.mark.parametrize(
@@ -540,6 +664,132 @@ def test_engine_generate_forwards_normalized_sampling_values(monkeypatch, llama_
     assert calls[0]["temperature"] == 0.0
 
 
+@pytest.mark.parametrize(
+    "max_new_tokens,match",
+    [(0, "physical prompt length"), (13, "maximum valid prompt length plus max_new_tokens")],
+)
+def test_engine_generate_rejects_requests_beyond_model_context(llama_model_with_head, max_new_tokens, match):
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params)
+    prompt_len = model.config.max_position_embeddings + (1 if max_new_tokens == 0 else -12)
+    input_ids = jnp.ones((1, prompt_len), dtype=jnp.int32)
+
+    with pytest.raises(ValueError, match=match):
+        engine.generate(input_ids, max_new_tokens=max_new_tokens)
+
+
+@pytest.mark.critical
+def test_engine_generate_reuses_right_padding_within_model_context(monkeypatch):
+    _disable_generation_aot_cache(monkeypatch)
+    model = TokenEchoGenerationModel(max_position_embeddings=8)
+    engine = Engine(model, InferenceConfig(), {"params": {}}, cache_stride=4)
+    input_ids = jnp.array(
+        [[1, 2, 3, 4, 0, 0, 0, 0], [5, 6, 7, 8, 9, 10, 0, 0]],
+        dtype=jnp.int32,
+    )
+    attention_mask = jnp.array(
+        [[1, 1, 1, 1, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1, 0, 0]],
+        dtype=jnp.int32,
+    )
+
+    output = engine.generate(
+        input_ids,
+        attention_mask=attention_mask,
+        max_new_tokens=2,
+        temperature=0.0,
+        include_prompt=False,
+    )
+
+    assert np.array_equal(np.array(output), np.array([[4, 4], [10, 10]], dtype=np.int32))
+    assert model.keep_last_n_logits_calls == [0, 1]
+
+
+def test_engine_generate_rejects_non_right_padded_mask_before_compilation(monkeypatch):
+    generation_calls = []
+
+    def fake_generate(*args, **kwargs):
+        generation_calls.append((args, kwargs))
+        raise AssertionError("Generation must not start for a non-right-padded mask.")
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+    model = TokenEchoGenerationModel()
+    engine = Engine(model, InferenceConfig(), {"params": {}})
+
+    with pytest.raises(ValueError, match="attention_mask must be right padded"):
+        engine.generate(
+            jnp.array([[1, 0, 2]], dtype=jnp.int32),
+            attention_mask=jnp.array([[1, 0, 1]], dtype=jnp.int32),
+            max_new_tokens=1,
+        )
+
+    assert generation_calls == []
+
+
+def test_engine_caps_stride_rounded_cache_at_model_context(monkeypatch, llama_model_with_head):
+    seen_cache_lengths = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, attention_mask, call_hash, sampling_method
+        seen_cache_lengths.append(tuple(cache.max_seq_len for cache in kv_caches))
+        return GenerationOutput(
+            tokens=jnp.ones((prompt_tokens.shape[0], kwargs["max_new_tokens"]), dtype=jnp.int32),
+            kv_caches=_prefill_fake_caches(kv_caches, batch_size=prompt_tokens.shape[0]),
+            rng=kwargs["rng"],
+        )
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params, cache_stride=400)
+    input_ids = jnp.ones((1, 400), dtype=jnp.int32)
+
+    output = engine.generate(input_ids, max_new_tokens=10, include_prompt=False)
+
+    assert output.shape == (1, 10)
+    assert seen_cache_lengths == [(model.config.max_position_embeddings,) * model.config.num_layers]
+
+
+def test_non_fused_aot_hash_does_not_specialize_on_requested_decode_length(monkeypatch, llama_model_with_head):
+    call_hashes = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, attention_mask, sampling_method
+        call_hashes.append(call_hash)
+        return GenerationOutput(
+            tokens=jnp.ones((prompt_tokens.shape[0], kwargs["max_new_tokens"]), dtype=jnp.int32),
+            kv_caches=_prefill_fake_caches(kv_caches, batch_size=prompt_tokens.shape[0]),
+            rng=kwargs["rng"],
+        )
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+    model, params = llama_model_with_head
+    engine = Engine(model, InferenceConfig(), params, cache_stride=16)
+    input_ids = jnp.ones((1, 4), dtype=jnp.int32)
+
+    engine.generate(input_ids, max_new_tokens=1, include_prompt=False, fuse_decoding=False)
+    engine.generate(input_ids, max_new_tokens=2, include_prompt=False, fuse_decoding=False)
+
+    assert len(call_hashes) == 2
+    assert call_hashes[0] == call_hashes[1]
+
+
 def test_engine_generate_hash_includes_prompt_token_dtype(monkeypatch, llama_model_with_head):
     call_hashes = []
 
@@ -569,6 +819,86 @@ def test_engine_generate_hash_includes_prompt_token_dtype(monkeypatch, llama_mod
                 temperature=0.0,
                 include_prompt=False,
             )
+
+    assert len(call_hashes) == 2
+    assert call_hashes[0] != call_hashes[1]
+
+
+def test_engine_generate_hash_distinguishes_padded_prefill_adapter(monkeypatch):
+    call_hashes = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, sampling_method
+        call_hashes.append(call_hash)
+        return GenerationOutput(tokens=jnp.ones((2, 1), dtype=jnp.int32), kv_caches=kv_caches, rng=kwargs["rng"])
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+    model = TokenEchoGenerationModel()
+    engine = Engine(model, InferenceConfig(), {"params": {}}, cache_stride=2)
+    input_ids = jnp.array([[3, 4], [5, 6]], dtype=jnp.int32)
+
+    for attention_mask in (
+        jnp.ones((2, 2), dtype=jnp.int32),
+        jnp.array([[1, 0], [1, 1]], dtype=jnp.int32),
+    ):
+        engine.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=1,
+            temperature=0.0,
+            include_prompt=False,
+        )
+
+    assert len(call_hashes) == 2
+    assert call_hashes[0] != call_hashes[1]
+
+
+@pytest.mark.parametrize(
+    "first_sampling_kwargs,second_sampling_kwargs",
+    [
+        ({"top_p": 0.8}, {"top_p": 0.9}),
+        ({"min_p": 0.1}, {"min_p": 0.2}),
+        ({"temperature": 0.7}, {"temperature": 0.9}),
+    ],
+    ids=["top-p", "min-p", "temperature"],
+)
+def test_engine_generate_hash_includes_sampling_parameter_values(
+    monkeypatch,
+    first_sampling_kwargs,
+    second_sampling_kwargs,
+):
+    call_hashes = []
+
+    def fake_generate(
+        params,
+        eval_fn,
+        prompt_tokens,
+        attention_mask,
+        kv_caches,
+        call_hash,
+        sampling_method,
+        **kwargs,
+    ):
+        del params, eval_fn, prompt_tokens, attention_mask, sampling_method
+        call_hashes.append(call_hash)
+        return GenerationOutput(tokens=jnp.ones((1, 1), dtype=jnp.int32), kv_caches=kv_caches, rng=kwargs["rng"])
+
+    monkeypatch.setattr("jaxml._generate.generate", fake_generate)
+    model = TokenEchoGenerationModel()
+    engine = Engine(model, InferenceConfig(), {"params": {}}, cache_stride=2)
+    input_ids = jnp.array([[3, 4]], dtype=jnp.int32)
+
+    engine.generate(input_ids, max_new_tokens=1, include_prompt=False, **first_sampling_kwargs)
+    engine.generate(input_ids, max_new_tokens=1, include_prompt=False, **second_sampling_kwargs)
 
     assert len(call_hashes) == 2
     assert call_hashes[0] != call_hashes[1]
@@ -1187,7 +1517,7 @@ def test_engine_accepts_numpy_integer_cache_stride(llama_model_with_head):
     assert engine.cache_stride == 8
 
 
-@pytest.mark.parametrize("dtype", [None, "not-a-dtype", object()])
+@pytest.mark.parametrize("dtype", ["not-a-dtype", object()])
 def test_engine_rejects_invalid_dtype(llama_model_with_head, dtype):
     model, params = llama_model_with_head
 
@@ -1195,13 +1525,22 @@ def test_engine_rejects_invalid_dtype(llama_model_with_head, dtype):
         Engine(model, InferenceConfig(), params, dtype=dtype)
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, np.float32, "bfloat16"])
+def test_engine_defaults_cache_dtype_to_model_dtype(llama_model_with_head):
+    model, params = llama_model_with_head
+    model = model.clone(dtype=jnp.bfloat16)
+
+    engine = Engine(model, InferenceConfig(), params)
+
+    assert engine.dtype == jnp.dtype(jnp.bfloat16)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, np.float32, "bfloat16", "float64"])
 def test_engine_canonicalizes_dtype(llama_model_with_head, dtype):
     model, params = llama_model_with_head
 
     engine = Engine(model, InferenceConfig(), params, dtype=dtype)
 
-    assert engine.dtype == jnp.dtype(dtype)
+    assert engine.dtype == jax.dtypes.canonicalize_dtype(jnp.dtype(dtype))
 
 
 @pytest.mark.parametrize(

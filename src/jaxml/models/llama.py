@@ -252,6 +252,7 @@ class LlamaModelWithHead(Block):
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         keep_last_n_logits: int = 0,  # 0: keep all logits
+        logits_positions: Optional[jnp.ndarray] = None,
     ) -> CausalLMOutputWithCache:
         outputs = self.model(
             input_ids,
@@ -262,7 +263,11 @@ class LlamaModelWithHead(Block):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
         )
-        hidden_states = slice_last_n_logits_hidden_states(outputs.last_hidden_state, keep_last_n_logits)
+        hidden_states = slice_last_n_logits_hidden_states(
+            outputs.last_hidden_state,
+            keep_last_n_logits,
+            logits_positions=logits_positions,
+        )
         # logits.shape: (bs, kept_length, vocab_size)
         logits = self.lm_head(hidden_states)
         return CausalLMOutputWithCache(

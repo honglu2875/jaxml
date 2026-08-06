@@ -229,7 +229,7 @@ def test_min_p_filtering_rejects_invalid_min_p(min_p, exception, match):
         min_p_filtering(rng, logits, 0, 1.0, min_p, 1.0)
 
 
-def test_min_p_filtering_falls_back_per_batch_row_when_no_token_qualifies():
+def test_min_p_filtering_keeps_tokens_relative_to_each_rows_maximum_probability():
     rng = jax.random.PRNGKey(0)
     logits = jnp.array(
         [
@@ -249,6 +249,16 @@ def test_min_p_filtering_falls_back_per_batch_row_when_no_token_qualifies():
             ]
         ),
     )
+
+
+def test_min_p_filtering_is_relative_instead_of_an_absolute_probability_floor():
+    rng = jax.random.PRNGKey(0)
+    logits = jnp.log(jnp.array([[[0.60, 0.31, 0.09]]], dtype=jnp.float32))
+
+    filtered = min_p_filtering(rng, logits, 0, 1.0, 0.5, 1.0)
+
+    # The relative cutoff is 0.5 * 0.60 == 0.30, so the second token remains.
+    assert np.array_equal(_is_kept(filtered), np.array([[[True, True, False]]]))
 
 
 def test_sampling_method_pipeline_handles_batched_logits():
@@ -277,6 +287,44 @@ def test_sampling_method_pipeline_handles_top_k_larger_than_vocab():
 
     assert sampled.shape == (1, 1)
     assert 0 <= int(sampled[0, 0]) < logits.shape[-1]
+
+
+def test_sampling_method_applies_temperature_before_top_p_filtering(monkeypatch):
+    captured = {}
+
+    def fake_categorical(rng, logits):
+        del rng
+        captured["logits"] = logits
+        return logits.argmax(axis=-1)
+
+    monkeypatch.setattr(jax.random, "categorical", fake_categorical)
+    logits = jnp.array([[[0.0, 1.0, 2.0]]], dtype=jnp.float32)
+    sampling_fn = SamplingMethod.from_values(top_k=0, top_p=0.75, min_p=0.0, temp=0.5).get_sampling_fn()
+
+    sampling_fn(jax.random.PRNGKey(0), logits, 0, 0.75, 0.0, 0.5)
+
+    # At temperature 0.5 the scaled distribution is sufficiently peaked that
+    # nucleus filtering retains only the maximum token.
+    assert np.array_equal(_is_kept(captured["logits"]), np.array([[[False, False, True]]]))
+
+
+def test_sampling_method_applies_min_p_after_top_p(monkeypatch):
+    captured = {}
+
+    def fake_categorical(rng, logits):
+        del rng
+        captured["logits"] = logits
+        return logits.argmax(axis=-1)
+
+    monkeypatch.setattr(jax.random, "categorical", fake_categorical)
+    logits = jnp.log(jnp.array([[[0.55, 0.25, 0.10, 0.10]]], dtype=jnp.float32))
+    sampling_fn = SamplingMethod.from_values(top_k=0, top_p=0.65, min_p=0.2, temp=1.0).get_sampling_fn()
+
+    sampling_fn(jax.random.PRNGKey(0), logits, 0, 0.65, 0.2, 1.0)
+
+    # Top-p first retains the two leading tokens. Applying min-p first would
+    # renormalize away the tail and incorrectly make top-p retain only one.
+    assert np.array_equal(_is_kept(captured["logits"]), np.array([[[True, True, False, False]]]))
 
 
 def test_sampling_method_pipeline_rejects_invalid_logits():

@@ -30,7 +30,6 @@ import chex
 import jax
 import jax.numpy as jnp
 import numpy as np
-import torch
 
 logger = logging.getLogger(__name__)
 
@@ -45,28 +44,38 @@ _str_to_np_dtype = {
     "float64": np.float64,
 }
 
-_torch_to_np_dtype = {
-    torch.float16: np.float16,
-    torch.bfloat16: jnp.bfloat16,
-    torch.float32: np.float32,
-    torch.float64: np.float64,
-    # "bf16": np.float16,
-}
+
+@functools.lru_cache(maxsize=1)
+def _torch_module():
+    try:
+        import torch
+    except ImportError as e:
+        raise ImportError("PyTorch is required for Hugging Face weight conversion; install jaxml[hf].") from e
+    return torch
 
 
-def _resolve_np_dtype(dtype: str | torch.dtype):
+def _resolve_np_dtype(dtype: Any):
     if isinstance(dtype, str):
         dtype_map = _str_to_np_dtype
-    elif isinstance(dtype, torch.dtype):
-        dtype_map = _torch_to_np_dtype
     else:
-        raise TypeError(f"Expected dtype to be a string or torch.dtype, got {type(dtype)}.")
+        torch = _torch_module()
+        if not isinstance(dtype, torch.dtype):
+            raise TypeError(f"Expected dtype to be a string or torch.dtype, got {type(dtype)}.")
+        dtype_map = {
+            torch.float16: np.float16,
+            torch.bfloat16: jnp.bfloat16,
+            torch.float32: np.float32,
+            torch.float64: np.float64,
+        }
 
     try:
-        return dtype_map[dtype]
+        resolved_dtype = dtype_map[dtype]
     except KeyError as e:
         supported = ", ".join(str(k) for k in dtype_map)
         raise ValueError(f"Unsupported dtype {dtype!r}. Supported dtypes are: {supported}.") from e
+    if resolved_dtype is np.float64 and not jax.config.x64_enabled:
+        return np.float32
+    return resolved_dtype
 
 
 class Timeit:
@@ -227,6 +236,7 @@ def _insert_state_leaf(tree: dict, path: list[str], value: Any, source_key: str)
 
 
 def _state_value_to_numpy(value: Any, dtype: Any, source_key: str):
+    torch = _torch_module()
     if not isinstance(value, torch.Tensor):
         raise TypeError(f"State value for key {source_key!r} must be a torch.Tensor, got {type(value)}.")
     tensor = value.detach().cpu()
@@ -256,8 +266,8 @@ def _normalize_optional_head_dim(head_dim: int | None) -> int | None:
 
 
 def torch_to_jax_states(
-    input: torch.nn.Module | dict,
-    dtype: str | torch.dtype = torch.float16,
+    input: Any,
+    dtype: Any = "float16",
     head_dim: int | None = None,
 ):
     """
@@ -268,6 +278,7 @@ def torch_to_jax_states(
         head_dim: if not None, it will try to reshape the last axis of q, k, v
             weights further into (..., head_dim, num_head).
     """
+    torch = _torch_module()
     np_dtype = _resolve_np_dtype(dtype)
     head_dim = _normalize_optional_head_dim(head_dim)
 

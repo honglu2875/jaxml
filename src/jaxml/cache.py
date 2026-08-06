@@ -16,6 +16,7 @@
 import operator
 from typing import Any, Optional
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from flax import struct
@@ -38,8 +39,8 @@ def _normalize_dtype(name: str, value: Any):
     if value is None:
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.")
     try:
-        return jnp.dtype(value)
-    except TypeError as e:
+        return jax.dtypes.canonicalize_dtype(jnp.dtype(value))
+    except (TypeError, ValueError) as e:
         raise TypeError(f"{name} must be a valid JAX dtype, got {value!r}.") from e
 
 

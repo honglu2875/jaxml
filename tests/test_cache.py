@@ -36,11 +36,22 @@ def test_kv_cache_init_rejects_invalid_dtype(dtype):
         KVCache.init(4, dtype=dtype)
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, np.float32, "bfloat16"])
+@pytest.mark.parametrize("dtype", [jnp.float32, np.float32, "bfloat16", "float64"])
 def test_kv_cache_init_canonicalizes_dtype(dtype):
     cache = KVCache.init(4, dtype=dtype)
 
-    assert cache.dtype == jnp.dtype(dtype)
+    assert cache.dtype == jax.dtypes.canonicalize_dtype(jnp.dtype(dtype))
+
+
+def test_kv_cache_float64_state_matches_jax_x64_canonicalization():
+    expected_dtype = jax.dtypes.canonicalize_dtype(jnp.dtype("float64"))
+    k = jnp.ones((1, 1, 1, 2), dtype=expected_dtype)
+
+    cache = KVCache.init(4, dtype="float64").update(k, k, mask=None)
+
+    cache.validate_state()
+    assert cache.dtype == expected_dtype
+    assert cache.k.dtype == expected_dtype
 
 
 @pytest.mark.parametrize(

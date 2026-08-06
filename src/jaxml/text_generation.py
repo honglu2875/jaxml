@@ -201,7 +201,7 @@ class TextGenerationPipeline:
         name: str | PathLike[str],
         architecture: HFArchitecture = "auto",
         model_dtype: str = "float32",
-        engine_dtype: Any = jnp.float32,
+        engine_dtype: Any = None,
         inference_config: Optional[InferenceConfig] = None,
         use_tpu: bool = False,
         cache_stride: int = 256,
@@ -213,7 +213,10 @@ class TextGenerationPipeline:
         name = _normalize_hf_model_name(name)
         architecture = _normalize_hf_architecture(architecture)
         model_dtype = _validate_hf_dtype(model_dtype)
-        engine_dtype = _normalize_dtype("engine_dtype", engine_dtype)
+        # Unless explicitly overridden, keep the KV cache in the same dtype as
+        # the loaded model. Previously a bfloat16 model silently received a
+        # float32 cache, doubling cache memory on TPU.
+        engine_dtype = None if engine_dtype is None else _normalize_dtype("engine_dtype", engine_dtype)
         inference_config = InferenceConfig() if inference_config is None else _normalize_inference_config(inference_config)
         use_tpu = _normalize_bool("use_tpu", use_tpu)
         cache_stride = _normalize_count("cache_stride", cache_stride)

@@ -223,14 +223,45 @@ def _tiny_tpu_deepseek_config(**overrides):
     return DeepseekV3Config(**kwargs)
 
 
+def test_deepseek_moe_auto_uses_gmm_for_single_token_tpu_decode(monkeypatch):
+    config = ModelConfig.from_hf(_tiny_tpu_deepseek_config())
+    moe = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="auto")
+    monkeypatch.setattr(jax, "default_backend", lambda: "tpu")
+
+    assert moe._resolve_implementation(seq_len=1) == "gmm"
+    assert moe._resolve_implementation(seq_len=8) == "gmm"
+
+
+def test_deepseek_head_logits_positions_match_full_logits_for_right_padded_batch():
+    config = ModelConfig.from_hf(_tiny_hf_deepseek_config(num_hidden_layers=1, first_k_dense_replace=1))
+    model = DeepseekModelWithHead(config, dtype=jnp.float32)
+    input_ids = jnp.array([[1, 2, 3, 4], [5, 6, 0, 0]], dtype=jnp.int32)
+    attention_mask = jnp.array([[1, 1, 1, 1], [1, 1, 0, 0]], dtype=bool)
+    logits_positions = jnp.array([3, 1], dtype=jnp.int32)
+
+    with jax.default_device(jax.devices("cpu")[0]):
+        params = model.init(jax.random.PRNGKey(0), input_ids, attention_mask=attention_mask)
+        full = model.apply(params, input_ids, attention_mask=attention_mask).logits
+        selected = model.apply(
+            params,
+            input_ids,
+            attention_mask=attention_mask,
+            logits_positions=logits_positions,
+        ).logits
+
+    assert selected.shape == (2, 1, config.vocab_size)
+    assert np.allclose(selected[:, 0], full[jnp.arange(2), logits_positions])
+
+
+@pytest.mark.parametrize("seq_len", [1, 8])
 @pytest.mark.tpu
-def test_deepseek_moe_gmm_matches_dense_on_tpu():
+def test_deepseek_moe_gmm_matches_dense_on_tpu(seq_len):
     """The Pallas gmm sparse path equals the dense reference (up to TPU bf16)."""
     config = ModelConfig.from_hf(_tiny_tpu_deepseek_config())
     dense = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="dense")
     gmm = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="gmm")
 
-    bs, seq_len = 2, 8
+    bs = 2
     x = jax.random.normal(jax.random.PRNGKey(0), (bs, seq_len, config.hidden_size), dtype=jnp.float32)
     params = dense.init(jax.random.PRNGKey(1), x)  # both paths share the same parameters
 
@@ -246,7 +277,7 @@ def test_deepseek_engine_generate_end_to_end(tmp_path, monkeypatch):
 
     Runs on CPU (single device, dense MoE path). The engine calls the same
     ``model.apply`` path on TPU, where the dense/gmm selection is automatic
-    (gmm for multi-token prefill, dense for single-token decode); the gmm kernel
+    (gmm for both multi-token prefill and single-token decode); the gmm kernel
     itself is covered by ``test_deepseek_moe_gmm_matches_dense_on_tpu``.
     """
     from jaxml.inference_engine.engine import Engine, InferenceConfig

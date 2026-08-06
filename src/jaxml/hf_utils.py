@@ -279,7 +279,7 @@ def load_llama_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
     _validate_hf_model_type(_config, ("llama",), "Llama")
     params = to_llama_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_config)
-    model = LlamaModelWithHead(config)
+    model = LlamaModelWithHead(config, dtype=_resolve_np_dtype(dtype))
     return model, params
 
 
@@ -299,7 +299,7 @@ def load_mistral_from_hf(name: str, dtype: str = "float32", **from_pretrained_kw
     _validate_hf_model_type(_config, ("mistral",), "Mistral")
     params = to_mistral_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_config)
-    model = LlamaModelWithHead(config)
+    model = LlamaModelWithHead(config, dtype=_resolve_np_dtype(dtype))
     return model, params
 
 
@@ -319,7 +319,7 @@ def load_deepseek_from_hf(name: str, dtype: str = "float32", **from_pretrained_k
     _validate_hf_model_type(_config, ("deepseek_v3",), "DeepSeek")
     params = to_deepseek_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_config)
-    model = DeepseekModelWithHead(config)
+    model = DeepseekModelWithHead(config, dtype=_resolve_np_dtype(dtype))
     return model, params
 
 
@@ -340,7 +340,7 @@ def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwarg
     _validate_hf_model_type(_config, ("gpt_neox",), "GPT-NeoX")
     params = to_neox_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_config)
-    model = GPTNeoXModelWithHead(config)
+    model = GPTNeoXModelWithHead(config, dtype=_resolve_np_dtype(dtype))
     return model, params
 
 
@@ -367,5 +367,5 @@ def load_gemma_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwar
     _validate_hf_model_type(_model_config, ("gemma3_text",), "Gemma text")
     params = to_gemma_jax_params(_model, dtype=dtype)
     config = ModelConfig.from_hf(_model_config)
-    model = GemmaModelWithHead(config)
+    model = GemmaModelWithHead(config, dtype=_resolve_np_dtype(dtype))
     return model, params

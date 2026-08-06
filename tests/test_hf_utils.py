@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 import torch
@@ -15,6 +17,7 @@ from jaxml.hf_utils import (
     to_llama_jax_params,
     to_neox_jax_params,
 )
+from jaxml.utils import _resolve_np_dtype
 
 pytestmark = pytest.mark.milestone
 
@@ -242,6 +245,40 @@ def test_direct_hf_loader_rejects_invalid_dtype_before_model_loading(monkeypatch
         load_llama_from_hf("some/model", dtype=np.float32)
 
     assert calls == []
+
+
+def test_direct_hf_loader_uses_weight_dtype_as_model_compute_dtype(monkeypatch):
+    from transformers import LlamaConfig
+
+    config = LlamaConfig(
+        hidden_size=16,
+        intermediate_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        max_position_embeddings=32,
+        vocab_size=64,
+    )
+
+    class FakeAutoModel:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            return SimpleNamespace(config=config)
+
+    import transformers
+
+    monkeypatch.setattr(transformers, "AutoModelForCausalLM", FakeAutoModel)
+    monkeypatch.setattr("jaxml.hf_utils.to_llama_jax_params", lambda *args, **kwargs: {"params": {}})
+
+    model, _ = load_llama_from_hf("some/model", dtype="bfloat16")
+
+    assert jnp.dtype(model.dtype) == jnp.dtype(jnp.bfloat16)
+
+
+def test_hf_float64_dtype_follows_jax_x64_canonicalization():
+    resolved = _resolve_np_dtype("float64")
+
+    assert jnp.dtype(resolved) == jax.dtypes.canonicalize_dtype(jnp.dtype("float64"))
 
 
 @pytest.mark.parametrize(
