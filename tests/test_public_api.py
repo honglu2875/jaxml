@@ -52,11 +52,22 @@ def test_inference_engine_exports_documented_entry_points():
 
 
 def test_package_root_exports_documented_entry_points():
-    from jaxml import Engine, GenerationConfig, InferenceConfig, ModelConfig, SamplingMethod, TextGenerationPipeline
+    from jaxml import (
+        Engine,
+        GenerationConfig,
+        InferenceConfig,
+        ModelConfig,
+        Qwen35DeltaNetCache,
+        Qwen35ModelWithHead,
+        SamplingMethod,
+        TextGenerationPipeline,
+    )
     from jaxml.config import ModelConfig as ModelConfigImpl
     from jaxml.inference_engine import Engine as EngineImpl
     from jaxml.inference_engine import InferenceConfig as InferenceConfigImpl
     from jaxml.inference_engine import SamplingMethod as SamplingMethodImpl
+    from jaxml.models.qwen3_5 import Qwen35DeltaNetCache as Qwen35DeltaNetCacheImpl
+    from jaxml.models.qwen3_5 import Qwen35ModelWithHead as Qwen35ModelWithHeadImpl
     from jaxml.text_generation import GenerationConfig as GenerationConfigImpl
     from jaxml.text_generation import TextGenerationPipeline as TextGenerationPipelineImpl
 
@@ -64,6 +75,8 @@ def test_package_root_exports_documented_entry_points():
     assert GenerationConfig is GenerationConfigImpl
     assert InferenceConfig is InferenceConfigImpl
     assert ModelConfig is ModelConfigImpl
+    assert Qwen35DeltaNetCache is Qwen35DeltaNetCacheImpl
+    assert Qwen35ModelWithHead is Qwen35ModelWithHeadImpl
     assert SamplingMethod is SamplingMethodImpl
     assert TextGenerationPipeline is TextGenerationPipelineImpl
 
@@ -82,6 +95,16 @@ def test_models_package_exports_architecture_entry_points():
         kda_recurrent_scan,
     )
     from jaxml.models.llama import LlamaDecoder, LlamaMLP, LlamaModel, LlamaModelWithHead
+    from jaxml.models.qwen3_5 import (
+        LayerCache,
+        Qwen35Decoder,
+        Qwen35DeltaNetCache,
+        Qwen35GatedDeltaNet,
+        Qwen35Model,
+        Qwen35ModelWithHead,
+        Qwen35MoE,
+        gated_delta_recurrent_scan,
+    )
 
     assert models.__all__ == [
         "DeepseekDecoder",
@@ -107,6 +130,14 @@ def test_models_package_exports_architecture_entry_points():
         "LlamaMLP",
         "LlamaModel",
         "LlamaModelWithHead",
+        "LayerCache",
+        "Qwen35Decoder",
+        "Qwen35DeltaNetCache",
+        "Qwen35GatedDeltaNet",
+        "Qwen35Model",
+        "Qwen35ModelWithHead",
+        "Qwen35MoE",
+        "gated_delta_recurrent_scan",
         "kda_recurrent_scan",
     ]
     assert models.DeepseekDecoder is DeepseekDecoder
@@ -132,6 +163,14 @@ def test_models_package_exports_architecture_entry_points():
     assert models.LlamaMLP is LlamaMLP
     assert models.LlamaModel is LlamaModel
     assert models.LlamaModelWithHead is LlamaModelWithHead
+    assert models.LayerCache is LayerCache
+    assert models.Qwen35Decoder is Qwen35Decoder
+    assert models.Qwen35DeltaNetCache is Qwen35DeltaNetCache
+    assert models.Qwen35GatedDeltaNet is Qwen35GatedDeltaNet
+    assert models.Qwen35Model is Qwen35Model
+    assert models.Qwen35ModelWithHead is Qwen35ModelWithHead
+    assert models.Qwen35MoE is Qwen35MoE
+    assert models.gated_delta_recurrent_scan is gated_delta_recurrent_scan
     assert models.kda_recurrent_scan is kda_recurrent_scan
 
 

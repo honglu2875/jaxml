@@ -26,6 +26,12 @@ Currently supported:
 - [x] GLM-4.7-Flash (`glm4_moe_lite`, through the shared MLA/MoE implementation)
 - [x] Kimi-K2 text architecture (DeepSeek-V3-compatible MLA/MoE + YaRN)
 - [x] Kimi Linear (hybrid KDA/NoPE-MLA reference path; optimized TPU KDA prefill is still pending)
+- [x] Qwen3.5 / Qwen3.6 MoE text architecture (hybrid Gated DeltaNet/full attention; no vision or MTP)
+
+For Qwen, the canonical loader architecture is `qwen3_5`; accepted aliases include
+`qwen3_5_moe`, `qwen3_5_moe_text`, `qwen35`, `qwen3_6`, `Qwen3.6`, `qwen36`, and
+`qwen`. Both the outer `qwen3_5_moe` and text-only `qwen3_5_moe_text` Hugging Face
+config types are recognized.
 
 Inference engine features:
 - [x] tensor parallel and data parallel (using JAX sharding semantics)
@@ -82,18 +88,46 @@ A v4-8 is four TPU chips, so the intended starting topology for the MoE models i
 shard along tensor-parallel intermediate dimensions; expert-parallel collectives
 are not required for the first useful single-host setup.
 
-GLM-4.7-Flash is the practical first large checkpoint for this topology. Kimi
-Linear is also a plausible target but leaves much less HBM for caches and
-temporaries. Its current pure-JAX KDA scan is a correctness implementation;
-long-prompt throughput will need a chunkwise Pallas kernel. Kimi-K2 model/config
+The two primary v4-8 optimization targets are GLM-4.7-Flash and
+Qwen3.6-35B-A3B: both are useful modern MoE checkpoints that fit this single-host
+topology more realistically than the largest Kimi releases. Kimi-K2 model/config
 compatibility is included for completeness, but its trillion-parameter released
 checkpoint is not a v4-8 deployment target.
 
+Always load the 35B Qwen checkpoint as BF16 on v4-8 (the dedicated Qwen loader
+defaults to BF16; the generic pipeline keeps its backward-compatible float32
+default):
+
+```python
+from jaxml import InferenceConfig, TextGenerationPipeline
+
+pipeline = TextGenerationPipeline.from_hf(
+    "Qwen/Qwen3.6-35B-A3B",
+    architecture="qwen3_6",
+    model_dtype="bfloat16",
+    inference_config=InferenceConfig(tp_size=4),
+    use_tpu=True,
+)
+```
+
+The text tree has about 34.66B parameters: roughly 64.6 GiB in BF16 versus
+129.1 GiB in float32. The loader warns when a float32 Qwen tree alone would
+exceed the aggregate 128 GiB HBM of v4-8.
+
+DeepSeek-compatible MLA layers, including GLM and Kimi variants, persist only the
+normalized `kv_lora` latent and rotary-key slice instead of expanded per-head K/V.
+This reduces persistent cache HBM, but the current attention path still runs
+`kv_b_proj` over the cached latent and may materialize expanded K/V transiently.
+Qwen Gated DeltaNet currently uses the reference scan; a chunkwise TPU prefill
+kernel is pending, and a populated cache currently continues one token at a time.
+The recommended v4-8 path keeps `ep_size=1`; expert-sharded Megablox execution is
+not yet validated. Qwen support is text-only and excludes vision and MTP paths.
+
 Checkpoint conversion currently materializes the converted parameter tree on the
-host before the engine shards it. The Kimi Linear loader reads one safetensors
-shard at a time and does not import the official Torch/FLA model, but its converted
-tree still needs substantial host RAM. Direct safetensors-to-device streaming is
-the next loader milestone.
+host before the engine shards it. The Kimi Linear and Qwen loaders read one
+safetensors tensor at a time and avoid constructing the official Torch model, but
+the converted tree still needs substantial host RAM. Direct safetensors-to-device
+streaming is the next loader milestone.
 
 # Development
 
@@ -131,6 +165,8 @@ Current milestone modules:
 - `tests/test_model_inputs.py`
 - `tests/test_modules.py`
 - `tests/test_neox.py`
+- `tests/test_qwen3_5.py`
+- `tests/test_qwen35_hf.py`
 - `tests/test_rope.py`
 - `tests/test_sharding.py` (multi-device cases need `XLA_FLAGS=--xla_force_host_platform_device_count=4`)
 

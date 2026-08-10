@@ -12,6 +12,16 @@ from .kimi_linear import (
     kda_recurrent_scan,
 )
 from .llama import LlamaDecoder, LlamaMLP, LlamaModel, LlamaModelWithHead
+from .qwen3_5 import (
+    LayerCache,
+    Qwen35Decoder,
+    Qwen35DeltaNetCache,
+    Qwen35GatedDeltaNet,
+    Qwen35Model,
+    Qwen35ModelWithHead,
+    Qwen35MoE,
+    gated_delta_recurrent_scan,
+)
 
 __all__ = [
     "DeepseekDecoder",
@@ -37,5 +47,13 @@ __all__ = [
     "LlamaMLP",
     "LlamaModel",
     "LlamaModelWithHead",
+    "LayerCache",
+    "Qwen35Decoder",
+    "Qwen35DeltaNetCache",
+    "Qwen35GatedDeltaNet",
+    "Qwen35Model",
+    "Qwen35ModelWithHead",
+    "Qwen35MoE",
+    "gated_delta_recurrent_scan",
     "kda_recurrent_scan",
 ]

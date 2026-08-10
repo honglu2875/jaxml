@@ -216,9 +216,19 @@ class DeepseekMoE(Block):
         group_sizes = group_sizes.at[E - 1].add(m_pad - M)
 
         # Expert FFN via the Pallas grouped matmul.
-        gate_up = megablox.gmm(lhs, self.gate_up_kernel, group_sizes)  # (m_pad, 2I)
+        gate_up = megablox.gmm(
+            lhs,
+            self.gate_up_kernel,
+            group_sizes,
+            preferred_element_type=self.dtype,
+        )  # (m_pad, 2I)
         expert_hidden = jax.nn.silu(gate_up[:, :inter]) * gate_up[:, inter:]
-        expert_out = megablox.gmm(expert_hidden, self.down_kernel, group_sizes)  # (m_pad, H)
+        expert_out = megablox.gmm(
+            expert_hidden,
+            self.down_kernel,
+            group_sizes,
+            preferred_element_type=self.dtype,
+        )  # (m_pad, H)
 
         # Combine: scatter weighted expert outputs back to their original tokens.
         contrib = expert_out[:M] * sorted_weight[:, None].astype(expert_out.dtype)

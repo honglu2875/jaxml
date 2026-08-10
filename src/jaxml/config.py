@@ -295,10 +295,21 @@ class ModelConfig:
     kda_head_dim: Optional[int] = struct.field(default=None, pytree_node=False)
     kda_short_conv_kernel_size: int = struct.field(default=4, pytree_node=False)
 
+    # --- Qwen3.5/Qwen3.6 hybrid Gated DeltaNet/full attention. ---
+    # Transformers intentionally retains the qwen3_5_moe model type for the
+    # Qwen3.6 release, so both releases share this normalized representation.
+    layer_types: tuple[str, ...] = struct.field(default=(), pytree_node=False)
+    linear_conv_kernel_dim: Optional[int] = struct.field(default=None, pytree_node=False)
+    linear_key_head_dim: Optional[int] = struct.field(default=None, pytree_node=False)
+    linear_value_head_dim: Optional[int] = struct.field(default=None, pytree_node=False)
+    linear_num_key_heads: Optional[int] = struct.field(default=None, pytree_node=False)
+    linear_num_value_heads: Optional[int] = struct.field(default=None, pytree_node=False)
+
     # --- DeepSeek-V3 fine-grained MoE. n_routed_experts is None for dense models. ---
     n_routed_experts: Optional[int] = struct.field(default=None, pytree_node=False)
     n_shared_experts: Optional[int] = struct.field(default=None, pytree_node=False)
     moe_intermediate_size: Optional[int] = struct.field(default=None, pytree_node=False)
+    shared_expert_intermediate_size: Optional[int] = struct.field(default=None, pytree_node=False)
     num_experts_per_tok: Optional[int] = struct.field(default=None, pytree_node=False)
     n_group: Optional[int] = struct.field(default=None, pytree_node=False)
     topk_group: Optional[int] = struct.field(default=None, pytree_node=False)
@@ -438,6 +449,12 @@ class ModelConfig:
             "topk_group",
             "kda_num_heads",
             "kda_head_dim",
+            "linear_conv_kernel_dim",
+            "linear_key_head_dim",
+            "linear_value_head_dim",
+            "linear_num_key_heads",
+            "linear_num_value_heads",
+            "shared_expert_intermediate_size",
         ):
             value = getattr(self, name)
             if value is not None:
@@ -460,6 +477,7 @@ class ModelConfig:
             "glm4_moe_lite",
             "kimi_k2",
             "kimi_linear",
+            "qwen3_5_moe",
         }
         if architecture not in supported_architectures:
             raise ValueError(f"Unsupported architecture {architecture!r}.")
@@ -482,6 +500,48 @@ class ModelConfig:
             raise ValueError(f"kda_short_conv_kernel_size must be positive, got {self.kda_short_conv_kernel_size}.")
         if kda_layers and (self.kda_num_heads is None or self.kda_head_dim is None):
             raise ValueError("KDA configs must set kda_num_heads and kda_head_dim when kda_layers is non-empty.")
+
+        if isinstance(self.layer_types, str):
+            raise TypeError("layer_types must be a sequence of attention type names, not a string.")
+        try:
+            layer_types = tuple(str(layer_type).lower() for layer_type in self.layer_types)
+        except TypeError as e:
+            raise TypeError("layer_types must be an iterable of attention type names.") from e
+        object.__setattr__(self, "layer_types", layer_types)
+        supported_layer_types = {"linear_attention", "full_attention"}
+        if any(layer_type not in supported_layer_types for layer_type in layer_types):
+            raise ValueError("layer_types entries must be 'linear_attention' or 'full_attention', " f"got {layer_types}.")
+        if layer_types and len(layer_types) != self.num_layers:
+            raise ValueError(
+                f"layer_types must contain one entry per layer, got {len(layer_types)} for {self.num_layers} layers."
+            )
+        if self.architecture == "qwen3_5_moe":
+            if len(layer_types) != self.num_layers:
+                raise ValueError("Qwen3.5/Qwen3.6 configs must provide one layer_types entry per layer.")
+            required_qwen_fields = {
+                "linear_conv_kernel_dim": self.linear_conv_kernel_dim,
+                "linear_key_head_dim": self.linear_key_head_dim,
+                "linear_value_head_dim": self.linear_value_head_dim,
+                "linear_num_key_heads": self.linear_num_key_heads,
+                "linear_num_value_heads": self.linear_num_value_heads,
+                "n_routed_experts": self.n_routed_experts,
+                "moe_intermediate_size": self.moe_intermediate_size,
+                "shared_expert_intermediate_size": self.shared_expert_intermediate_size,
+                "num_experts_per_tok": self.num_experts_per_tok,
+            }
+            missing = tuple(name for name, value in required_qwen_fields.items() if value is None)
+            if missing:
+                raise ValueError(f"Qwen3.5/Qwen3.6 configs must set {', '.join(missing)}.")
+            if self.linear_num_value_heads % self.linear_num_key_heads != 0:
+                raise ValueError(
+                    "Qwen3.5/Qwen3.6 linear_num_value_heads must be divisible by linear_num_key_heads, "
+                    f"got {self.linear_num_value_heads} and {self.linear_num_key_heads}."
+                )
+            if self.num_experts_per_tok > self.n_routed_experts:
+                raise ValueError(
+                    "Qwen3.5/Qwen3.6 num_experts_per_tok cannot exceed n_routed_experts, "
+                    f"got {self.num_experts_per_tok} and {self.n_routed_experts}."
+                )
 
         object.__setattr__(self, "norm_topk_prob", _normalize_bool("norm_topk_prob", self.norm_topk_prob))
         object.__setattr__(
@@ -544,6 +604,13 @@ class ModelConfig:
             raise ValueError(f"layer_idx must be in [0, {self.num_layers}), got {layer_idx}.")
         return layer_idx in self.kda_layers
 
+    def is_linear_attention_layer(self, layer_idx: int) -> bool:
+        """Whether ``layer_idx`` uses Qwen's Gated DeltaNet attention."""
+        layer_idx = _normalize_count("layer_idx", layer_idx)
+        if layer_idx < 0 or layer_idx >= self.num_layers:
+            raise ValueError(f"layer_idx must be in [0, {self.num_layers}), got {layer_idx}.")
+        return bool(self.layer_types) and self.layer_types[layer_idx] == "linear_attention"
+
     def replace(self, **kwargs):
         args_dict = {k.name: getattr(self, k.name) for k in fields(self)} | kwargs
         return self.__class__(**args_dict)
@@ -568,10 +635,23 @@ class ModelConfig:
             GPTNeoXConfig,
             LlamaConfig,
             MistralConfig,
+            Qwen3_5MoeTextConfig,
         )
 
         model_type = getattr(config, "model_type", None)
-        if model_type == "kimi_linear":
+        if model_type == "qwen3_5_moe":
+            text_config = getattr(config, "text_config", None)
+            if text_config is None:
+                raise ValueError("Qwen3.5/Qwen3.6 outer config must expose text_config.")
+            if isinstance(text_config, Mapping):
+                text_config = Qwen3_5MoeTextConfig(**text_config)
+            config = text_config
+            model_type = getattr(config, "model_type", None)
+
+        if model_type == "qwen3_5_moe_text":
+            # Qwen3.6 checkpoints deliberately retain the Qwen3.5 model type.
+            config_type = "qwen3_5_moe"
+        elif model_type == "kimi_linear":
             # Kimi Linear uses a remote-code config and mixes KDA with NoPE MLA.
             config_type = "kimi_linear"
         elif model_type == "kimi_k2":
@@ -596,7 +676,18 @@ class ModelConfig:
         # Shared params.
         # hidden_size is guaranteed to exist in HF config
         hidden_size = _normalize_count("hidden_size", config.hidden_size)
-        intermediate_size = _normalize_count("intermediate_size", config.intermediate_size)
+        if config_type == "qwen3_5_moe":
+            # Qwen is MoE-only and therefore has no generic intermediate_size.
+            # Keep the compatibility ratio meaningful without using it for the
+            # routed or shared expert projections, which have explicit fields.
+            intermediate_size_value = getattr(
+                config,
+                "shared_expert_intermediate_size",
+                getattr(config, "moe_intermediate_size", None),
+            )
+        else:
+            intermediate_size_value = config.intermediate_size
+        intermediate_size = _normalize_count("intermediate_size", intermediate_size_value)
         if hidden_size <= 0:
             raise ValueError(f"hidden_size must be positive, got {hidden_size}.")
         if intermediate_size <= 0:
@@ -642,6 +733,10 @@ class ModelConfig:
         kda_layers = ()
         kda_num_heads = kda_head_dim = None
         kda_short_conv_kernel_size = 4
+        layer_types = ()
+        linear_conv_kernel_dim = linear_key_head_dim = linear_value_head_dim = None
+        linear_num_key_heads = linear_num_value_heads = None
+        shared_expert_intermediate_size = None
 
         # Case-by-case.
         if config_type == "llama":
@@ -701,6 +796,47 @@ class ModelConfig:
             use_bias = False
             sliding_window = config.sliding_window
             sliding_window_pattern = config.sliding_window_pattern
+        elif config_type == "qwen3_5_moe":
+            if bool(getattr(config, "attention_bias", False)):
+                raise NotImplementedError("Qwen3.5/Qwen3.6 configs with attention_bias=True are not supported.")
+            if not bool(getattr(config, "attn_output_gate", True)):
+                raise NotImplementedError("Qwen3.5/Qwen3.6 currently requires the gated attention output projection.")
+            if bool(getattr(config, "tie_word_embeddings", False)):
+                raise NotImplementedError("Qwen3.5/Qwen3.6 checkpoints with tied word embeddings are not supported.")
+            if getattr(config, "hidden_act", "silu") not in ("silu", "swiglu"):
+                raise NotImplementedError("Qwen3.5/Qwen3.6 currently requires a SiLU/SwiGLU activation.")
+
+            norm_eps = config.rms_norm_eps
+            num_kv_heads = _normalize_count("num_key_value_heads", config.num_key_value_heads)
+            rope_theta = _infer_hf_rope_theta(config)
+            rope_scale = _infer_hf_rope_scale(config)
+            rotary_pct = _infer_hf_rotary_pct(config)
+            use_parallel_residual = True
+            use_bias = False
+            sliding_window = None
+            sliding_window_pattern = None
+
+            raw_layer_types = getattr(config, "layer_types", None)
+            if isinstance(raw_layer_types, str) or raw_layer_types is None:
+                raise ValueError("Qwen3.5/Qwen3.6 config must expose a layer_types sequence.")
+            layer_types = tuple(str(layer_type).lower() for layer_type in raw_layer_types)
+            linear_conv_kernel_dim = _normalize_count("linear_conv_kernel_dim", config.linear_conv_kernel_dim)
+            linear_key_head_dim = _normalize_count("linear_key_head_dim", config.linear_key_head_dim)
+            linear_value_head_dim = _normalize_count("linear_value_head_dim", config.linear_value_head_dim)
+            linear_num_key_heads = _normalize_count("linear_num_key_heads", config.linear_num_key_heads)
+            linear_num_value_heads = _normalize_count("linear_num_value_heads", config.linear_num_value_heads)
+
+            n_routed_experts = _normalize_count("num_experts", config.num_experts)
+            n_shared_experts = 1
+            moe_intermediate_size = _normalize_count("moe_intermediate_size", config.moe_intermediate_size)
+            shared_expert_intermediate_size = _normalize_count(
+                "shared_expert_intermediate_size", config.shared_expert_intermediate_size
+            )
+            num_experts_per_tok = _normalize_count("num_experts_per_tok", config.num_experts_per_tok)
+            routed_scaling_factor = 1.0
+            norm_topk_prob = True
+            first_k_dense_replace = 0
+            moe_layer_freq = 1
         elif config_type in ("deepseek", "glm4_moe_lite", "kimi_k2", "kimi_linear"):
             # DeepSeek-V3, GLM-4.7-Flash, and Kimi-K2 share MLA attention and
             # fine-grained MoE. The latter two only require config adapters.
@@ -838,9 +974,16 @@ class ModelConfig:
             kda_num_heads=kda_num_heads,
             kda_head_dim=kda_head_dim,
             kda_short_conv_kernel_size=kda_short_conv_kernel_size,
+            layer_types=layer_types,
+            linear_conv_kernel_dim=linear_conv_kernel_dim,
+            linear_key_head_dim=linear_key_head_dim,
+            linear_value_head_dim=linear_value_head_dim,
+            linear_num_key_heads=linear_num_key_heads,
+            linear_num_value_heads=linear_num_value_heads,
             n_routed_experts=n_routed_experts,
             n_shared_experts=n_shared_experts,
             moe_intermediate_size=moe_intermediate_size,
+            shared_expert_intermediate_size=shared_expert_intermediate_size,
             num_experts_per_tok=num_experts_per_tok,
             n_group=n_group,
             topk_group=topk_group,

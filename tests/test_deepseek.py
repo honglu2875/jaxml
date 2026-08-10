@@ -276,18 +276,24 @@ def test_deepseek_head_logits_positions_match_full_logits_for_right_padded_batch
 def test_deepseek_moe_gmm_matches_dense_on_tpu(seq_len):
     """The Pallas gmm sparse path equals the dense reference (up to TPU bf16)."""
     config = ModelConfig.from_hf(_tiny_tpu_deepseek_config())
-    dense = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="dense")
-    gmm = DeepseekMoE(config, dtype=jnp.float32, moe_implementation="gmm")
+    dense = DeepseekMoE(config, dtype=jnp.bfloat16, moe_implementation="dense")
+    gmm = DeepseekMoE(config, dtype=jnp.bfloat16, moe_implementation="gmm")
 
     bs = 2
-    x = jax.random.normal(jax.random.PRNGKey(0), (bs, seq_len, config.hidden_size), dtype=jnp.float32)
+    x = jax.random.normal(jax.random.PRNGKey(0), (bs, seq_len, config.hidden_size), dtype=jnp.bfloat16)
     params = dense.init(jax.random.PRNGKey(1), x)  # both paths share the same parameters
 
-    y_dense = np.asarray(dense.apply(params, x))
-    y_gmm = np.asarray(gmm.apply(params, x))
+    y_dense = dense.apply(params, x)
+    y_gmm = gmm.apply(params, x)
 
     assert y_gmm.shape == y_dense.shape
-    assert np.allclose(y_gmm, y_dense, atol=2e-2, rtol=2e-2)
+    assert y_gmm.dtype == y_dense.dtype == jnp.bfloat16
+    assert np.allclose(
+        np.asarray(y_gmm, dtype=np.float32),
+        np.asarray(y_dense, dtype=np.float32),
+        atol=5e-2,
+        rtol=5e-2,
+    )
 
 
 def test_deepseek_engine_generate_end_to_end(tmp_path, monkeypatch):

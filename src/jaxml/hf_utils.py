@@ -1,5 +1,6 @@
 import json
 import re
+import warnings
 from collections.abc import Mapping
 from operator import index
 from os import PathLike, fspath
@@ -19,7 +20,7 @@ from .utils import _resolve_np_dtype, _state_value_to_numpy, torch_to_jax_states
 
 
 class _LazySafetensorsStateDict(Mapping):
-    """Read one checkpoint shard at a time through the state-dict interface."""
+    """Read one checkpoint tensor at a time through the state-dict interface."""
 
     def __init__(self, weight_map: Mapping[str, str], resolve_shard):
         if not isinstance(weight_map, Mapping) or not weight_map:
@@ -43,18 +44,24 @@ class _LazySafetensorsStateDict(Mapping):
             shard_name = self._weight_map[key]
         except KeyError as e:
             raise KeyError(key) from e
-        if shard_name != self._loaded_name:
-            try:
-                from safetensors.torch import load_file
-            except ImportError as e:
-                raise ImportError("Please install safetensors to load Kimi Linear checkpoints.") from e
-            shard_path = self._resolve_shard(shard_name)
-            self._loaded_state = load_file(shard_path, device="cpu")
-            self._loaded_name = shard_name
         try:
-            return self._loaded_state[key]
+            from safetensors import safe_open
+        except ImportError as e:
+            raise ImportError("Please install safetensors to load direct Hugging Face checkpoints.") from e
+        shard_path = self._resolve_shard(shard_name)
+        self._loaded_state = {}
+        self._loaded_name = None
+        try:
+            with safe_open(shard_path, framework="pt", device="cpu") as checkpoint:
+                value = checkpoint.get_tensor(key)
         except KeyError as e:
             raise KeyError(f"Safetensors shard {shard_name!r} does not contain indexed tensor {key!r}.") from e
+        # Retain only the returned tensor until the next lookup. This keeps the
+        # Mapping semantics familiar without materializing unrelated tensors in
+        # the same shard (notably vision weights in outer Qwen checkpoints).
+        self._loaded_state = {key: value}
+        self._loaded_name = shard_name
+        return value
 
 
 def _load_kimi_linear_safetensors_source(name: str, **from_pretrained_kwargs):
@@ -136,6 +143,163 @@ def _load_kimi_linear_safetensors_source(name: str, **from_pretrained_kwargs):
     weight_map = index_data.get("weight_map") if isinstance(index_data, dict) else None
     state_dict = _LazySafetensorsStateDict(weight_map, resolve_file)
     config = SimpleNamespace(**config_data)
+    return SimpleNamespace(config=config, state_dict=lambda: state_dict)
+
+
+def _is_qwen35_text_weight(name: str) -> bool:
+    """Keep the language model while excluding outer vision and MTP tensors."""
+    if name == "lm_head.weight":
+        return True
+    text_prefixes = (
+        "model.embed_tokens.",
+        "model.layers.",
+        "model.norm.",
+        "model.language_model.embed_tokens.",
+        "model.language_model.layers.",
+        "model.language_model.norm.",
+    )
+    return name.startswith(text_prefixes)
+
+
+def _load_qwen35_safetensors_source(name: str, **from_pretrained_kwargs):
+    """Build a lazy text-only facade for Qwen3.5 and Qwen3.6 checkpoints.
+
+    Official Qwen releases may use an outer vision-language config even when
+    only text generation is needed. Filtering the index before opening shards
+    avoids retaining vision and MTP parameters and avoids materializing a
+    second complete Torch model beside the converted JAX parameter tree.
+    """
+    kwargs = dict(from_pretrained_kwargs)
+    subfolder = kwargs.pop("subfolder", None)
+    if subfolder is not None and not isinstance(subfolder, str):
+        raise TypeError(f"subfolder must be a string when set, got {type(subfolder)}.")
+
+    hub_keys = {
+        "revision",
+        "cache_dir",
+        "local_dir",
+        "user_agent",
+        "force_download",
+        "token",
+        "local_files_only",
+        "headers",
+        "endpoint",
+    }
+    ignored_model_keys = {
+        "attn_implementation",
+        "device_map",
+        "dtype",
+        "low_cpu_mem_usage",
+        "torch_dtype",
+        "trust_remote_code",
+        "weights_only",
+    }
+    use_safetensors = kwargs.pop("use_safetensors", True)
+    if use_safetensors is False:
+        raise ValueError("Qwen3.5/Qwen3.6 direct loading requires use_safetensors=True.")
+    unexpected = set(kwargs) - hub_keys - ignored_model_keys
+    if unexpected:
+        raise TypeError(
+            "Unsupported Qwen3.5/Qwen3.6 checkpoint loading keyword arguments: "
+            f"{sorted(unexpected)}. Pass hub download options or model dtype through the loader's dtype argument."
+        )
+    hub_kwargs = {key: kwargs[key] for key in hub_keys if key in kwargs}
+
+    local_root = Path(name)
+    if local_root.is_dir():
+        if subfolder:
+            local_root = local_root / subfolder
+
+        def resolve_file(filename):
+            path = local_root / filename
+            if not path.is_file():
+                raise FileNotFoundError(f"Qwen3.5/Qwen3.6 checkpoint file does not exist: {path}.")
+            return str(path)
+
+        index_path = local_root / "model.safetensors.index.json"
+        single_path = local_root / "model.safetensors"
+        if index_path.is_file():
+            checkpoint_path = index_path
+            is_indexed = True
+        elif single_path.is_file():
+            checkpoint_path = single_path
+            is_indexed = False
+        else:
+            raise FileNotFoundError(
+                f"Qwen3.5/Qwen3.6 checkpoint directory {local_root} contains neither "
+                "model.safetensors.index.json nor model.safetensors."
+            )
+    else:
+        try:
+            from huggingface_hub import hf_hub_download
+            from huggingface_hub.errors import EntryNotFoundError
+        except ImportError as e:
+            raise ImportError("Please install huggingface-hub to download Qwen3.5/Qwen3.6 checkpoints.") from e
+
+        def resolve_file(filename):
+            return str(
+                hf_hub_download(
+                    repo_id=name,
+                    filename=filename,
+                    subfolder=subfolder,
+                    **hub_kwargs,
+                )
+            )
+
+        try:
+            checkpoint_path = Path(resolve_file("model.safetensors.index.json"))
+            is_indexed = True
+        except EntryNotFoundError:
+            checkpoint_path = Path(resolve_file("model.safetensors"))
+            is_indexed = False
+
+    config_path = Path(resolve_file("config.json"))
+    try:
+        config_data = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"Failed to read Qwen3.5/Qwen3.6 config from {config_path}.") from e
+    if not isinstance(config_data, dict):
+        raise ValueError(f"Qwen3.5/Qwen3.6 config must be a JSON object, got {type(config_data)}.")
+    text_config_data = config_data.get("text_config")
+    nested_quantization = text_config_data.get("quantization_config") if isinstance(text_config_data, Mapping) else None
+    if config_data.get("quantization_config") is not None or nested_quantization is not None:
+        raise NotImplementedError(
+            "Quantized Qwen3.5/Qwen3.6 checkpoints are not supported: scale-aware FP8 conversion is not "
+            "implemented. Load an unquantized BF16/FP16 checkpoint instead."
+        )
+
+    model_type = config_data.get("model_type")
+    try:
+        from transformers import Qwen3_5MoeConfig, Qwen3_5MoeTextConfig
+    except ImportError as e:
+        raise ImportError("Installed transformers does not include Qwen3.5/Qwen3.6 support.") from e
+    if model_type == "qwen3_5_moe":
+        config = Qwen3_5MoeConfig(**config_data)
+    elif model_type == "qwen3_5_moe_text":
+        config = Qwen3_5MoeTextConfig(**config_data)
+    else:
+        raise ValueError(
+            "Expected Qwen3.5/Qwen3.6 config model_type to be 'qwen3_5_moe' or " f"'qwen3_5_moe_text', got {model_type!r}."
+        )
+
+    if is_indexed:
+        try:
+            index_data = json.loads(checkpoint_path.read_text())
+        except (OSError, json.JSONDecodeError) as e:
+            raise ValueError(f"Failed to read Qwen3.5/Qwen3.6 checkpoint index from {checkpoint_path}.") from e
+        weight_map = index_data.get("weight_map") if isinstance(index_data, dict) else None
+        if not isinstance(weight_map, Mapping):
+            raise ValueError("Qwen3.5/Qwen3.6 checkpoint index must contain a weight_map object.")
+    else:
+        try:
+            from safetensors import safe_open
+        except ImportError as e:
+            raise ImportError("Please install safetensors to load Qwen3.5/Qwen3.6 checkpoints.") from e
+        with safe_open(str(checkpoint_path), framework="np") as checkpoint:
+            weight_map = {key: checkpoint_path.name for key in checkpoint.keys()}
+
+    text_weight_map = {key: shard for key, shard in weight_map.items() if _is_qwen35_text_weight(key)}
+    state_dict = _LazySafetensorsStateDict(text_weight_map, resolve_file)
     return SimpleNamespace(config=config, state_dict=lambda: state_dict)
 
 
@@ -469,6 +633,190 @@ def to_kimi_linear_jax_params(model, dtype: str = "bfloat16"):
     return {"params": {"model": model_params, "lm_head": {"kernel": g("lm_head.weight").T}}}
 
 
+def to_qwen35_jax_params(model, dtype: str = "bfloat16"):
+    """Convert Qwen3.5/Qwen3.6 text weights to the hybrid jaxml tree.
+
+    Transformers uses the same ``qwen3_5_moe`` implementation for Qwen3.6.
+    Both the standalone causal LM prefix (``model.*``) and the outer
+    vision-language prefix (``model.language_model.*``) are accepted; vision
+    and MTP tensors are intentionally outside this conversion.
+    """
+    from jaxml.config import ModelConfig
+
+    hf_config = _hf_model_config(model, "Qwen3.5/Qwen3.6")
+    cfg = ModelConfig.from_hf(hf_config)
+    if cfg.architecture != "qwen3_5_moe":
+        raise ValueError(
+            "Expected Hugging Face Qwen3.5/Qwen3.6 model_type='qwen3_5_moe' or "
+            f"'qwen3_5_moe_text', got {getattr(hf_config, 'model_type', None)!r}."
+        )
+    state_dict = _hf_model_state_dict(model, "Qwen3.5/Qwen3.6")
+    np_dtype = _resolve_np_dtype(dtype)
+
+    outer_embedding = "model.language_model.embed_tokens.weight"
+    text_embedding = "model.embed_tokens.weight"
+    if outer_embedding in state_dict:
+        prefix = "model.language_model."
+    elif text_embedding in state_dict:
+        prefix = "model."
+    else:
+        raise KeyError(
+            "Hugging Face Qwen3.5/Qwen3.6 state dict is missing both supported embedding tensors "
+            f"{outer_embedding!r} and {text_embedding!r}."
+        )
+
+    def g(key, target_dtype=np_dtype):
+        try:
+            value = state_dict[key]
+        except KeyError as e:
+            raise KeyError(f"Hugging Face Qwen3.5/Qwen3.6 state dict is missing required tensor {key!r}.") from e
+        return _state_value_to_numpy(value, target_dtype, key)
+
+    def linear_attention_params(layer_prefix):
+        attn_prefix = layer_prefix + "linear_attn."
+        value_heads = cfg.linear_num_value_heads
+        value_head_dim = cfg.linear_value_head_dim
+        return {
+            "dt_bias": g(attn_prefix + "dt_bias", np.float32),
+            "A_log": g(attn_prefix + "A_log", np.float32),
+            "conv1d": {"weight": g(attn_prefix + "conv1d.weight").squeeze(1)},
+            # Gated DeltaNet's head norm is a direct multiplicative scale.
+            # (Decoder/final/qk norms are the zero-centered Qwen variant.)
+            "norm": {"weight": g(attn_prefix + "norm.weight")},
+            "in_proj_qkv": {"kernel": g(attn_prefix + "in_proj_qkv.weight").T},
+            "in_proj_z": {
+                "kernel": g(attn_prefix + "in_proj_z.weight").T.reshape(
+                    cfg.hidden_size,
+                    value_heads,
+                    value_head_dim,
+                )
+            },
+            "in_proj_b": {"kernel": g(attn_prefix + "in_proj_b.weight").T},
+            "in_proj_a": {"kernel": g(attn_prefix + "in_proj_a.weight").T},
+            "out_proj": {"kernel": g(attn_prefix + "out_proj.weight").T},
+        }
+
+    def full_attention_params(layer_prefix):
+        attn_prefix = layer_prefix + "self_attn."
+        return {
+            # q_proj fuses each head's query and sigmoid output gate.
+            "q_proj": {
+                "kernel": g(attn_prefix + "q_proj.weight").T.reshape(
+                    cfg.hidden_size,
+                    cfg.num_heads,
+                    2,
+                    cfg.head_dim,
+                )
+            },
+            "k_proj": {
+                "kernel": g(attn_prefix + "k_proj.weight").T.reshape(
+                    cfg.hidden_size,
+                    cfg.num_key_value_heads,
+                    cfg.head_dim,
+                )
+            },
+            "v_proj": {
+                "kernel": g(attn_prefix + "v_proj.weight").T.reshape(
+                    cfg.hidden_size,
+                    cfg.num_key_value_heads,
+                    cfg.head_dim,
+                )
+            },
+            "o_proj": {"kernel": g(attn_prefix + "o_proj.weight").T},
+            "q_norm": {"weight": g(attn_prefix + "q_norm.weight")},
+            "k_norm": {"weight": g(attn_prefix + "k_norm.weight")},
+        }
+
+    def moe_params(layer_prefix):
+        mlp_prefix = layer_prefix + "mlp."
+        return {
+            "gate_kernel": g(mlp_prefix + "gate.weight", np.float32).T,
+            "gate_up_kernel": g(mlp_prefix + "experts.gate_up_proj").transpose(0, 2, 1),
+            "down_kernel": g(mlp_prefix + "experts.down_proj").transpose(0, 2, 1),
+            "shared_expert": {
+                "gate_proj": {"kernel": g(mlp_prefix + "shared_expert.gate_proj.weight").T},
+                "up_proj": {"kernel": g(mlp_prefix + "shared_expert.up_proj.weight").T},
+                "down_proj": {"kernel": g(mlp_prefix + "shared_expert.down_proj.weight").T},
+            },
+            "shared_expert_gate": {"kernel": g(mlp_prefix + "shared_expert_gate.weight").T},
+        }
+
+    model_params = {"embed_tokens": {"embedding": g(prefix + "embed_tokens.weight")}}
+    for idx in range(cfg.num_layers):
+        layer_prefix = f"{prefix}layers.{idx}."
+        layer_params = {
+            "mlp": moe_params(layer_prefix),
+            "input_layernorm": {"weight": g(layer_prefix + "input_layernorm.weight")},
+            "post_attention_layernorm": {"weight": g(layer_prefix + "post_attention_layernorm.weight")},
+        }
+        if cfg.is_linear_attention_layer(idx):
+            layer_params["linear_attn"] = linear_attention_params(layer_prefix)
+        else:
+            layer_params["self_attn"] = full_attention_params(layer_prefix)
+        model_params[f"layers_{idx}"] = layer_params
+    model_params["norm"] = {"weight": g(prefix + "norm.weight")}
+
+    return {"params": {"model": model_params, "lm_head": {"kernel": g("lm_head.weight").T}}}
+
+
+def _qwen35_text_parameter_count(config) -> int:
+    """Return the exact parameter count of the supported Qwen text tree."""
+    hidden = config.hidden_size
+    value_width = config.linear_num_value_heads * config.linear_value_head_dim
+    key_width = config.linear_num_key_heads * config.linear_key_head_dim
+    conv_width = 2 * key_width + value_width
+
+    # Untied token embeddings, final norm, and LM head.
+    total = 2 * config.vocab_size * hidden + hidden
+    moe = sum(
+        (
+            config.n_routed_experts * hidden,
+            config.n_routed_experts * hidden * 2 * config.moe_intermediate_size,
+            config.n_routed_experts * config.moe_intermediate_size * hidden,
+            3 * hidden * config.shared_expert_intermediate_size,
+            hidden,
+        )
+    )
+    linear_attention = sum(
+        (
+            2 * config.linear_num_value_heads,
+            conv_width * config.linear_conv_kernel_dim,
+            hidden * conv_width,
+            hidden * value_width,
+            2 * hidden * config.linear_num_value_heads,
+            value_width * hidden,
+            config.linear_value_head_dim,
+        )
+    )
+    full_attention = sum(
+        (
+            hidden * config.num_heads * 2 * config.head_dim,
+            2 * hidden * config.num_key_value_heads * config.head_dim,
+            config.num_heads * config.head_dim * hidden,
+            2 * config.head_dim,
+        )
+    )
+    for layer_idx in range(config.num_layers):
+        total += 2 * hidden + moe
+        total += linear_attention if config.is_linear_attention_layer(layer_idx) else full_attention
+    return total
+
+
+def _warn_for_oversized_qwen35_float32(config, dtype: str):
+    if _resolve_np_dtype(dtype) != np.float32:
+        return
+    parameter_bytes = _qwen35_text_parameter_count(config) * np.dtype(np.float32).itemsize
+    v4_8_hbm_bytes = 128 * 1024**3
+    if parameter_bytes > v4_8_hbm_bytes:
+        parameter_gib = parameter_bytes / 1024**3
+        warnings.warn(
+            f"This Qwen text model needs about {parameter_gib:.1f} GiB for float32 parameters alone, which exceeds "
+            "the 128 GiB aggregate HBM of a TPU v4-8. Use dtype='bfloat16' for v4-8 serving.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+
 HFArchitecture = Literal[
     "auto",
     "llama",
@@ -481,6 +829,15 @@ HFArchitecture = Literal[
     "kimi_k2",
     "kimi_linear",
     "kimi",
+    "qwen3_5_moe",
+    "qwen3_5_moe_text",
+    "qwen3_5",
+    "qwen3.5",
+    "qwen35",
+    "qwen3_6",
+    "qwen3.6",
+    "qwen36",
+    "qwen",
     "gpt_neox",
     "neox",
     "gemma3",
@@ -491,7 +848,7 @@ HFArchitecture = Literal[
 def _normalize_hf_architecture(architecture: str) -> str:
     if not isinstance(architecture, str):
         raise TypeError(f"architecture must be a string, got {type(architecture)}.")
-    normalized = architecture.lower().replace("-", "_")
+    normalized = architecture.lower().replace("-", "_").replace(".", "_")
     match normalized:
         case "auto" | "llama" | "mistral" | "neox" | "gemma":
             return normalized
@@ -503,6 +860,8 @@ def _normalize_hf_architecture(architecture: str) -> str:
             return "kimi_k2"
         case "kimi_linear" | "kimi":
             return "kimi_linear"
+        case "qwen3_5_moe" | "qwen3_5_moe_text" | "qwen3_5" | "qwen35" | "qwen3_6" | "qwen36" | "qwen":
+            return "qwen3_5"
         case "gpt_neox":
             return "neox"
         case "gemma3" | "gemma_3":
@@ -557,6 +916,8 @@ def _infer_hf_architecture(name: str, **config_kwargs) -> str:
             return "kimi_k2"
         case "kimi_linear":
             return "kimi_linear"
+        case "qwen3_5_moe" | "qwen3_5_moe_text":
+            return "qwen3_5"
         case "gpt_neox":
             return "neox"
         case "gemma3":
@@ -593,6 +954,8 @@ def load_model_from_hf(
             return load_kimi_k2_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "kimi" | "kimi_linear":
             return load_kimi_linear_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+        case "qwen3_5":
+            return load_qwen35_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "gpt_neox" | "neox":
             return load_neox_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
         case "gemma3" | "gemma":
@@ -733,6 +1096,43 @@ def load_kimi_from_hf(
 ) -> tuple[KimiLinearModelWithHead, dict]:
     """Alias for :func:`load_kimi_linear_from_hf`."""
     return load_kimi_linear_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+
+
+def load_qwen35_from_hf(name: str, dtype: str = "bfloat16", **from_pretrained_kwargs):
+    """Load Qwen3.5 or Qwen3.6 text weights directly from safetensors."""
+    name = _normalize_hf_model_name(name)
+    dtype = _validate_hf_dtype(dtype)
+
+    from jaxml.config import ModelConfig
+    from jaxml.models.qwen3_5 import Qwen35ModelWithHead
+
+    hf_model = _load_qwen35_safetensors_source(name, **from_pretrained_kwargs)
+    hf_config = _hf_model_config(hf_model, "Qwen3.5/Qwen3.6")
+    _validate_hf_model_type(
+        hf_config,
+        ("qwen3_5_moe", "qwen3_5_moe_text"),
+        "Qwen3.5/Qwen3.6",
+    )
+    config = ModelConfig.from_hf(hf_config)
+    _warn_for_oversized_qwen35_float32(config, dtype)
+    params = to_qwen35_jax_params(hf_model, dtype=dtype)
+    model = Qwen35ModelWithHead(config, dtype=_resolve_np_dtype(dtype))
+    return model, params
+
+
+def load_qwen3_5_from_hf(name: str, dtype: str = "bfloat16", **from_pretrained_kwargs):
+    """Spelled-out alias for :func:`load_qwen35_from_hf`."""
+    return load_qwen35_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+
+
+def load_qwen36_from_hf(name: str, dtype: str = "bfloat16", **from_pretrained_kwargs):
+    """Qwen3.6 release alias for the shared Qwen3.5-MoE implementation."""
+    return load_qwen35_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
+
+
+def load_qwen3_6_from_hf(name: str, dtype: str = "bfloat16", **from_pretrained_kwargs):
+    """Spelled-out alias for :func:`load_qwen36_from_hf`."""
+    return load_qwen35_from_hf(name, dtype=dtype, **from_pretrained_kwargs)
 
 
 def load_neox_from_hf(name: str, dtype: str = "float32", **from_pretrained_kwargs) -> tuple[GPTNeoXModelWithHead, dict]:
