@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 import torch
 
+from jaxml.cache import MLACache
 from jaxml.config import ModelConfig
 from jaxml.hf_utils import (
     _normalize_hf_architecture,
@@ -258,6 +259,12 @@ def test_kimi_linear_hybrid_cache_matches_full_sequence():
 
     assert isinstance(decode.kv_caches[0], KDACache)
     assert decode.kv_caches[0].recurrent_state.dtype == jnp.float32
+    assert isinstance(decode.kv_caches[1], MLACache)
+    assert decode.kv_caches[1].kv_latent.shape == (2, 8, config.kv_lora_rank)
+    assert decode.kv_caches[1].k_rope.shape == (2, 8, config.qk_rope_head_dim)
+    compressed_elements = decode.kv_caches[1].kv_latent.size + decode.kv_caches[1].k_rope.size
+    expanded_elements = 2 * 2 * 8 * config.num_heads * config.qk_head_dim
+    assert compressed_elements < expanded_elements
     assert np.allclose(decode.logits[:, 0], full, atol=1e-5, rtol=1e-5)
 
 

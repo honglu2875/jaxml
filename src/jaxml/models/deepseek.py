@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax.linen.partitioning import with_sharding_constraint
 
-from ..cache import KVCache
+from ..cache import KVCache, MLACache
 from ..nn.attention import Attention, _validate_cos_sin, _validate_hidden_states
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
@@ -263,12 +263,13 @@ class MLAAttention(Attention):
     """Multi-head Latent Attention (DeepSeek-V3).
 
     Query and key/value are produced through low-rank latent projections; RoPE is
-    applied to a small decoupled slice only. The key/value heads have different
-    dimensions (``qk_head_dim`` vs ``v_head_dim``), so the value is zero-padded to
-    ``qk_head_dim`` — exactly as the reference does for its flash path — which lets
-    this class reuse the standard ``mha`` core and ``KVCache`` (which require
-    matching key/value shapes). The attention output is sliced back to
-    ``v_head_dim`` before the output projection.
+    applied to a small decoupled slice only. Cached inference stores the normalized
+    ``kv_lora`` latent and the single-head rotary key in :class:`MLACache`; expanded
+    per-head keys and values are reconstructed only for the active attention call.
+    The key/value heads have different dimensions (``qk_head_dim`` vs
+    ``v_head_dim``), so the value is zero-padded to ``qk_head_dim`` exactly as in
+    the reference flash path. The attention output is sliced back to ``v_head_dim``
+    before the output projection.
 
     ``cos_sin`` are the per-token (already position-indexed) cosine/sine arrays of
     shape ``(batch, seq, qk_rope_head_dim)``, matching ``AttentionWithRoPE``'s
@@ -342,7 +343,7 @@ class MLAAttention(Attention):
         cos_sin: Optional[tuple[jnp.ndarray, jnp.ndarray]] = None,
         attention_mask: Optional[jnp.ndarray] = None,
         position_ids: Optional[jnp.ndarray] = None,
-        kv_cache: Optional[KVCache] = None,
+        kv_cache: Optional[MLACache | KVCache] = None,
         output_attentions: bool = False,
         use_flash: bool = False,
         sliding_window: int | None = None,
@@ -360,6 +361,18 @@ class MLAAttention(Attention):
         nope, rope, v = cfg.qk_nope_head_dim, cfg.qk_rope_head_dim, cfg.v_head_dim
         qk = nope + rope
 
+        if isinstance(kv_cache, KVCache):
+            # Empty legacy caches carry no model-dependent shape, so migrate them
+            # without breaking callers that used KVCache before MLA had a compact
+            # representation. Expanded populated caches cannot be losslessly
+            # converted back to the latent space.
+            kv_cache.validate_state()
+            if kv_cache.is_populated:
+                raise TypeError("MLAAttention requires MLACache for populated cache state, not an expanded KVCache.")
+            kv_cache = MLACache.init(max_seq_len=kv_cache.max_seq_len, dtype=kv_cache.dtype)
+        elif kv_cache is not None and not isinstance(kv_cache, MLACache):
+            raise TypeError(f"kv_cache must be an MLACache instance or None, got {type(kv_cache)}.")
+
         # Query: optional low-rank compression, then split into nope / rope parts.
         if cfg.q_lora_rank is None:
             q = self.q_proj(hidden_states)
@@ -371,28 +384,37 @@ class MLAAttention(Attention):
         # Key/value: shared latent (kv_lora_rank) + a single-head decoupled rope key.
         compressed = self.kv_a_proj_with_mqa(hidden_states)
         k_pass, k_rot = compressed[..., : cfg.kv_lora_rank], compressed[..., cfg.kv_lora_rank :]
-        kv = self.kv_b_proj(self.kv_a_layernorm(k_pass)).reshape(bsz, seq_len, nh, nope + v)
-        k_nope, value = kv[..., :nope], kv[..., nope:]
+        kv_latent = self.kv_a_layernorm(k_pass)
         k_rot = k_rot.reshape(bsz, seq_len, 1, rope)
 
         if not cfg.mla_use_nope:
             q_rot, k_rot = _apply_rope_interleave(q_rot, k_rot, cos, sin)
-        k_rot = jnp.broadcast_to(k_rot, (bsz, seq_len, nh, rope))
+
+        if attention_mask is None:
+            attention_mask = (
+                kv_cache.next_mask
+                if kv_cache is not None and kv_cache.mask is not None
+                else jnp.ones(hidden_states.shape[:2], dtype=bool)
+            )
+        if kv_cache is not None:
+            kv_cache = kv_cache.update(kv_latent, k_rot.squeeze(2), attention_mask)
+            kv_latent = kv_cache.kv_latent
+            k_rot = kv_cache.k_rope[:, :, None, :]
+            attention_mask = kv_cache.mask
+
+        key_len = kv_latent.shape[1]
+        kv = self.kv_b_proj(kv_latent).reshape(bsz, key_len, nh, nope + v)
+        k_nope, value = kv[..., :nope], kv[..., nope:]
+        k_rot = jnp.broadcast_to(k_rot, (bsz, key_len, nh, rope))
 
         query_states = jnp.concatenate([q_nope, q_rot], axis=-1)  # (b, s, nh, qk_head_dim)
-        key_states = jnp.concatenate([k_nope, k_rot], axis=-1)  # (b, s, nh, qk_head_dim)
+        key_states = jnp.concatenate([k_nope, k_rot], axis=-1)  # (b, cache, nh, qk_head_dim)
         # Pad value to qk_head_dim so key/value shapes match (reference does the same
         # for flash); the padded lanes are sliced off after attention.
         if qk > v:
-            value_states = jnp.concatenate([value, jnp.zeros((bsz, seq_len, nh, qk - v), dtype=value.dtype)], axis=-1)
+            value_states = jnp.concatenate([value, jnp.zeros((bsz, key_len, nh, qk - v), dtype=value.dtype)], axis=-1)
         else:
             value_states = value
-
-        if attention_mask is None:
-            attention_mask = self._get_default_mask(hidden_states, kv_cache)
-        key_states, value_states, attention_mask, kv_cache = self.apply_kv_cache(
-            key_states, value_states, attention_mask, kv_cache
-        )
 
         attn_output, attn_weight = self.mha(
             query_states,
@@ -473,6 +495,11 @@ def _deepseek_cos_sin(position_ids: jnp.ndarray, config, dtype) -> tuple[jnp.nda
     return (jnp.cos(emb) * attention_factor).astype(dtype), (jnp.sin(emb) * attention_factor).astype(dtype)
 
 
+def _init_mla_caches(config, max_seq_len: int, dtype: Any) -> tuple[MLACache, ...]:
+    """Create one empty compressed MLA cache per decoder layer."""
+    return tuple(MLACache.init(max_seq_len=max_seq_len, dtype=dtype) for _ in range(config.num_layers))
+
+
 class DeepseekDecoder(Block):
     """A single DeepSeek-V3 decoder layer (MLA + dense-or-MoE FFN)."""
 
@@ -495,7 +522,7 @@ class DeepseekDecoder(Block):
         hidden_states: jnp.ndarray,
         cos_sin: tuple[jnp.ndarray, jnp.ndarray],
         attention_mask: Optional[jnp.ndarray] = None,
-        kv_cache: Optional[KVCache] = None,
+        kv_cache: Optional[MLACache | KVCache] = None,
         output_attentions: bool = False,
     ) -> DecoderOutput:
         residual = hidden_states
@@ -543,6 +570,10 @@ class DeepseekModel(Block):
         ]
         self.norm = RMSNorm(self.hidden_size, eps=self.norm_eps, dtype=self.dtype, upcast=True)
 
+    @nn.nowrap
+    def init_cache(self, max_seq_len: int, dtype: Any = None) -> tuple[MLACache, ...]:
+        return _init_mla_caches(self.config, max_seq_len, self.dtype if dtype is None else dtype)
+
     def _resolve_position_ids(self, position_ids, input_ids, kv_caches):
         if position_ids is not None:
             return position_ids
@@ -560,7 +591,7 @@ class DeepseekModel(Block):
         input_ids: jnp.ndarray,
         attention_mask: Optional[jnp.ndarray] = None,
         position_ids: Optional[jnp.ndarray] = None,
-        kv_caches: Optional[tuple[KVCache, ...]] = None,
+        kv_caches: Optional[tuple[MLACache | KVCache, ...]] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
         use_cache: bool = False,
@@ -631,12 +662,16 @@ class DeepseekModelWithHead(Block):
             name="lm_head",
         )
 
+    @nn.nowrap
+    def init_cache(self, max_seq_len: int, dtype: Any = None) -> tuple[MLACache, ...]:
+        return _init_mla_caches(self.config, max_seq_len, self.dtype if dtype is None else dtype)
+
     def __call__(
         self,
         input_ids,
         attention_mask: Optional[jnp.ndarray] = None,
         position_ids: Optional[jnp.ndarray] = None,
-        kv_caches: Optional[tuple[KVCache, ...]] = None,
+        kv_caches: Optional[tuple[MLACache | KVCache, ...]] = None,
         use_cache: bool = False,
         output_attentions: bool = False,
         output_hidden_states: bool = False,

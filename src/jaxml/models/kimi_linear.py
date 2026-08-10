@@ -32,7 +32,7 @@ from flax.linen.partitioning import with_sharding_constraint
 
 from .._validation import contains_tracer as _contains_tracer
 from .._validation import validate_finite_values as _validate_finite_values
-from ..cache import KVCache
+from ..cache import MLACache
 from ..nn.embedding import Embed
 from ..nn.linear import DenseGeneral
 from ..nn.module import Block
@@ -355,7 +355,7 @@ class KDACache(struct.PyTreeNode):
         raise NotImplementedError("KDA rollback requires checkpointed historical recurrent states.")
 
 
-LayerCache = KVCache | KDACache
+LayerCache = MLACache | KDACache
 
 
 class KimiShortConvolution(nn.Module):
@@ -778,7 +778,7 @@ def _init_kimi_caches(config, max_seq_len: int, dtype: Any) -> tuple[LayerCache,
                 dtype=dtype,
             )
             if config.is_kda_layer(idx)
-            else KVCache.init(max_seq_len=max_seq_len, dtype=dtype)
+            else MLACache.init(max_seq_len=max_seq_len, dtype=dtype)
         )
         for idx in range(config.num_layers)
     )
@@ -844,7 +844,7 @@ class KimiLinearModel(Block):
         position_ids = prepare_position_ids(position_ids, input_ids, cfg.max_position_embeddings)
         if kv_caches is not None:
             for idx, cache in enumerate(kv_caches):
-                expected = KDACache if cfg.is_kda_layer(idx) else KVCache
+                expected = KDACache if cfg.is_kda_layer(idx) else MLACache
                 if cache is not None and not isinstance(cache, expected):
                     raise TypeError(f"Layer {idx} requires {expected.__name__} or None, got {type(cache)}.")
         if attention_mask is None:

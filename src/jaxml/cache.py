@@ -329,3 +329,271 @@ class KVCache(struct.PyTreeNode):
                 mask=self.mask[:, :new_size],
                 max_seq_len=new_size,
             )
+
+
+class MLACache(struct.PyTreeNode):
+    """Compressed cache for Multi-head Latent Attention.
+
+    MLA can reconstruct every per-head key and value from the normalized
+    ``kv_lora`` latent.  Keeping that latent and the small decoupled rotary-key
+    slice avoids storing expanded key/value tensors for every attention head.
+    The two cached feature widths are intentionally allowed to differ.
+    """
+
+    kv_latent: jnp.ndarray | None = struct.field(pytree_node=True)
+    k_rope: jnp.ndarray | None = struct.field(pytree_node=True)
+    max_seq_len: int = struct.field(pytree_node=False)
+    mask: jnp.ndarray | None = struct.field(pytree_node=True)
+    dtype: Any = struct.field(pytree_node=False, default=jnp.float32)
+    pos_id: Optional[jnp.ndarray] = struct.field(default=None, pytree_node=True)
+
+    @classmethod
+    def init(
+        cls,
+        max_seq_len: int,
+        kv_latent: Optional[jnp.ndarray] = None,
+        k_rope: Optional[jnp.ndarray] = None,
+        mask: Optional[jnp.ndarray] = None,
+        dtype: Any = jnp.float32,
+    ) -> "MLACache":
+        max_seq_len = _normalize_count("max_seq_len", max_seq_len)
+        dtype = _normalize_dtype("dtype", dtype)
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
+        if kv_latent is None and k_rope is None and mask is None:
+            return cls(
+                kv_latent=None,
+                k_rope=None,
+                max_seq_len=max_seq_len,
+                mask=None,
+                dtype=dtype,
+            )
+        if kv_latent is None or k_rope is None:
+            raise ValueError("Initial MLACache state requires both kv_latent and k_rope when either is set.")
+        return cls(
+            kv_latent=None,
+            k_rope=None,
+            max_seq_len=max_seq_len,
+            mask=None,
+            dtype=dtype,
+        ).update(kv_latent, k_rope, mask)
+
+    @property
+    def next_pos_id(self):
+        if self.pos_id is None:
+            raise ValueError("Cannot get next position ids before MLA cache initialization.")
+        return self.pos_id + 1
+
+    @property
+    def next_mask(self):
+        return self.mask
+
+    @property
+    def is_populated(self) -> bool:
+        return self.kv_latent is not None
+
+    @property
+    def batch_size(self) -> int | None:
+        return None if self.kv_latent is None else self.kv_latent.shape[0]
+
+    def _pad(self, x):
+        x, value, max_seq_len = x
+        shape = (x.shape[0], max_seq_len - x.shape[1]) + x.shape[2:]
+        return jnp.concatenate([x, jnp.full(shape, value, dtype=x.dtype)], axis=1)
+
+    def _validate_inputs(self, kv_latent: jnp.ndarray, k_rope: jnp.ndarray):
+        if kv_latent.ndim != 3 or k_rope.ndim != 3:
+            raise ValueError(
+                "kv_latent and k_rope must be 3D arrays with batch, sequence, and feature axes, "
+                f"got {kv_latent.shape} and {k_rope.shape}."
+            )
+        if kv_latent.shape[:2] != k_rope.shape[:2]:
+            raise ValueError(
+                "kv_latent and k_rope must share batch and sequence axes, "
+                f"got {kv_latent.shape[:2]} and {k_rope.shape[:2]}."
+            )
+        if any(axis_size <= 0 for axis_size in kv_latent.shape) or any(axis_size <= 0 for axis_size in k_rope.shape):
+            raise ValueError(f"kv_latent and k_rope must not contain empty axes, got {kv_latent.shape} and {k_rope.shape}.")
+        if not jnp.issubdtype(kv_latent.dtype, jnp.floating):
+            raise TypeError(f"kv_latent must contain floating point values, got dtype {kv_latent.dtype}.")
+        if not jnp.issubdtype(k_rope.dtype, jnp.floating):
+            raise TypeError(f"k_rope must contain floating point values, got dtype {k_rope.dtype}.")
+        _validate_finite_values("kv_latent", kv_latent)
+        _validate_finite_values("k_rope", k_rope)
+
+    def _validate_static_state(self):
+        max_seq_len = _normalize_count("max_seq_len", self.max_seq_len)
+        if max_seq_len <= 0:
+            raise ValueError(f"max_seq_len must be positive, got {max_seq_len}.")
+        _normalize_dtype("dtype", self.dtype)
+
+    def _validate_populated_state(self):
+        self._validate_static_state()
+        if self.kv_latent is None:
+            if self.k_rope is not None or self.mask is not None or self.pos_id is not None:
+                raise ValueError("MLACache has partial state: kv_latent is empty but k_rope, mask, or pos_id is populated.")
+            return
+        if self.k_rope is None or self.mask is None or self.pos_id is None:
+            raise ValueError("MLACache has partial state: populated kv_latent requires k_rope, mask, and pos_id.")
+
+        self._validate_inputs(self.kv_latent, self.k_rope)
+        if self.kv_latent.shape[1] != self.max_seq_len:
+            raise ValueError(
+                f"Cached MLA sequence axis must match max_seq_len={self.max_seq_len}, got {self.kv_latent.shape[1]}."
+            )
+        if self.kv_latent.dtype != self.dtype:
+            raise TypeError(f"Cached kv_latent dtype must match cache dtype {self.dtype}, got {self.kv_latent.dtype}.")
+        if self.k_rope.dtype != self.dtype:
+            raise TypeError(f"Cached k_rope dtype must match cache dtype {self.dtype}, got {self.k_rope.dtype}.")
+
+        if self.mask.shape != self.kv_latent.shape[:2]:
+            raise ValueError(f"Cached mask shape must match MLA batch and sequence axes, got {self.mask.shape}.")
+        if not jnp.issubdtype(self.mask.dtype, jnp.bool_):
+            raise TypeError(f"Cached mask must be boolean, got dtype {self.mask.dtype}.")
+        if not _contains_tracer(self.mask) and not bool(jnp.all(jnp.any(self.mask, axis=1))):
+            raise ValueError("Cached mask must contain at least one valid token per batch row.")
+        _validate_right_padded_mask("Cached mask", self.mask)
+
+        if self.pos_id.shape != (self.kv_latent.shape[0], 1):
+            raise ValueError(f"Cached pos_id shape must be {(self.kv_latent.shape[0], 1)}, got {self.pos_id.shape}.")
+        if not jnp.issubdtype(self.pos_id.dtype, jnp.integer):
+            raise TypeError(f"Cached pos_id must contain integer positions, got dtype {self.pos_id.dtype}.")
+        if not _contains_tracer(self.pos_id) and bool(jnp.any((self.pos_id < 0) | (self.pos_id >= self.max_seq_len))):
+            raise ValueError(f"Cached pos_id values must be within [0, {self.max_seq_len}).")
+        expected_pos_id = get_default_pos_ids(self.mask)
+        if not _contains_tracer((self.mask, self.pos_id)) and not bool(jnp.array_equal(self.pos_id, expected_pos_id)):
+            raise ValueError("Cached pos_id must match the last valid token position in cached mask.")
+
+    def validate_state(self):
+        self._validate_populated_state()
+        return self
+
+    def update(
+        self,
+        kv_latent: jnp.ndarray,
+        k_rope: jnp.ndarray,
+        mask: Optional[jnp.ndarray],
+    ) -> "MLACache":
+        self._validate_static_state()
+        kv_latent = jnp.asarray(kv_latent)
+        k_rope = jnp.asarray(k_rope)
+        self._validate_inputs(kv_latent, k_rope)
+        kv_latent = kv_latent.astype(self.dtype)
+        k_rope = k_rope.astype(self.dtype)
+
+        if self.kv_latent is None:
+            if self.k_rope is not None or self.mask is not None or self.pos_id is not None:
+                raise ValueError("MLACache has partial state: kv_latent is empty but k_rope, mask, or pos_id is populated.")
+            if kv_latent.shape[1] > self.max_seq_len:
+                raise ValueError(f"Cannot cache {kv_latent.shape[1]} tokens in max_seq_len={self.max_seq_len}.")
+            if mask is None:
+                mask = jnp.ones(kv_latent.shape[:2], dtype=bool)
+            else:
+                mask = jnp.asarray(mask)
+            if mask.shape != kv_latent.shape[:2]:
+                raise ValueError(
+                    f"mask shape must match MLA batch and sequence axes, got {mask.shape} and {kv_latent.shape[:2]}."
+                )
+            if not (jnp.issubdtype(mask.dtype, jnp.bool_) or jnp.issubdtype(mask.dtype, jnp.integer)):
+                raise TypeError(f"mask must be boolean or integer, got dtype {mask.dtype}.")
+            _validate_binary_integer_mask("mask", mask)
+            mask = mask.astype(bool)
+            if not _contains_tracer(mask) and not bool(jnp.all(jnp.any(mask, axis=1))):
+                raise ValueError("mask must contain at least one valid token per batch row.")
+            _validate_right_padded_mask("mask", mask)
+            pos_id = get_default_pos_ids(mask)
+            kv_latent, k_rope, mask = map(
+                self._pad,
+                (
+                    (kv_latent, 0, self.max_seq_len),
+                    (k_rope, 0, self.max_seq_len),
+                    (mask, False, self.max_seq_len),
+                ),
+            )
+            return self.replace(kv_latent=kv_latent, k_rope=k_rope, mask=mask, pos_id=pos_id)
+
+        self._validate_populated_state()
+        if mask is not None:
+            mask = jnp.asarray(mask)
+            if mask.shape != self.mask.shape:
+                raise ValueError(
+                    f"Decode cache mask shape must match cached mask shape, got {mask.shape} and {self.mask.shape}."
+                )
+            if not (jnp.issubdtype(mask.dtype, jnp.bool_) or jnp.issubdtype(mask.dtype, jnp.integer)):
+                raise TypeError(f"Decode cache mask must be boolean or integer, got dtype {mask.dtype}.")
+            _validate_binary_integer_mask("Decode cache mask", mask)
+            mask = mask.astype(bool)
+            if not _contains_tracer((mask, self.mask)) and not bool(jnp.array_equal(mask, self.mask)):
+                raise ValueError("Decode cache mask must match current cached mask state.")
+        if kv_latent.shape[0] != self.kv_latent.shape[0]:
+            raise ValueError(
+                f"Batch size must match cached batch size, got {kv_latent.shape[0]} and {self.kv_latent.shape[0]}."
+            )
+        if kv_latent.shape[1] != 1:
+            raise ValueError(f"Decode cache updates must contain exactly one token, got sequence length {kv_latent.shape[1]}.")
+        if kv_latent.shape[2:] != self.kv_latent.shape[2:] or k_rope.shape[2:] != self.k_rope.shape[2:]:
+            raise ValueError(
+                "MLA feature widths must match cached shapes, got "
+                f"{kv_latent.shape[2:]}/{k_rope.shape[2:]} and "
+                f"{self.kv_latent.shape[2:]}/{self.k_rope.shape[2:]}."
+            )
+        if not _contains_tracer(self.next_pos_id) and bool(jnp.any(self.next_pos_id >= self.max_seq_len)):
+            raise ValueError(f"Cannot decode past max_seq_len={self.max_seq_len}.")
+
+        batch_idx = jnp.arange(kv_latent.shape[0])[:, None]
+        full_idx = jnp.concatenate([batch_idx, self.next_pos_id], axis=1)
+        new_kv_latent = self.kv_latent.at[tuple(full_idx.T)].set(kv_latent.squeeze(1))
+        new_k_rope = self.k_rope.at[tuple(full_idx.T)].set(k_rope.squeeze(1))
+        new_mask = self.mask.at[tuple(full_idx.T)].set(True)
+        return self.replace(
+            kv_latent=new_kv_latent,
+            k_rope=new_k_rope,
+            mask=new_mask,
+            pos_id=self.next_pos_id,
+        )
+
+    def rollback(self, n: int):
+        n = _normalize_count("n", n)
+        if n <= 0:
+            raise ValueError("n must be greater than 0.")
+        self._validate_populated_state()
+        if self.kv_latent is None:
+            return self
+        prev_pos = self.pos_id - n
+        if not _contains_tracer(prev_pos) and bool(jnp.any(prev_pos < 0)):
+            raise ValueError("Cannot roll back past the beginning of the MLA cache.")
+        filter_mask = jnp.arange(self.kv_latent.shape[1]) <= prev_pos
+        new_kv_latent = jnp.where(filter_mask[..., None], self.kv_latent, 0)
+        new_k_rope = jnp.where(filter_mask[..., None], self.k_rope, 0)
+        return self.replace(kv_latent=new_kv_latent, k_rope=new_k_rope, mask=filter_mask, pos_id=prev_pos)
+
+    def resize(self, new_size: int):
+        new_size = _normalize_count("new_size", new_size)
+        if new_size <= 0:
+            raise ValueError(f"new_size must be positive, got {new_size}.")
+        self._validate_populated_state()
+        if self.kv_latent is None:
+            return self.replace(max_seq_len=new_size)
+        if not _contains_tracer(self.pos_id) and bool(jnp.any(self.pos_id >= new_size)):
+            raise ValueError("Cannot resize MLA cache below the highest cached position.")
+        if new_size > self.max_seq_len:
+            new_kv_latent, new_k_rope, new_mask = map(
+                self._pad,
+                (
+                    (self.kv_latent, 0, new_size),
+                    (self.k_rope, 0, new_size),
+                    (self.mask, False, new_size),
+                ),
+            )
+            return self.replace(
+                kv_latent=new_kv_latent,
+                k_rope=new_k_rope,
+                mask=new_mask,
+                max_seq_len=new_size,
+            )
+        return self.replace(
+            kv_latent=self.kv_latent[:, :new_size],
+            k_rope=self.k_rope[:, :new_size],
+            mask=self.mask[:, :new_size],
+            max_seq_len=new_size,
+        )

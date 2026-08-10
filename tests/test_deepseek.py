@@ -19,7 +19,7 @@ import pytest
 import torch
 from flax import linen as nn
 
-from jaxml.cache import KVCache
+from jaxml.cache import MLACache
 from jaxml.config import ModelConfig
 from jaxml.hf_utils import load_model_from_hf, to_deepseek_jax_params
 from jaxml.models.deepseek import DeepseekModelWithHead, DeepseekMoE, MLAAttention
@@ -163,7 +163,7 @@ def test_mla_attention_prefill_matches_hf():
 
 
 def test_mla_attention_decode_cache_consistency():
-    """Incremental decode through KVCache must match full-sequence prefill."""
+    """Incremental decode through compressed MLACache must match full attention."""
     from transformers.models.deepseek_v3.modeling_deepseek_v3 import DeepseekV3RotaryEmbedding
 
     hf_cfg = _tiny_hf_deepseek_config()
@@ -181,7 +181,7 @@ def test_mla_attention_decode_cache_consistency():
         params = model.init(jax.random.PRNGKey(1), x, (cos, sin))
         full = model.apply(params, x, (cos, sin)).attention_output
 
-        cache = KVCache.init(max_seq_len=seq_len, dtype=jnp.float32)
+        cache = MLACache.init(max_seq_len=seq_len, dtype=jnp.float32)
         prefill = model.apply(params, x[:, : seq_len - 1], (cos[:, : seq_len - 1], sin[:, : seq_len - 1]), kv_cache=cache)
         decode = model.apply(
             params,
@@ -190,7 +190,25 @@ def test_mla_attention_decode_cache_consistency():
             kv_cache=prefill.kv_cache,
         )
 
+    assert isinstance(prefill.kv_cache, MLACache)
+    assert prefill.kv_cache.kv_latent.shape == (bs, seq_len, config.kv_lora_rank)
+    assert prefill.kv_cache.k_rope.shape == (bs, seq_len, config.qk_rope_head_dim)
+    compressed_elements = prefill.kv_cache.kv_latent.size + prefill.kv_cache.k_rope.size
+    expanded_elements = 2 * bs * seq_len * config.num_heads * config.qk_head_dim
+    assert compressed_elements < expanded_elements
     assert np.allclose(decode.attention_output[:, -1], full[:, -1], atol=1e-5)
+
+
+def test_deepseek_model_initializes_compressed_mla_caches():
+    config = ModelConfig.from_hf(_tiny_hf_deepseek_config(num_hidden_layers=3))
+    model = DeepseekModelWithHead(config, dtype=jnp.bfloat16)
+
+    caches = model.init_cache(max_seq_len=32)
+
+    assert len(caches) == config.num_layers
+    assert all(isinstance(cache, MLACache) for cache in caches)
+    assert all(cache.kv_latent is None and cache.k_rope is None for cache in caches)
+    assert all(cache.max_seq_len == 32 and cache.dtype == jnp.bfloat16 for cache in caches)
 
 
 def _tiny_tpu_deepseek_config(**overrides):
